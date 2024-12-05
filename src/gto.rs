@@ -46,7 +46,7 @@ trait Basis {
     fn overlap(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
 
     fn kinetic(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
-    fn potential(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
+    fn potential(&self, r1: &Vector3<f64>, r2: &Vector3<f64>, R: &Vector3<f64>) -> f64;
     fn two_electron(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
 }
 
