@@ -5,6 +5,7 @@ use std::f64;
 use na::Vector3;
 
 // define a struct for Gaussian-type orbital:
+// reference: https://joshuagoings.com/assets/integrals.pdf
 // \phi_{\alpha}(\mathbf{r}) = N_{\alpha} x^{l} y^{m} z^{n} e^{-\alpha r^{2}}
 #[derive(Debug)]
 pub struct GTO {
@@ -42,8 +43,11 @@ impl GTO {
 
 trait Basis {
     fn evaluate(&self, r: &Vector3<f64>) -> f64;
+    fn overlap(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
+
+    fn kinetic(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
+    fn potential(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
     fn two_electron(&self, r1: &Vector3<f64>, r2: &Vector3<f64>) -> f64;
-    fn four_electron(&self, r1: &Vector3<f64>, r2: &Vector3<f64>, r3: &Vector3<f64>, r4: &Vector3<f64>) -> f64;
 }
 
 // parameter see this https://gitlab.com/Molcas/OpenMolcas/-/blob/master/basis_library/6-31G
