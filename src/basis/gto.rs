@@ -19,6 +19,10 @@ pub struct GTO1d {
     pub norm: f64,
 }
 
+fn factorial(n: i32) -> f64 {
+    (1..=n).fold(1.0, |acc, x| acc * x as f64)
+}
+
 impl GTO1d {
     pub fn new(alpha: f64, l: i32, c: f64) -> Self {
         let norm = GTO1d::compute_norm(alpha, l);
@@ -28,18 +32,11 @@ impl GTO1d {
     fn compute_norm(alpha: f64, l: i32) -> f64 {
         let pi = std::f64::consts::PI;
 
-        // Factorials
-        fn factorial(n: usize) -> f64 {
-            (1..=n).fold(1.0, |acc, x| acc * x as f64)
-        }
-
-        let l_usize = l as usize;
-
         // (2l)!
-        let double_l_factorial = factorial(2 * l_usize);
+        let double_l_factorial = factorial(2 * l);
 
         // l!
-        let l_factorial = factorial(l_usize);
+        let l_factorial = factorial(l);
 
         // Compute components of the normalization factor:
         // N^2 = (2^(3l) * l! * alpha^l * sqrt(2 alpha / pi)) / (2l)!
@@ -117,11 +114,6 @@ impl GTO {
 
         (numerator / denominator).sqrt()
     }
-}
-
-// A simple factorial function (sufficient for small integers)
-fn factorial(n: i32) -> f64 {
-    (1..=n).map(|x| x as f64).product()
 }
 
 impl Basis for GTO {
