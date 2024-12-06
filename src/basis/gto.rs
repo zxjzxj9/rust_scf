@@ -75,14 +75,14 @@ mod tests {
     #[test]
     fn test_gto_normalization() {
         let alpha = 1.0;
-        let l = 0;
+        let l = 2;
         let gto = GTO1d::new(alpha, l, 1.0);
 
         // Integrand for normalization check: (N * x^l * e^{-alpha x^2})^2
         // = N^2 * x^{2l} * e^{-2 alpha x^2}
         let integrand = |x: f64| {
-            let x_pow = x.powi(2 * l);
-            (gto.norm * x_pow * (-gto.alpha * x * x).exp()).powi(2)
+            let x_pow = x.powi(l);
+            (gto.norm * x_pow * (-gto.alpha * x.powi(2)).exp()).powi(2)
         };
 
         // Integrate from -10 to 10
