@@ -1,6 +1,6 @@
 use nalgebra::Vector3;
 
-trait Basis {
+pub(crate) trait Basis {
     fn evaluate(&self, r: &Vector3<f64>) -> f64;
     fn overlap(&self, other: &Self) -> f64;
     fn kinetic(&self, other: &Self) -> f64;
