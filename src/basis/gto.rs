@@ -50,6 +50,7 @@ impl GTO1d {
     }
 
     fn evaluate(&self, x: f64) -> f64 {
+        let x = x - self.center;
         self.norm * x.powi(self.l) * (-self.alpha * x.powi(2)).exp()
     }
 
@@ -65,13 +66,15 @@ impl GTO1d {
             r
         } else if j == 0 {
             // how to recursively call Eab
-            let r =  GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
+            let r =
+                  GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
                 - GTO1d::Eab(i - 1, j, t, Qx, a, b) * q * Qx / a
                 + GTO1d::Eab(i - 1, j, t + 1, Qx, a, b) * ((t + 1) as f64);
             // println!("r: {}", r);
             r
         } else {
-            let r = GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
+            let r =
+                  GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
                 + GTO1d::Eab(i, j - 1, t, Qx, a, b) * q * Qx / b
                 + GTO1d::Eab(i, j - 1, t + 1, Qx, a, b) * ((t + 1) as f64);
             // println!("r: {}", r);
@@ -86,7 +89,7 @@ impl GTO1d {
         // let P = (a.alpha * a.c + b.alpha * b.c) / p;
 
         // Base case (i=0, j=0)
-        GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt() // * a.norm * b.norm
+        GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt() * a.norm * b.norm
     }
 }
 
@@ -132,14 +135,14 @@ mod tests {
 
     #[test]
     fn test_gto_overlap() {
-        let gto1 = GTO1d::new(1.2, 3, 1.0);
-        let gto2 = GTO1d::new(1.5, 2, -1.0);
+        let gto1 = GTO1d::new(1.2, 1, 1.0);
+        let gto2 = GTO1d::new(0.8, 1, 3.0);
         let integrand = |x: f64| gto1.evaluate(x) * gto2.evaluate(x);
 
         let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
-        println!("integral: {}", integral);
+        // println!("integral: {}", integral);
         let overlap = GTO1d::Sab(&gto1, &gto2);
-        println!("overlap: {}", overlap);
+        // println!("overlap: {}", overlap);
         assert!(
             (integral - overlap).abs() < 1e-5,
             "Overlap is not close to integral: got {}",
