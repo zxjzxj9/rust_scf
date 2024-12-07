@@ -1,9 +1,9 @@
 extern crate nalgebra as na;
 
-use std::f64::consts::PI;
-use na::Vector3;
 use crate::basis;
 use basis::basis::Basis;
+use na::Vector3;
+use std::f64::consts::PI;
 
 #[derive(Debug)]
 pub struct GTO {
@@ -52,68 +52,35 @@ impl GTO1d {
         self.norm * x.powi(self.l) * (-self.alpha * x.powi(2)).exp()
     }
 
+    pub fn Eab(i: i32, j: i32, t: i32, Qx: f64, a: f64, b: f64) -> f64 {
+        let p = a + b;
+        let q = a * b / p;
+
+        if t < 0 || t > i + j {
+            return 0.0;
+        } else if i == 0 && j == 0 && t == 0 {
+            return (-q * Qx.powi(2)).exp();
+        } else if j == 0 {
+            // how to recursively call Eab
+            return GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
+                - GTO1d::Eab(i - 1, j, t, Qx, a, b) * (i as f64 - 1.0) * q * Qx / a
+                + GTO1d::Eab(i - 1, j, t + 1, Qx, a, b) * ((t + 1) as f64);
+        } else {
+            return GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
+                - GTO1d::Eab(i, j - 1, t, Qx, a, b) * (j as f64 - 1.0) * q * Qx / b
+                + GTO1d::Eab(i, j - 1, t + 1, Qx, a, b) * ((t + 1) as f64);
+        }
+    }
+
     fn Sab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha;
         let q = a.alpha * b.alpha / p;
-        let Q = a.c - b.c;
+        let Qx = a.c - b.c;
         let P = (a.alpha * a.c + b.alpha * b.c) / p;
-        let Kab = (-q * Q.powi(2)).exp();
 
         // Base case (i=0, j=0)
-        let mut S = vec![vec![0.0_f64; (b.l + 1) as usize]; (a.l + 1) as usize];
-        S[0][0] = Kab;
-
-        if a.l == 0 && b.l == 0 {
-            return S[0][0];
-        }
-
-        // Fill in S[i][0] for i>0
-        for i in 1..=a.l as usize {
-            let term1 = (P - a.c) * S[i-1][0];
-            let term2 = if i >= 2 {
-                (i as f64 - 1.0) / (2.0 * p) * S[i-2][0]
-            } else {
-                0.0
-            };
-            S[i][0] = term1 + term2;
-        }
-
-        // Fill in S[0][j] for j>0:
-        // S(0,j) = (P - B)*S(0,j-1) + (j-1)/(2p)*S(0,j-2)
-        for j in 1..=b.l as usize{
-            let term1 = (P - b.c) * S[0][j-1];
-            let term2 = if j >= 2 {
-                (j as f64 - 1.0) / (2.0 * p) * S[0][j-2]
-            } else {
-                0.0
-            };
-            S[0][j] = term1 + term2;
-        }
-
-        // Fill in the rest S[i][j] for i>0, j>0:
-        // S(i,j) = (P - A_x)*S(i-1,j) + (i-1)/(2p)*S(i-2,j)
-        //        + (P - B_x)*S(i,j-1) + (j-1)/(2p)*S(i,j-2)
-        for i in 1..=a.l as usize{
-            for j in 1..=b.l as usize {
-                let term1 = (P - a.c) * S[i-1][j];
-                let term2 = if i >= 2 {
-                    (i as f64 - 1.0) / (2.0 * p) * S[i-2][j]
-                } else {
-                    0.0
-                };
-                let term3 = (P - b.c) * S[i][j-1];
-                let term4 = if j >= 2 {
-                    (j as f64 - 1.0) / (2.0 * p) * S[i][j-2]
-                } else {
-                    0.0
-                };
-                S[i][j] = term1 + term2 + term3 + term4;
-            }
-        }
-
-        S[a.l as usize][b.l as usize] * (PI / p).sqrt() * a.norm * b.norm
+        GTO1d::Eab(a.l, b.l, 0, Qx, a.c, b.c)* (PI / p).sqrt() * a.norm * b.norm
     }
-
 }
 
 // Simpson's rule integration
@@ -165,7 +132,11 @@ mod tests {
 
         let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
         let overlap = GTO1d::Sab(&gto1, &gto2);
-        assert!((integral - overlap).abs() < 1e-5, "Overlap is not close to integral: got {}", overlap);
+        assert!(
+            (integral - overlap).abs() < 1e-5,
+            "Overlap is not close to integral: got {}",
+            overlap
+        );
     }
 }
 
