@@ -1,13 +1,14 @@
 extern crate nalgebra as na;
 
-// use crate::basis;
+use crate::basis;
 // use basis::basis::Basis;
 use na::Vector3;
 use std::f64::consts::PI;
+use basis::helper::{simpson_integration, simpson_integration_3d};
 
 #[derive(Debug)]
 pub struct GTO {
-    pub gto1d: Vector3<GTO1d>,
+    pub gto1d: [GTO1d; 3],
     pub norm: f64,
 }
 
@@ -27,7 +28,12 @@ fn factorial(n: i32) -> f64 {
 impl GTO1d {
     pub fn new(alpha: f64, l: i32, center: f64) -> Self {
         let norm = GTO1d::compute_norm(alpha, l);
-        Self { alpha, l, center, norm }
+        Self {
+            alpha,
+            l,
+            center,
+            norm,
+        }
     }
 
     fn compute_norm(alpha: f64, l: i32) -> f64 {
@@ -61,20 +67,18 @@ impl GTO1d {
         if t < 0 || t > i + j {
             0.0
         } else if i == 0 && j == 0 && t == 0 {
-            let r =  (-q * Qx.powi(2)).exp();
+            let r = (-q * Qx.powi(2)).exp();
             // println!("r: {}, Qx: {}, q: {}", r, Qx, q);
             r
         } else if j == 0 {
             // how to recursively call Eab
-            let r =
-                  GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
+            let r = GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
                 - GTO1d::Eab(i - 1, j, t, Qx, a, b) * q * Qx / a
                 + GTO1d::Eab(i - 1, j, t + 1, Qx, a, b) * ((t + 1) as f64);
             // println!("r: {}", r);
             r
         } else {
-            let r =
-                  GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
+            let r = GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
                 + GTO1d::Eab(i, j - 1, t, Qx, a, b) * q * Qx / b
                 + GTO1d::Eab(i, j - 1, t + 1, Qx, a, b) * ((t + 1) as f64);
             // println!("r: {}", r);
@@ -93,20 +97,30 @@ impl GTO1d {
     }
 }
 
-// Simpson's rule integration
-fn simpson_integration<F>(f: F, a: f64, b: f64, n: usize) -> f64
-where
-    F: Fn(f64) -> f64,
-{
-    let n = if n % 2 == 0 { n } else { n + 1 };
-    let h = (b - a) / n as f64;
 
-    let mut sum = f(a) + f(b);
-    for i in 1..n {
-        let x = a + i as f64 * h;
-        sum += if i % 2 == 0 { 2.0 * f(x) } else { 4.0 * f(x) };
+
+#[allow(non_snake_case)]
+impl GTO {
+    fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
+        let gto1d = [
+            GTO1d::new(alpha, l_xyz.x, center.x),
+            GTO1d::new(alpha, l_xyz.y, center.y),
+            GTO1d::new(alpha, l_xyz.z, center.z),
+        ];
+
+        let norm = gto1d[0].norm * gto1d[1].norm * gto1d[2].norm;
+        Self { gto1d, norm }
     }
-    sum * h / 3.0
+
+    fn evaluate(&self, r: &Vector3<f64>) -> f64 {
+        self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
+    }
+
+    fn Sab(a: &GTO, b: &GTO) -> f64 {
+        GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+    }
 }
 
 #[cfg(test)]
@@ -114,7 +128,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_gto_normalization() {
+    fn test_gto1d_normalization() {
         let gto = GTO1d::new(1.0, 2, 1.0);
 
         // Integrand for normalization check: (N * x^l * e^{-alpha x^2})^2
@@ -134,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn test_gto_overlap() {
+    fn test_gto1d_overlap() {
         let gto1 = GTO1d::new(1.2, 1, 1.0);
         let gto2 = GTO1d::new(0.8, 1, 3.0);
         let integrand = |x: f64| gto1.evaluate(x) * gto2.evaluate(x);
@@ -148,6 +162,24 @@ mod tests {
             "Overlap is not close to integral: got {}",
             overlap
         );
+    }
+
+    #[test]
+    fn test_gto_normalization() {
+        let gto = GTO::new(1.0, Vector3::new(1, 1, 1), Vector3::new(0.0, 0.0, 0.0));
+
+        // Integrand for normalization check: (N * x^l * e^{-alpha x^2})^2
+        // = N^2 * x^{2l} * e^{-2 alpha x^2}
+        let integrand = |x, y, z| gto.evaluate(&Vector3::new(x, y, z)).powi(2);
+
+        let lower = Vector3::new(-10.0, -10.0, -10.0);
+        let upper = Vector3::new(10.0, 10.0, 10.0);
+        // Integrate from -10 to 10
+        let integral = simpson_integration_3d(integrand, lower, upper, 100, 100, 100);
+        // println!("wfn integral: {}", integral);
+        // Check if integral is close to 1
+        let diff = (integral - 1.0).abs();
+        assert!(diff < 1e-5, "Integral is not close to 1: got {}", integral);
     }
 }
 
