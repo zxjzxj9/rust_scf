@@ -86,6 +86,7 @@ impl GTO1d {
         }
     }
 
+    // overlap integral
     pub(crate) fn Sab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha;
         // let q = a.alpha * b.alpha / p;
@@ -94,6 +95,21 @@ impl GTO1d {
 
         // Base case (i=0, j=0)
         GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt() * a.norm * b.norm
+    }
+
+    // kinetic integral
+    pub (crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
+        todo!("Implement Tab")
+    }
+
+    // potential integral
+    pub(crate) fn Vab(a: &GTO1d, b: &GTO1d, R: f64) -> f64 {
+        todo!("Implement Vab")
+    }
+
+    // Coulomb integral and Exchange integral
+    pub(crate) fn JKab(a: &GTO1d, b: &GTO1d, c: &GTO1d, d: &GTO1d) -> f64 {
+        todo!("Implement Iab")
     }
 }
 
