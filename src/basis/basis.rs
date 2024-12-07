@@ -1,5 +1,5 @@
 use nalgebra::Vector3;
-
+#[allow(non_snake_case)]
 pub(crate) trait Basis {
     fn evaluate(&self, r: &Vector3<f64>) -> f64;
     fn overlap(&self, other: &Self) -> f64;

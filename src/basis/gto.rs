@@ -1,7 +1,7 @@
 extern crate nalgebra as na;
 
-use crate::basis;
-use basis::basis::Basis;
+// use crate::basis;
+// use basis::basis::Basis;
 use na::Vector3;
 use std::f64::consts::PI;
 
@@ -15,7 +15,7 @@ pub struct GTO {
 pub struct GTO1d {
     pub alpha: f64,
     pub l: i32,
-    pub c: f64,
+    pub center: f64,
     pub norm: f64,
 }
 
@@ -23,10 +23,11 @@ fn factorial(n: i32) -> f64 {
     (1..=n).fold(1.0, |acc, x| acc * x as f64)
 }
 
+#[allow(non_snake_case)]
 impl GTO1d {
-    pub fn new(alpha: f64, l: i32, c: f64) -> Self {
+    pub fn new(alpha: f64, l: i32, center: f64) -> Self {
         let norm = GTO1d::compute_norm(alpha, l);
-        Self { alpha, l, c, norm }
+        Self { alpha, l, center, norm }
     }
 
     fn compute_norm(alpha: f64, l: i32) -> f64 {
@@ -57,29 +58,35 @@ impl GTO1d {
         let q = a * b / p;
 
         if t < 0 || t > i + j {
-            return 0.0;
+            0.0
         } else if i == 0 && j == 0 && t == 0 {
-            return (-q * Qx.powi(2)).exp();
+            let r =  (-q * Qx.powi(2)).exp();
+            // println!("r: {}, Qx: {}, q: {}", r, Qx, q);
+            r
         } else if j == 0 {
             // how to recursively call Eab
-            return GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
-                - GTO1d::Eab(i - 1, j, t, Qx, a, b) * (i as f64 - 1.0) * q * Qx / a
+            let r =  GTO1d::Eab(i - 1, j, t - 1, Qx, a, b) / (2.0 * p)
+                - GTO1d::Eab(i - 1, j, t, Qx, a, b) * q * Qx / a
                 + GTO1d::Eab(i - 1, j, t + 1, Qx, a, b) * ((t + 1) as f64);
+            // println!("r: {}", r);
+            r
         } else {
-            return GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
-                - GTO1d::Eab(i, j - 1, t, Qx, a, b) * (j as f64 - 1.0) * q * Qx / b
+            let r = GTO1d::Eab(i, j - 1, t - 1, Qx, a, b) / (2.0 * p)
+                + GTO1d::Eab(i, j - 1, t, Qx, a, b) * q * Qx / b
                 + GTO1d::Eab(i, j - 1, t + 1, Qx, a, b) * ((t + 1) as f64);
+            // println!("r: {}", r);
+            r
         }
     }
 
     fn Sab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha;
-        let q = a.alpha * b.alpha / p;
-        let Qx = a.c - b.c;
-        let P = (a.alpha * a.c + b.alpha * b.c) / p;
+        // let q = a.alpha * b.alpha / p;
+        let Qx = a.center - b.center;
+        // let P = (a.alpha * a.c + b.alpha * b.c) / p;
 
         // Base case (i=0, j=0)
-        GTO1d::Eab(a.l, b.l, 0, Qx, a.c, b.c)* (PI / p).sqrt() * a.norm * b.norm
+        GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt() // * a.norm * b.norm
     }
 }
 
@@ -105,20 +112,19 @@ mod tests {
 
     #[test]
     fn test_gto_normalization() {
-        let alpha = 1.0;
-        let l = 2;
-        let gto = GTO1d::new(alpha, l, 1.0);
+        let gto = GTO1d::new(1.0, 2, 1.0);
 
         // Integrand for normalization check: (N * x^l * e^{-alpha x^2})^2
         // = N^2 * x^{2l} * e^{-2 alpha x^2}
         let integrand = |x: f64| {
-            let x_pow = x.powi(l);
-            (gto.norm * x_pow * (-gto.alpha * x.powi(2)).exp()).powi(2)
+            // let x_pow = x.powi(l);
+            // (gto.norm * x_pow * (-gto.alpha * x.powi(2)).exp()).powi(2)
+            gto.evaluate(x).powi(2)
         };
 
         // Integrate from -10 to 10
         let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
-
+        // println!("wfn integral: {}", integral);
         // Check if integral is close to 1
         let diff = (integral - 1.0).abs();
         assert!(diff < 1e-5, "Integral is not close to 1: got {}", integral);
@@ -131,7 +137,9 @@ mod tests {
         let integrand = |x: f64| gto1.evaluate(x) * gto2.evaluate(x);
 
         let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
+        println!("integral: {}", integral);
         let overlap = GTO1d::Sab(&gto1, &gto2);
+        println!("overlap: {}", overlap);
         assert!(
             (integral - overlap).abs() < 1e-5,
             "Overlap is not close to integral: got {}",
@@ -140,49 +148,49 @@ mod tests {
     }
 }
 
-impl GTO {
-    pub fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
-        todo!()
-    }
-
-    fn compute_norm(alpha: f64, l_xyz: Vector3<i32>) -> f64 {
-        let (l, m, n) = (l_xyz.x, l_xyz.y, l_xyz.z);
-
-        // Convert to f64 once
-        let lf = l as f64;
-        let mf = m as f64;
-        let nf = n as f64;
-
-        // The normalization factor for a Cartesian GTO is:
-        // N = sqrt( (2^(l+m+n) * (2α)^(l+m+n+3/2) ) / (π^(3/2) (2l)!(2m)!(2n)!) )
-        let numerator = 2f64.powf(lf + mf + nf) * (2.0 * alpha).powf(lf + mf + nf + 1.5);
-        let denominator = PI.powf(1.5)
-            * factorial((2 * l) as i32)
-            * factorial((2 * m) as i32)
-            * factorial((2 * n) as i32);
-
-        (numerator / denominator).sqrt()
-    }
-}
-
-impl Basis for GTO {
-    fn evaluate(&self, r: &Vector3<f64>) -> f64 {
-        todo!()
-    }
-
-    fn overlap(&self, other: &Self) -> f64 {
-        todo!()
-    }
-
-    fn kinetic(&self, other: &Self) -> f64 {
-        todo!()
-    }
-
-    fn potential(&self, other: &Self, R: &Vector3<f64>) -> f64 {
-        todo!()
-    }
-
-    fn two_electron(&self, other: &Self) -> f64 {
-        todo!()
-    }
-}
+// impl GTO {
+//     pub fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
+//         todo!()
+//     }
+//
+//     fn compute_norm(alpha: f64, l_xyz: Vector3<i32>) -> f64 {
+//         let (l, m, n) = (l_xyz.x, l_xyz.y, l_xyz.z);
+//
+//         // Convert to f64 once
+//         let lf = l as f64;
+//         let mf = m as f64;
+//         let nf = n as f64;
+//
+//         // The normalization factor for a Cartesian GTO is:
+//         // N = sqrt( (2^(l+m+n) * (2α)^(l+m+n+3/2) ) / (π^(3/2) (2l)!(2m)!(2n)!) )
+//         let numerator = 2f64.powf(lf + mf + nf) * (2.0 * alpha).powf(lf + mf + nf + 1.5);
+//         let denominator = PI.powf(1.5)
+//             * factorial((2 * l) as i32)
+//             * factorial((2 * m) as i32)
+//             * factorial((2 * n) as i32);
+//
+//         (numerator / denominator).sqrt()
+//     }
+// }
+//
+// impl Basis for GTO {
+//     fn evaluate(&self, r: &Vector3<f64>) -> f64 {
+//         todo!()
+//     }
+//
+//     fn overlap(&self, other: &Self) -> f64 {
+//         todo!()
+//     }
+//
+//     fn kinetic(&self, other: &Self) -> f64 {
+//         todo!()
+//     }
+//
+//     fn potential(&self, other: &Self, R: &Vector3<f64>) -> f64 {
+//         todo!()
+//     }
+//
+//     fn two_electron(&self, other: &Self) -> f64 {
+//         todo!()
+//     }
+// }
