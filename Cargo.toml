@@ -5,4 +5,6 @@ edition = "2021"
 
 [dependencies]
 nalgebra = { version = "0.33.0", features = ["rand", "serde-serialize"] }
+libm = "0.2.11"
+num-complex = "0.4.6"
 
