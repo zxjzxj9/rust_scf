@@ -75,7 +75,7 @@ where
 
 // Compute the Boys function F_n(x) for n = 0..12.
 // see the paper by Gregory Beylkin; Sandeep Sharma
-// https://pubs.aip.org/aip/jcp/article/155/17/174117/565590/A-fast-algorithm-for-computing-the-Boys-function
+// https://doi.org/10.1063/5.0062444
 pub fn boys_function(n: usize, x: f64) -> f64 {
     assert!(n <= 12, "n must be between 0 and 12");
     assert!(x >= 0.0, "x must be nonnegative");
