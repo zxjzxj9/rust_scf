@@ -2,9 +2,9 @@ extern crate nalgebra as na;
 
 use crate::basis;
 // use basis::basis::Basis;
+use basis::helper::{simpson_integration, simpson_integration_3d};
 use na::Vector3;
 use std::f64::consts::PI;
-use basis::helper::{simpson_integration, simpson_integration_3d};
 
 #[derive(Debug)]
 pub struct GTO {
@@ -97,20 +97,33 @@ impl GTO1d {
         GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt() * a.norm * b.norm
     }
 
+    // for test only
+    pub fn derivative(&self, x: f64) -> f64 {
+        if self.l == 0 {
+            // For l = 0, the derivative is just the Gaussian part
+            -2.0 * self.alpha * x * self.norm * (-self.alpha * x.powi(2)).exp()
+        } else {
+            // For l > 0, use the derivative formula
+            let term1 = self.l as f64 * x.powi((self.l - 1) as i32);
+            let term2 = -2.0 * self.alpha * x.powi(self.l);
+            self.norm * (term1 + term2) * (-self.alpha * x.powi(2)).exp()
+        }
+    }
     // kinetic integral
-    pub (crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
+    pub(crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha;
         let q = a.alpha * b.alpha / p;
         let Qx = a.center - b.center;
         let norm_factor = a.norm * b.norm * (std::f64::consts::PI / p).sqrt();
 
-
         let term1 = 2.0 * a.alpha * GTO1d::Eab(a.l + 2, b.l, 0, Qx, a.alpha, b.alpha);
         let term2 = 2.0 * b.alpha * GTO1d::Eab(a.l, b.l + 2, 0, Qx, a.alpha, b.alpha);
-        let term3 = -1.0 * (2 * a.l + 1) as f64 * a.alpha * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
-        let term4 = -1.0 * (2 * b.l + 1) as f64 * b.alpha * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+        let term3 = -1.0
+            * (2 * (a.l + b.l) + 1) as f64
+            * a.alpha
+            * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
 
-        norm_factor * (term1 + term2 + term3 + term4)
+        norm_factor * (term1 + term2 + term3)
     }
 
     // potential integral
@@ -123,8 +136,6 @@ impl GTO1d {
         todo!("Implement Iab")
     }
 }
-
-
 
 #[allow(non_snake_case)]
 impl GTO {
@@ -150,9 +161,7 @@ impl GTO {
     }
 }
 
-
 // https://chemistry.montana.edu/callis/courses/chmy564/460water.pdf
-
 
 //
 // impl Basis for GTO {

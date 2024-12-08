@@ -79,4 +79,33 @@ mod tests {
             overlap
         );
     }
+
+    #[test]
+    fn test_gto1d_kinetic() {
+        let gto1 = GTO1d::new(1.2, 2, 1.0); // Gaussian with alpha=1.2, l=2, center=1.0
+        let gto2 = GTO1d::new(0.8, 2, 3.0); // Gaussian with alpha=0.8, l=2, center=3.0
+
+        // Integrand for kinetic energy: product of derivatives and basis functions
+        let integrand = |x: f64| {
+            let f1 = gto1.evaluate(x);           // g1(x)
+            let f2 = gto2.evaluate(x);           // g2(x)
+            let df1 = gto1.derivative(x);        // g1'(x)
+            let df2 = gto2.derivative(x);        // g2'(x)
+            -0.5 * (df1 * df2 - 2.0 * gto1.alpha * f1 * f2) // Integrand for T_ab
+        };
+
+        // Integrate numerically using Simpson's rule
+        let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
+
+        // Compute the kinetic energy integral using the analytical method
+        let kinetic = GTO1d::Tab(&gto1, &gto2);
+
+        // Assert that the numerical and analytical results are close
+        assert!(
+            (integral - kinetic).abs() < 1e-5,
+            "Kinetic energy integral is not close: got {}, expected {}",
+            kinetic,
+            integral
+        );
+    }
 }
