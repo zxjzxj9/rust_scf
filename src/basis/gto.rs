@@ -109,6 +109,23 @@ impl GTO1d {
             self.norm * (term1 + term2) * (-self.alpha * x.powi(2)).exp()
         }
     }
+
+    // for test only
+    pub fn laplacian(&self, x: f64) -> f64 {
+        if self.l == 0 {
+            // For l = 0, the Laplacian simplifies to Gaussian part
+            self.norm * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2)) * (-self.alpha * x.powi(2)).exp()
+        } else if self.l == 1 {
+            // For l = 1, handle specific case
+            self.norm * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2) - 4.0 * self.alpha * x) * x * (-self.alpha * x.powi(2)).exp()
+        } else {
+            // General case for l > 1
+            let term1 = self.l as f64 * (self.l as f64 - 1.0) * x.powi((self.l - 2) as i32);
+            let term2 = -2.0 * self.alpha * (2.0 * self.l as f64 + 1.0) * x.powi(self.l as i32);
+            let term3 = 4.0 * self.alpha.powi(2) * x.powi((self.l + 2) as i32);
+            self.norm * (term1 + term2 + term3) * (-self.alpha * x.powi(2)).exp()
+        }
+    }
     // kinetic integral
     pub(crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha;
