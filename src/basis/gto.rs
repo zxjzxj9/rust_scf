@@ -99,7 +99,18 @@ impl GTO1d {
 
     // kinetic integral
     pub (crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
-        todo!("Implement Tab")
+        let p = a.alpha + b.alpha;
+        let q = a.alpha * b.alpha / p;
+        let Qx = a.center - b.center;
+        let norm_factor = a.norm * b.norm * (std::f64::consts::PI / p).sqrt();
+
+
+        let term1 = 2.0 * a.alpha * GTO1d::Eab(a.l + 2, b.l, 0, Qx, a.alpha, b.alpha);
+        let term2 = 2.0 * b.alpha * GTO1d::Eab(a.l, b.l + 2, 0, Qx, a.alpha, b.alpha);
+        let term3 = -1.0 * (2 * a.l + 1) as f64 * a.alpha * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+        let term4 = -1.0 * (2 * b.l + 1) as f64 * b.alpha * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+
+        norm_factor * (term1 + term2 + term3 + term4)
     }
 
     // potential integral
@@ -140,6 +151,7 @@ impl GTO {
 }
 
 
+// https://chemistry.montana.edu/callis/courses/chmy564/460water.pdf
 
 
 //
