@@ -128,19 +128,22 @@ impl GTO1d {
     }
     // kinetic integral
     pub(crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
-        let p = a.alpha + b.alpha;
-        let q = a.alpha * b.alpha / p;
-        let Qx = a.center - b.center;
-        let norm_factor = a.norm * b.norm * (std::f64::consts::PI / p).sqrt();
+        let p = a.alpha + b.alpha; // Combined Gaussian exponent
+        let Qx = a.center - b.center; // Center separation
 
-        let term1 = 2.0 * a.alpha * GTO1d::Eab(a.l + 2, b.l, 0, Qx, a.alpha, b.alpha);
-        let term2 = 2.0 * b.alpha * GTO1d::Eab(a.l, b.l + 2, 0, Qx, a.alpha, b.alpha);
-        let term3 = -1.0
-            * (2 * (a.l + b.l) + 1) as f64
-            * a.alpha
-            * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+        // Normalization factors
+        let norm = a.norm * b.norm * (std::f64::consts::PI / p).sqrt();
 
-        -0.5*norm_factor * (term1 + term2 + term3)
+        // Terms in the Laplacian
+        let mut term1 = 0.0;
+        if b.l >= 2 {
+            term1 = b.l as f64 * (b.l as f64 - 1.0) * GTO1d::Eab(a.l, b.l - 2, 0, Qx, a.alpha, b.alpha);
+        }
+        let term2 = -2.0 * b.alpha * (2.0 * b.l as f64 + 1.0) * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+        let term3 = 4.0 * b.alpha.powi(2) * GTO1d::Eab(a.l, b.l + 2, 0, Qx, a.alpha, b.alpha);
+
+        // Combine terms
+        -0.5 * norm * (term1 + term2 + term3)
     }
 
     // potential integral
