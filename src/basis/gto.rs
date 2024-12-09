@@ -140,7 +140,7 @@ impl GTO1d {
             * a.alpha
             * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
 
-        norm_factor * (term1 + term2 + term3)
+        -0.5*norm_factor * (term1 + term2 + term3)
     }
 
     // potential integral
