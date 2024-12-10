@@ -47,7 +47,7 @@ impl GTO1d {
 
         // Compute components of the normalization factor:
         // N^2 = (2^(3l) * l! * alpha^l * sqrt(2 alpha / pi)) / (2l)!
-        let numerator = (2.0_f64).powi(3 * l) * l_factorial as f64 * alpha.powi(l);
+        let numerator = 2.0_f64.powi(3 * l) * l_factorial * alpha.powi(l);
         let denominator = double_l_factorial;
         let factor = (2.0 * alpha / pi).sqrt();
 
