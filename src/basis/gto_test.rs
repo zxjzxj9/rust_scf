@@ -115,10 +115,7 @@ mod tests {
         // Integrand for kinetic energy: product of derivatives and basis functions
         let integrand = |x: f64| {
             let f1 = gto1.evaluate(x);           // g1(x)
-            // let f2 = gto2.evaluate(x);             // g2(x)
-            // let df1 = gto1.laplacian(x);           // g1'(x)
             let df2 = gto2.laplacian(x);         // g2'(x)
-            // -0.5 * (df1 * df2 - 2.0 * gto1.alpha * f1 * f2) // Integrand for T_ab
             -0.5 * (f1 * df2)
         };
 

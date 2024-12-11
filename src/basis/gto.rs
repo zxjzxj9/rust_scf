@@ -126,6 +126,7 @@ impl GTO1d {
             self.norm * (term1 + term2 + term3) * (-self.alpha * x.powi(2)).exp()
         }
     }
+
     // kinetic integral
     pub(crate) fn Tab(a: &GTO1d, b: &GTO1d) -> f64 {
         let p = a.alpha + b.alpha; // Combined Gaussian exponent
