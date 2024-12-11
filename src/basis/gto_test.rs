@@ -91,7 +91,7 @@ mod tests {
             norm: 1.0,
         };
 
-        let x = 1.0;
+        let x = 3.0;
 
         // Numerical Laplacian (finite differences)
         let h = 1e-5;
@@ -116,9 +116,9 @@ mod tests {
         // Gaussian with alpha=0.8, l=0, center=3.0
         let gto2 = GTO1d::new(0.8, 0, 3.0);
 
-        let p = gto1.alpha + gto1.alpha;
-        let q = gto1.alpha * gto1.alpha / p;
-        let Qx = gto1.center - gto1.center;
+        let p = gto1.alpha + gto2.alpha;
+        let q = gto1.alpha * gto2.alpha / p;
+        let Qx = gto1.center - gto2.center;
 
         // Prefactor from the known closed-form solution
         // T_{00} = (3/2)*(alpha_a*alpha_b/(alpha_a+alpha_b))* (pi/(alpha_a+alpha_b))^{1/2} * exp(-q*Qx^2) * N_a * N_b
@@ -134,7 +134,7 @@ mod tests {
             -0.5 * (f1 * df2)
         };
 
-        let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
+        let integral = simpson_integration(integrand, -100.0, 100.0, 10_000);
         let integral_analytical1 = gto1.norm * gto2.norm * prefactor;
         let integral_analytical2 = GTO1d::Tab(&gto1, &gto2);
 
@@ -148,8 +148,8 @@ mod tests {
         assert!(
             (integral_analytical1 - integral_analytical2).abs() < 1e-5,
             "Kinetic energy integral is not close: got {}, expected {}",
-            integral_analytical1,
-            integral_analytical2
+            integral_analytical2,
+            integral_analytical1
         )
     }
 
