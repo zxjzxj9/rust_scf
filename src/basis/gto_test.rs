@@ -1,6 +1,8 @@
 use nalgebra::Vector3;
 use crate::basis::gto::{GTO1d, GTO};
 use crate::basis::helper::{simpson_integration, simpson_integration_3d};
+use std::f64::consts::PI;
+
 
 #[cfg(test)]
 mod tests {
@@ -105,6 +107,50 @@ mod tests {
             numerical_laplacian,
             analytical_laplacian
         );
+    }
+
+    #[test]
+    fn test_gto1d_kinetic_T00() {
+        // Gaussian with alpha=1.2, l=0, center=1.0
+        let gto1 = GTO1d::new(1.2, 0, 1.0);
+        // Gaussian with alpha=0.8, l=0, center=3.0
+        let gto2 = GTO1d::new(0.8, 0, 3.0);
+
+        let p = gto1.alpha + gto1.alpha;
+        let q = gto1.alpha * gto1.alpha / p;
+        let Qx = gto1.center - gto1.center;
+
+        // Prefactor from the known closed-form solution
+        // T_{00} = (3/2)*(alpha_a*alpha_b/(alpha_a+alpha_b))* (pi/(alpha_a+alpha_b))^{1/2} * exp(-q*Qx^2) * N_a * N_b
+        let prefactor = (3.0 / 2.0)
+            * q
+            * (PI / p).sqrt()
+            * (-q * Qx.powi(2)).exp();
+
+
+        let integrand = |x: f64| {
+            let f1 = gto1.evaluate(x);           // g1(x)
+            let df2 = gto2.laplacian(x);         // g2'(x)
+            -0.5 * (f1 * df2)
+        };
+
+        let integral = simpson_integration(integrand, -10.0, 10.0, 10_000);
+        let integral_analytical1 = gto1.norm * gto2.norm * prefactor;
+        let integral_analytical2 = GTO1d::Tab(&gto1, &gto2);
+
+        assert!(
+            (integral - integral_analytical1).abs() < 1e-5,
+            "Kinetic energy integral is not close: got {}, expected {}",
+            integral,
+            integral_analytical1
+        );
+
+        assert!(
+            (integral_analytical1 - integral_analytical2).abs() < 1e-5,
+            "Kinetic energy integral is not close: got {}, expected {}",
+            integral_analytical1,
+            integral_analytical2
+        )
     }
 
     #[test]
