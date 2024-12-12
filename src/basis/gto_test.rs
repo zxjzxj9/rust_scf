@@ -212,8 +212,66 @@ mod tests {
         test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 0, 1.0);
         test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 1, 1.0);
         test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 0, 1.0);
+        test_gto1d_kinetic(1.2, 0, 0.0, 0.8, 2, 1.0);
         test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 1, 1.0);
         test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 2, 1.0);
         test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 2, 1.0);
+    }
+
+    fn test_gto_kinetic(alpha1: f64, l1: i32, center1: Vector3<f64>, alpha2: f64, l2: i32, center2: Vector3<f64>) {
+        let gto1 = GTO::new(alpha1, Vector3::new(l1, l1, l1), center1);
+        let gto2 = GTO::new(alpha2, Vector3::new(l2, l2, l2), center2);
+
+        // Integrand for kinetic energy: product of derivatives and basis functions
+        let integrand = |x, y, z| {
+            let f1 = gto1.evaluate(&Vector3::new(x, y, z)); // g1(x)
+            let df2 = gto2.laplacian(&Vector3::new(x, y, z)); // g2'(x)
+            -0.5 * (f1 * df2)
+        };
+
+        let lower = Vector3::new(-10.0, -10.0, -10.0);
+        let upper = Vector3::new(10.0, 10.0, 10.0);
+        // Integrate numerically using Simpson's rule
+        let integral = simpson_integration_3d(integrand, lower, upper, 100, 100, 100);
+
+        // Compute the kinetic energy integral using the analytical method
+        let kinetic = GTO::Tab(&gto1, &gto2);
+
+        // Assert that the numerical and analytical results are close
+        assert!(
+            (integral - kinetic).abs() < 1e-5,
+            "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, alpha2={}, l2={}, center2={:?}",
+            kinetic,
+            integral,
+            alpha1,
+            l1,
+            center1,
+            alpha2,
+            l2,
+            center2
+        );
+    }
+
+    #[test]
+    fn test_gto_kinetic_with_params() {
+        test_gto_kinetic(1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 0, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 1, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 0, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 1, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 0, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 2, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 1, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 2, Vector3::new(1.0, 1.0, 1.0));
+        test_gto_kinetic(1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+                         0.8, 2, Vector3::new(1.0, 1.0, 1.0));
     }
 }

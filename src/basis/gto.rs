@@ -5,12 +5,14 @@ use crate::basis;
 use basis::helper::{simpson_integration, simpson_integration_3d};
 use na::Vector3;
 use std::f64::consts::PI;
+use nalgebra::{ArrayStorage, Const, Matrix};
 
 #[derive(Debug)]
 pub struct GTO {
     pub gto1d: [GTO1d; 3],
     pub norm: f64,
 }
+
 
 #[derive(Debug)]
 pub struct GTO1d {
@@ -183,10 +185,26 @@ impl GTO {
         self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
     }
 
+    pub fn laplacian(&self, r: &Vector3<f64>) -> f64 {
+        let laplacian_x = self.gto1d[0].laplacian(r.x);
+        let laplacian_y = self.gto1d[1].laplacian(r.y);
+        let laplacian_z = self.gto1d[2].laplacian(r.z);
+
+        laplacian_x * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
+            + self.gto1d[0].evaluate(r.x) * laplacian_y * self.gto1d[2].evaluate(r.z)
+            + self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * laplacian_z
+    }
+
     pub(crate) fn Sab(a: &GTO, b: &GTO) -> f64 {
         GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
             * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
             * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+    }
+
+    pub(crate) fn Tab(a: &GTO, b: &GTO) -> f64 {
+        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
+            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
+            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
     }
 }
 
