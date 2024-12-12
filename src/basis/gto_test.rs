@@ -109,24 +109,49 @@ mod tests {
         );
     }
 
+    fn gto_kinetic_integral(alpha1: f64, alpha2: f64, ax: f64, bx: f64) -> f64 {
+        // Pre-calculate common terms to improve readability and efficiency
+        let alpha_sum = alpha1 + alpha2;
+        let alpha_ratio = alpha1 / alpha_sum;
+
+        // Calculate the exponential term components
+        let exp_term = alpha1 * (
+            ax * ax * alpha_ratio
+                - ax * ax
+                - 2.0 * ax * bx * alpha_ratio
+                + 2.0 * ax * bx
+                + bx * bx * alpha_ratio
+                - bx * bx
+        );
+
+        // Calculate the polynomial term
+        let poly_term = -4.0 * ax * ax * alpha1 * alpha2
+            + 8.0 * ax * bx * alpha1 * alpha2
+            - 4.0 * bx * bx * alpha1 * alpha2
+            + 2.0 * alpha1
+            + 2.0 * alpha2;
+
+        // Calculate denominator term
+        let denom = (2.0 * alpha1 * alpha1
+            + 4.0 * alpha1 * alpha2
+            + 2.0 * alpha2 * alpha2) * alpha_sum.sqrt();
+
+        // Combine all terms
+        let result = PI.sqrt() * alpha1 * alpha2 * poly_term * exp_term.exp() / denom;
+
+        result
+    }
+
     #[test]
     fn test_gto1d_kinetic_T00() {
         // Gaussian with alpha=1.2, l=0, center=1.0
-        let gto1 = GTO1d::new(1.2, 0, 1.0);
+        let gto1 = GTO1d::new(1.2, 0, 0.0);
         // Gaussian with alpha=0.8, l=0, center=3.0
-        let gto2 = GTO1d::new(0.8, 0, 3.0);
+        let gto2 = GTO1d::new(0.8, 0, 1.0);
 
         let p = gto1.alpha + gto2.alpha;
         let q = gto1.alpha * gto2.alpha / p;
         let Qx = gto1.center - gto2.center;
-
-        // Prefactor from the known closed-form solution
-        // T_{00} = (3/2)*(alpha_a*alpha_b/(alpha_a+alpha_b))* (pi/(alpha_a+alpha_b))^{1/2} * exp(-q*Qx^2) * N_a * N_b
-        let prefactor = (3.0 / 2.0)
-            * q
-            * (PI / p).sqrt()
-            * (-q * Qx.powi(2)).exp();
-
 
         let integrand = |x: f64| {
             let f1 = gto1.evaluate(x);           // g1(x)
@@ -135,7 +160,8 @@ mod tests {
         };
 
         let integral = simpson_integration(integrand, -100.0, 100.0, 10_000);
-        let integral_analytical1 = gto1.norm * gto2.norm * prefactor;
+        let integral_analytical1 = gto1.norm * gto2.norm *
+            gto_kinetic_integral(gto1.alpha, gto2.alpha, gto1.center, gto2.center);
         let integral_analytical2 = GTO1d::Tab(&gto1, &gto2);
 
         assert!(
