@@ -64,7 +64,7 @@ impl GTO1d {
         let p = a + b;
         let q = a * b / p;
 
-        if t < 0 || t > i + j {
+        if t < 0 || t > i + j || i < 0 || j < 0 {
             0.0
         } else if i == 0 && j == 0 && t == 0 {
             let r = (-q * Qx.powi(2)).exp();
@@ -99,6 +99,7 @@ impl GTO1d {
 
     // for test only
     pub fn derivative(&self, x: f64) -> f64 {
+        let x = x - self.center;
         if self.l == 0 {
             // For l = 0, the derivative is just the Gaussian part
             -2.0 * self.alpha * x * self.norm * (-self.alpha * x.powi(2)).exp()
@@ -112,12 +113,18 @@ impl GTO1d {
 
     // for test only
     pub fn laplacian(&self, x: f64) -> f64 {
+        let x = x - self.center;
         if self.l == 0 {
             // For l = 0, the Laplacian simplifies to Gaussian part
-            self.norm * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2)) * (-self.alpha * x.powi(2)).exp()
+            self.norm
+                * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2))
+                * (-self.alpha * x.powi(2)).exp()
         } else if self.l == 1 {
             // For l = 1, handle specific case
-            self.norm * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2) - 4.0 * self.alpha * x) * x * (-self.alpha * x.powi(2)).exp()
+            self.norm
+                * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2) - 4.0 * self.alpha * x)
+                * x
+                * (-self.alpha * x.powi(2)).exp()
         } else {
             // General case for l > 1
             let term1 = self.l as f64 * (self.l as f64 - 1.0) * x.powi((self.l - 2) as i32);
@@ -136,11 +143,12 @@ impl GTO1d {
         let norm = a.norm * b.norm * (std::f64::consts::PI / p).sqrt();
 
         // Terms in the Laplacian
-        let mut term1 = 0.0;
-        if b.l >= 2 {
-            term1 = b.l as f64 * (b.l as f64 - 1.0) * GTO1d::Eab(a.l, b.l - 2, 0, Qx, a.alpha, b.alpha);
-        }
-        let term2 = -2.0 * b.alpha * (2.0 * b.l as f64 + 1.0) * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
+        let term1 =
+                b.l as f64 * (b.l as f64 - 1.0) * GTO1d::Eab(a.l, b.l - 2, 0, Qx, a.alpha, b.alpha);
+        let term2 = -2.0
+            * b.alpha
+            * (2.0 * b.l as f64 + 1.0)
+            * GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha);
         let term3 = 4.0 * b.alpha.powi(2) * GTO1d::Eab(a.l, b.l + 2, 0, Qx, a.alpha, b.alpha);
 
         // Combine terms

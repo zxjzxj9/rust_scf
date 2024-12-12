@@ -1,8 +1,7 @@
-use nalgebra::Vector3;
 use crate::basis::gto::{GTO1d, GTO};
 use crate::basis::helper::{simpson_integration, simpson_integration_3d};
+use nalgebra::Vector3;
 use std::f64::consts::PI;
-
 
 #[cfg(test)]
 mod tests {
@@ -67,7 +66,8 @@ mod tests {
     fn test_gto_overlap() {
         let gto1 = GTO::new(1.2, Vector3::new(1, 1, 1), Vector3::new(0.0, 0.0, 0.0));
         let gto2 = GTO::new(0.8, Vector3::new(1, 1, 1), Vector3::new(3.0, 3.0, 3.0));
-        let integrand = |x, y, z| gto1.evaluate(&Vector3::new(x, y, z)) * gto2.evaluate(&Vector3::new(x, y, z));
+        let integrand =
+            |x, y, z| gto1.evaluate(&Vector3::new(x, y, z)) * gto2.evaluate(&Vector3::new(x, y, z));
 
         let lower = Vector3::new(-10.0, -10.0, -10.0);
         let upper = Vector3::new(10.0, 10.0, 10.0);
@@ -86,8 +86,8 @@ mod tests {
     fn test_gto1d_laplacian() {
         let gto = GTO1d {
             alpha: 1.0,
-            l: 2,
-            center: 0.0,
+            l: 1,
+            center: 2.0,
             norm: 1.0,
         };
 
@@ -95,7 +95,8 @@ mod tests {
 
         // Numerical Laplacian (finite differences)
         let h = 1e-5;
-        let numerical_laplacian = (gto.evaluate(x + h) - 2.0 * gto.evaluate(x) + gto.evaluate(x - h)) / h.powi(2);
+        let numerical_laplacian =
+            (gto.evaluate(x + h) - 2.0 * gto.evaluate(x) + gto.evaluate(x - h)) / h.powi(2);
 
         // Analytical Laplacian
         let analytical_laplacian = gto.laplacian(x);
@@ -115,26 +116,21 @@ mod tests {
         let alpha_ratio = alpha1 / alpha_sum;
 
         // Calculate the exponential term components
-        let exp_term = alpha1 * (
-            ax * ax * alpha_ratio
-                - ax * ax
-                - 2.0 * ax * bx * alpha_ratio
+        let exp_term = alpha1
+            * (ax * ax * alpha_ratio - ax * ax - 2.0 * ax * bx * alpha_ratio
                 + 2.0 * ax * bx
                 + bx * bx * alpha_ratio
-                - bx * bx
-        );
+                - bx * bx);
 
         // Calculate the polynomial term
-        let poly_term = -4.0 * ax * ax * alpha1 * alpha2
-            + 8.0 * ax * bx * alpha1 * alpha2
+        let poly_term = -4.0 * ax * ax * alpha1 * alpha2 + 8.0 * ax * bx * alpha1 * alpha2
             - 4.0 * bx * bx * alpha1 * alpha2
             + 2.0 * alpha1
             + 2.0 * alpha2;
 
         // Calculate denominator term
-        let denom = (2.0 * alpha1 * alpha1
-            + 4.0 * alpha1 * alpha2
-            + 2.0 * alpha2 * alpha2) * alpha_sum.sqrt();
+        let denom = (2.0 * alpha1 * alpha1 + 4.0 * alpha1 * alpha2 + 2.0 * alpha2 * alpha2)
+            * alpha_sum.sqrt();
 
         // Combine all terms
         let result = PI.sqrt() * alpha1 * alpha2 * poly_term * exp_term.exp() / denom;
@@ -154,14 +150,15 @@ mod tests {
         let Qx = gto1.center - gto2.center;
 
         let integrand = |x: f64| {
-            let f1 = gto1.evaluate(x);           // g1(x)
-            let df2 = gto2.laplacian(x);         // g2'(x)
+            let f1 = gto1.evaluate(x); // g1(x)
+            let df2 = gto2.laplacian(x); // g2'(x)
             -0.5 * (f1 * df2)
         };
 
-        let integral = simpson_integration(integrand, -100.0, 100.0, 10_000);
-        let integral_analytical1 = gto1.norm * gto2.norm *
-            gto_kinetic_integral(gto1.alpha, gto2.alpha, gto1.center, gto2.center);
+        let integral = simpson_integration(integrand, -1000.0, 1000.0, 10_000);
+        let integral_analytical1 = gto1.norm
+            * gto2.norm
+            * gto_kinetic_integral(gto1.alpha, gto2.alpha, gto1.center, gto2.center);
         let integral_analytical2 = GTO1d::Tab(&gto1, &gto2);
 
         assert!(
@@ -179,15 +176,14 @@ mod tests {
         )
     }
 
-    #[test]
-    fn test_gto1d_kinetic() {
-        let gto1 = GTO1d::new(1.2, 2, 1.0); // Gaussian with alpha=1.2, l=2, center=1.0
-        let gto2 = GTO1d::new(0.8, 2, 3.0); // Gaussian with alpha=0.8, l=2, center=3.0
+    fn test_gto1d_kinetic(alpha1: f64, l1: i32, center1: f64, alpha2: f64, l2: i32, center2: f64) {
+        let gto1 = GTO1d::new(alpha1, l1, center1);
+        let gto2 = GTO1d::new(alpha2, l2, center2);
 
         // Integrand for kinetic energy: product of derivatives and basis functions
         let integrand = |x: f64| {
-            let f1 = gto1.evaluate(x);           // g1(x)
-            let df2 = gto2.laplacian(x);         // g2'(x)
+            let f1 = gto1.evaluate(x); // g1(x)
+            let df2 = gto2.laplacian(x); // g2'(x)
             -0.5 * (f1 * df2)
         };
 
@@ -200,9 +196,26 @@ mod tests {
         // Assert that the numerical and analytical results are close
         assert!(
             (integral - kinetic).abs() < 1e-5,
-            "Kinetic energy integral is not close: got {}, expected {}",
+            "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={}, alpha2={}, l2={}, center2={}",
             kinetic,
-            integral
+            integral,
+            alpha1,
+            l1,
+            center1,
+            alpha2,
+            l2,
+            center2
         );
+    }
+
+    #[test]
+    fn test_gto1d_kinetic_with_params() {
+        test_gto1d_kinetic(1.2, 0, 0.0, 0.8, 0, 1.0);
+        test_gto1d_kinetic(1.2, 0, 0.0, 0.8, 1, 1.0);
+        test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 0, 1.0);
+        test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 1, 1.0);
+        test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 0, 1.0);
+        test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 1, 1.0);
     }
 }

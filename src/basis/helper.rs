@@ -1,8 +1,6 @@
-use nalgebra::Vector3;
 use libm::{erf, sqrt};
+use nalgebra::Vector3;
 use num_complex::Complex;
-
-
 
 // Simpson's rule integration
 pub(crate) fn simpson_integration<F>(f: F, a: f64, b: f64, n: usize) -> f64
@@ -19,7 +17,6 @@ where
     }
     sum * h / 3.0
 }
-
 
 // Helper function to determine Simpson's weight for a given index and max index
 fn simpson_weight(i: usize, n: usize) -> f64 {
@@ -38,7 +35,7 @@ pub(crate) fn simpson_integration_3d<F>(
     b: Vector3<f64>,
     nx: usize,
     ny: usize,
-    nz: usize
+    nz: usize,
 ) -> f64
 where
     F: Fn(f64, f64, f64) -> f64,
@@ -219,15 +216,15 @@ pub fn boys_function(n: usize, x: f64) -> f64 {
     {
         let k_i = 0;
         let q = x + rzz[k_i];
-        let numerator_c = 1.0 - rfact[k_i]*y;
+        let numerator_c = 1.0 - rfact[k_i] * y;
         if q.abs() >= tol {
             // tmp = tmp + rww(k)*(1.0d0 - rfact(k)*y)/(x + rzz(k))
             tmp += rww[k_i] * (numerator_c / q);
         } else {
             // polynomial approximation:
             // p = 1.0d0 - q/2.0d0 + q**2/6.0d0 - q**3/24.0d0 + q**4/120.0d0
-            let p = 1.0 - q/2.0 + (q*q)/6.0 - (q*q*q)/24.0 + (q*q*q*q)/120.0;
-            tmp += rww[k_i]*p;
+            let p = 1.0 - q / 2.0 + (q * q) / 6.0 - (q * q * q) / 24.0 + (q * q * q * q) / 120.0;
+            tmp += rww[k_i] * p;
         }
     }
 
@@ -235,7 +232,7 @@ pub fn boys_function(n: usize, x: f64) -> f64 {
     let yy = y / 2.0;
     for n_i in (0..12).rev() {
         // vals(n) = (x*vals(n+1)+yy)*t(n)
-        vals[n_i] = (x*vals[n_i+1] + yy)*t[n_i];
+        vals[n_i] = (x * vals[n_i + 1] + yy) * t[n_i];
     }
 
     // Return requested order
