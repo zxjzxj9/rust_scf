@@ -51,8 +51,25 @@ def calculate_gto_kinetic_integral():
 
     return sp.simplify(integral)
 
+def calculate_laplacian_gto1d(l = 1):
+    # Define symbolic variables
+    x, y, z = symbols('x y z', real=True)
+    alpha1 = symbols('α₁', positive=True, real=True)
+    Ax, Ay, Az = symbols('Ax Ay Az', positive=True, real=True)  # Center of first GTO
+
+    # Define the GTOs centered at points A and B
+    # gto1 = (x-Ax)**l * exp(-alpha1*((x-Ax)**2))
+    gto1 = x**l * exp(-alpha1*x**2)
+    # Calculate the Laplacian of gto2 (∇² = ∂²/∂x² + ∂²/∂y² + ∂²/∂z²)
+    laplacian_gto1 = simplify(diff(gto1, x, 2))
+
+    return laplacian_gto1
+
 if __name__ == "__main__":
     # Calculate and display the result
     result = calculate_gto1d_kinetic_integral()
     print("Kinetic energy integral between two s-type GTO1ds:")
+    print(result)
+
+    result = calculate_laplacian_gto1d()
     print(result)

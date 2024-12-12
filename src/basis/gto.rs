@@ -120,10 +120,10 @@ impl GTO1d {
                 * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2))
                 * (-self.alpha * x.powi(2)).exp()
         } else if self.l == 1 {
-            // For l = 1, handle specific case
+            // For l = 1
             self.norm
-                * (-2.0 * self.alpha + 4.0 * self.alpha.powi(2) * x.powi(2) - 4.0 * self.alpha * x)
-                * x
+                * (2.0 * x * self.alpha)
+                * (2.0 * self.alpha * x.powi(2) - 3.0)
                 * (-self.alpha * x.powi(2)).exp()
         } else {
             // General case for l > 1
@@ -144,7 +144,7 @@ impl GTO1d {
 
         // Terms in the Laplacian
         let term1 =
-                b.l as f64 * (b.l as f64 - 1.0) * GTO1d::Eab(a.l, b.l - 2, 0, Qx, a.alpha, b.alpha);
+            b.l as f64 * (b.l as f64 - 1.0) * GTO1d::Eab(a.l, b.l - 2, 0, Qx, a.alpha, b.alpha);
         let term2 = -2.0
             * b.alpha
             * (2.0 * b.l as f64 + 1.0)

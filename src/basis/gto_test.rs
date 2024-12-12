@@ -84,12 +84,8 @@ mod tests {
 
     #[test]
     fn test_gto1d_laplacian() {
-        let gto = GTO1d {
-            alpha: 1.0,
-            l: 1,
-            center: 2.0,
-            norm: 1.0,
-        };
+        // Gaussian with alpha=0.8, l=0, center=3.0
+        let gto = GTO1d::new(0.8, 1, 1.0);
 
         let x = 3.0;
 
@@ -217,5 +213,7 @@ mod tests {
         test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 1, 1.0);
         test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 0, 1.0);
         test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 1, 1.0);
+        test_gto1d_kinetic(1.2, 1, 0.0, 0.8, 2, 1.0);
+        test_gto1d_kinetic(1.2, 2, 0.0, 0.8, 2, 1.0);
     }
 }
