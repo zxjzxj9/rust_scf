@@ -7,12 +7,6 @@ use na::Vector3;
 use std::f64::consts::PI;
 use nalgebra::{ArrayStorage, Const, Matrix};
 
-#[derive(Debug)]
-pub struct GTO {
-    pub gto1d: [GTO1d; 3],
-    pub norm: f64,
-}
-
 
 #[derive(Debug)]
 pub struct GTO1d {
@@ -166,6 +160,12 @@ impl GTO1d {
     pub(crate) fn JKab(a: &GTO1d, b: &GTO1d, c: &GTO1d, d: &GTO1d) -> f64 {
         todo!("Implement Iab")
     }
+}
+
+#[derive(Debug)]
+pub struct GTO {
+    pub gto1d: [GTO1d; 3],
+    pub norm: f64,
 }
 
 #[allow(non_snake_case)]
