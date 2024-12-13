@@ -202,9 +202,9 @@ impl GTO {
     }
 
     pub(crate) fn Tab(a: &GTO, b: &GTO) -> f64 {
-        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
-            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
-            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
+        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1]) * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1]) * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2]) * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
     }
 }
 
