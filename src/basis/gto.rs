@@ -4,9 +4,8 @@ use crate::basis;
 // use basis::basis::Basis;
 use basis::helper::{simpson_integration, simpson_integration_3d};
 use na::Vector3;
-use std::f64::consts::PI;
 use nalgebra::{ArrayStorage, Const, Matrix};
-
+use std::f64::consts::PI;
 
 #[derive(Debug)]
 pub struct GTO1d {
@@ -202,9 +201,15 @@ impl GTO {
     }
 
     pub(crate) fn Tab(a: &GTO, b: &GTO) -> f64 {
-        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1]) * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
-            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1]) * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
-            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2]) * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0]) * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
+                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+                * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
+                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+                * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
     }
 }
 
