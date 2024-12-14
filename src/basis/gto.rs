@@ -150,21 +150,24 @@ impl GTO1d {
         -0.5 * norm * (term1 + term2 + term3)
     }
 
-    // potential integral
-    pub(crate) fn Vab(a: &GTO1d, b: &GTO1d, R: f64) -> f64 {
-        todo!("Implement Vab")
-    }
-
-    // Coulomb integral and Exchange integral
-    pub(crate) fn JKab(a: &GTO1d, b: &GTO1d, c: &GTO1d, d: &GTO1d) -> f64 {
-        todo!("Implement Iab")
-    }
+    // // potential integral
+    // pub(crate) fn Vab(a: &GTO1d, b: &GTO1d, R: f64) -> f64 {
+    //     todo!("Implement Vab")
+    // }
+    //
+    // // Coulomb integral and Exchange integral
+    // pub(crate) fn JKab(a: &GTO1d, b: &GTO1d, c: &GTO1d, d: &GTO1d) -> f64 {
+    //     todo!("Implement Iab")
+    // }
 }
 
 #[derive(Debug)]
 pub struct GTO {
-    pub gto1d: [GTO1d; 3],
+    pub alpha: f64,
+    pub l_xyz: Vector3<i32>,
+    pub center: Vector3<f64>,
     pub norm: f64,
+    pub gto1d: [GTO1d; 3],
 }
 
 #[allow(non_snake_case)]
@@ -175,9 +178,14 @@ impl GTO {
             GTO1d::new(alpha, l_xyz.y, center.y),
             GTO1d::new(alpha, l_xyz.z, center.z),
         ];
-
         let norm = gto1d[0].norm * gto1d[1].norm * gto1d[2].norm;
-        Self { gto1d, norm }
+        Self {
+            alpha,
+            l_xyz,
+            center,
+            norm,
+            gto1d,
+        }
     }
 
     pub(crate) fn evaluate(&self, r: &Vector3<f64>) -> f64 {
@@ -210,6 +218,22 @@ impl GTO {
             + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
                 * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
                 * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+    }
+
+    pub(crate) fn merge(a: &GTO, b: &GTO) -> GTO {
+        // merge two GTOs into one GTO
+        let center = (a.center * a.alpha + b.center * b.alpha) / (a.alpha + b.alpha);
+        let l_xyz = a.l_xyz + b.l_xyz;
+        let alpha = a.alpha + b.alpha;
+        GTO::new(alpha, l_xyz, center)
+    }
+
+    pub(crate) fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
+        todo!("Implement Vab")
+    }
+
+    pub(crate) fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
+        todo!("Implement Exab")
     }
 }
 
