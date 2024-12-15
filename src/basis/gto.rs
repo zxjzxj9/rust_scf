@@ -2,6 +2,7 @@ extern crate nalgebra as na;
 
 use crate::basis;
 // use basis::basis::Basis;
+use crate::basis::helper::boys_function;
 use basis::helper::{simpson_integration, simpson_integration_3d};
 use na::Vector3;
 use nalgebra::{ArrayStorage, Const, Matrix};
@@ -226,6 +227,48 @@ impl GTO {
         let l_xyz = a.l_xyz + b.l_xyz;
         let alpha = a.alpha + b.alpha;
         GTO::new(alpha, l_xyz, center)
+    }
+
+
+    /// Computes the Coulomb auxiliary Hermite integrals.
+    ///
+    /// # Arguments
+    ///
+    /// * `t, u, v` - Orders of the Coulomb Hermite derivative in x, y, z directions, respectively
+    /// * `n` - Order of the Boys function
+    /// * `p` - A parameter (usually related to the exponents in the GTO integrals)
+    /// * `PCx, PCy, PCz` - Cartesian distance components between the Gaussian composite center P and nuclear center C
+    /// * `RPC` - Distance between P and C
+    ///
+    /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
+    pub fn hermite_coulomb(
+        t: usize, u: usize, v: usize, n: usize,
+        p: f64,
+        PCx: f64, PCy: f64, PCz: f64, RPC: f64,
+    ) -> f64 {
+        let T = p * RPC * RPC;
+        let mut val = 0.0;
+
+        if t == 0 && u == 0 && v == 0 {
+            val += (-2.0 * p).powi(n as i32) * boys_function(n, T);
+        } else if t == 0 && u == 0 {
+            if v > 1 {
+                val += (v as f64 - 1.0) * GTO::hermite_coulomb(t, u, v - 2, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            val += PCz * GTO::hermite_coulomb(t, u, v - 1, n + 1, p, PCx, PCy, PCz, RPC);
+        } else if t == 0 {
+            if u > 1 {
+                val += (u as f64 - 1.0) * GTO::hermite_coulomb(t, u - 2, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            val += PCy * GTO::hermite_coulomb(t, u - 1, v, n + 1, p, PCx, PCy, PCz, RPC);
+        } else {
+            if t > 1 {
+                val += (t as f64 - 1.0) * GTO::hermite_coulomb(t - 2, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            val += PCx * GTO::hermite_coulomb(t - 1, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+        }
+
+        val
     }
 
     pub(crate) fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
