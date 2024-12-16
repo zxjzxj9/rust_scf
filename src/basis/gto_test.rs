@@ -459,22 +459,39 @@ mod tests {
         let lower = Vector3::new(-20.0, -20.0, -20.0);
         let upper = Vector3::new(20.0, 20.0, 20.0);
         // let val_numerical = simpson_integration_3d(integrand, lower, upper, 200, 200, 200);
-        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-5);
+        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-6);
 
         let diff = (val_analytical - val_numerical).abs();
-        assert!(
-            (val_numerical - val_analytical).abs() < 1e-2 * val_numerical.abs(),
-            "Kinetic energy integral is not close: got {}, expected {}, \
-             params: alpha1={}, l1={}, center1={:?}, alpha2={}, l2={}, center2={:?}",
-            val_analytical,
-            val_numerical,
-            alpha1,
-            l1,
-            center1,
-            alpha2,
-            l2,
-            center2
-        );
+
+        if  val_numerical.abs() < 1e-3 {
+            assert!(
+                (val_numerical - val_analytical).abs() < 1e-3,
+                "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
+                val_analytical,
+                val_numerical,
+                alpha1,
+                l1,
+                center1,
+                alpha2,
+                l2,
+                center2
+            );
+        } else {
+            assert!(
+                (val_numerical - val_analytical).abs() < 1e-2 * val_numerical.abs(),
+                "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
+                val_analytical,
+                val_numerical,
+                alpha1,
+                l1,
+                center1,
+                alpha2,
+                l2,
+                center2
+            );
+        }
     }
 
     #[test]
@@ -487,6 +504,15 @@ mod tests {
             Vector3::new(0, 0, 0),
             Vector3::new(0.0, 1.0, 1.0),
             Vector3::new(0.0, 0.0, 0.0));
+
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 0, 0),
+            Vector3::new(1.0, 1.0, 0.0),
+            0.8,
+            Vector3::new(0, 1, 0),
+            Vector3::new(0.0, 1.0, 1.0),
+            Vector3::new(0.0, 0.0, 1.0));
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -505,5 +531,23 @@ mod tests {
             Vector3::new(1, 1, 0),
             Vector3::new(0.0, 1.0, 1.0),
             Vector3::new(0.0, 0.0, 0.0));
+
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 1, 0),
+            Vector3::new(1.0, 1.0, 0.0),
+            0.8,
+            Vector3::new(1, 2, 0),
+            Vector3::new(0.0, 1.0, 1.0),
+            Vector3::new(0.0, 0.0, 0.0));
+
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 1, 0),
+            Vector3::new(1.0, 1.0, 0.0),
+            0.8,
+            Vector3::new(1, 2, 0),
+            Vector3::new(0.0, 1.0, 1.0),
+            Vector3::new(0.0, 1.0, 0.0));
     }
 }

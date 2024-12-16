@@ -273,8 +273,9 @@ impl GTO {
 
     pub(crate) fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
         let c = GTO::merge(a, b);
+        // println!("a: {:?}, b: {:?}, c: {:?}", a.l_xyz, b.l_xyz, c.l_xyz);
         let mut val = 0.0;
-        let dr = R - c.center;
+        let dr = c.center - R;
 
         for i in 0..=c.l_xyz.x {
             for j in 0..=c.l_xyz.y {
