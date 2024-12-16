@@ -5,6 +5,7 @@ use std::f64::consts::PI;
 
 #[cfg(test)]
 mod tests {
+    use crate::basis::helper::integrate_spherical_3d;
     use super::*;
 
     #[test]
@@ -435,27 +436,34 @@ mod tests {
 
         let val_analytical = GTO::Vab(&gto1, &gto2, R);
 
-        let integrand = |x, y, z| {
-            let r = Vector3::new(x, y, z);
-            let pa = gto1.evaluate(&r);
-            let pb = gto2.evaluate(&r);
-            let dr = r - R;
-            let dr_norm = dr.norm();
-
-            if dr_norm < 1e-14 {
-                0.0
-            } else {
-                pa * pb / dr_norm
-            }
+        // let integrand = |x, y, z| {
+        //     let r = Vector3::new(x, y, z);
+        //     // let pa = gto1.evaluate(&r);
+        //     // let pb = gto2.evaluate(&r);
+        //     // let dr = r - R;
+        //     // let dr_norm = dr.norm();
+        //     //
+        //     // if dr_norm < 1e-14 {
+        //     //     0.0
+        //     // } else {
+        //     //     pa * pb / dr_norm
+        //     // }
+        //     gto1.evaluate(&r) * gto2.evaluate(&r)
+        // };
+        let integrand = |vec| {
+            let pa = gto1.evaluate(&vec);
+            let pb = gto2.evaluate(&vec);
+            pa * pb
         };
 
         let lower = Vector3::new(-20.0, -20.0, -20.0);
         let upper = Vector3::new(20.0, 20.0, 20.0);
-        let val_numerical = simpson_integration_3d(integrand, lower, upper, 200, 200, 200);
+        // let val_numerical = simpson_integration_3d(integrand, lower, upper, 200, 200, 200);
+        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-5);
 
         let diff = (val_analytical - val_numerical).abs();
         assert!(
-            (val_numerical - val_analytical).abs() < 1e-1 * val_numerical.abs(),
+            (val_numerical - val_analytical).abs() < 1e-2 * val_numerical.abs(),
             "Kinetic energy integral is not close: got {}, expected {}, \
              params: alpha1={}, l1={}, center1={:?}, alpha2={}, l2={}, center2={:?}",
             val_analytical,
@@ -486,6 +494,15 @@ mod tests {
             Vector3::new(1.0, 1.0, 0.0),
             0.8,
             Vector3::new(0, 1, 0),
+            Vector3::new(0.0, 1.0, 1.0),
+            Vector3::new(0.0, 0.0, 0.0));
+
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 1, 0),
+            Vector3::new(1.0, 1.0, 0.0),
+            0.8,
+            Vector3::new(1, 1, 0),
             Vector3::new(0.0, 1.0, 1.0),
             Vector3::new(0.0, 0.0, 0.0));
     }
