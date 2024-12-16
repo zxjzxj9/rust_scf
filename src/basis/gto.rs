@@ -242,7 +242,7 @@ impl GTO {
     ///
     /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
     pub fn hermite_coulomb(
-        t: usize, u: usize, v: usize, n: usize,
+        t: i32, u: i32, v: i32, n: i32,
         p: f64,
         PCx: f64, PCy: f64, PCz: f64, RPC: f64,
     ) -> f64 {
@@ -285,7 +285,7 @@ impl GTO {
                                      a.center.y - b.center.y, a.alpha, b.alpha)
                         * GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
                                      a.center.z - b.center.z, a.alpha, b.alpha)
-                        * GTO::hermite_coulomb(i as usize, j as usize, k as usize, 0, c.alpha,
+                        * GTO::hermite_coulomb(i, j, k, 0, c.alpha,
                                                dr.x, dr.y, dr.z, dr.norm());
                 }
             }

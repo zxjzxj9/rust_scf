@@ -421,51 +421,63 @@ mod tests {
         assert!(diff < 1e-12, "Value changed upon uniform translation! diff={}", diff);
     }
 
-    #[test]
-    fn test_vab_against_numerical() {
-        // Construct a simple test case
-        // Two s-type GTOs centered on the x-axis:
-        let gto1 = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
-        let gto2 = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+    fn test_vab_against_numerical_with_params(
+        alpha1: f64,
+        l1: Vector3<i32>,
+        center1: Vector3<f64>,
+        alpha2: f64,
+        l2: Vector3<i32>,
+        center2: Vector3<f64>,
+        R: Vector3<f64>,
+    ) {
+        let gto1 = GTO::new(alpha1, l1, center1);
+        let gto2 = GTO::new(alpha2, l2, center2);
 
-        // Nuclear point at some position R
-        let R = Vector3::new(0.25, 0.0, 0.0); // somewhere between the two GTOs
-
-        // Analytical (our code) result
         let val_analytical = GTO::Vab(&gto1, &gto2, R);
 
-        // Define integrand
-        let integrand = |x: f64, y: f64, z: f64| {
+        let integrand = |x, y, z| {
             let r = Vector3::new(x, y, z);
-            let pa = gto1.evaluate(&r);;
-            let pb = gto2.evaluate(&r);;
+            let pa = gto1.evaluate(&r);
+            let pb = gto2.evaluate(&r);
             let dr = r - R;
             let dr_norm = dr.norm();
 
-            if  dr_norm < 1e-14 {
-                // Avoid division by zero at the nuclear point, though this is rare with finite grids
+            if dr_norm < 1e-14 {
                 0.0
             } else {
                 pa * pb / dr_norm
             }
         };
 
-        // Choose a Simpson's grid resolution: must be even and sufficiently large
-        let nx = 100;
-        let ny = 100;
-        let nz = 100;
-
         let lower = Vector3::new(-10.0, -10.0, -10.0);
         let upper = Vector3::new(10.0, 10.0, 10.0);
-        // Integrate from -10 to 10
-        let  val_numerical= simpson_integration_3d(integrand, lower, upper, 100, 100, 100);
+        let val_numerical = simpson_integration_3d(integrand, lower, upper, 100, 100, 100);
 
-        // Compare the two results
         let diff = (val_analytical - val_numerical).abs();
-        println!("Analytical: {}, Numerical: {}, diff: {}", val_analytical, val_numerical, diff);
+        assert!(
+            (val_numerical - val_analytical).abs() < 1e-5,
+            "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, alpha2={}, l2={}, center2={:?}",
+            val_analytical,
+            val_numerical,
+            alpha1,
+            l1,
+            center1,
+            alpha2,
+            l2,
+            center2
+        );
+    }
 
-        // Assert that they are close within a reasonable tolerance
-        // Tolerance depends on grid size and the complexity of the integral
-        assert!(diff < 1e-3, "Vab and numerical integration differ by more than the tolerance");
+    #[test]
+    fn test_vab_against_numerical() {
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 0, 0),
+            Vector3::new(1.0, 0.0, 0.0),
+            0.8,
+            Vector3::new(0, 0, 0),
+            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.0));
     }
 }

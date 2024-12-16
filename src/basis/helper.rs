@@ -73,7 +73,8 @@ where
 // Compute the Boys function F_n(x) for n = 0..12.
 // see the paper by Gregory Beylkin; Sandeep Sharma
 // https://doi.org/10.1063/5.0062444
-pub fn boys_function(n: usize, x: f64) -> f64 {
+pub fn boys_function(n: i32, x: f64) -> f64 {
+    let n = n as usize;
     assert!(n <= 12, "n must be between 0 and 12");
     assert!(x >= 0.0, "x must be nonnegative");
 
