@@ -31,6 +31,11 @@ fn simpson_weight(i: usize, n: usize) -> f64 {
     }
 }
 
+/// Parallel Simpson's rule integration in 3D.
+///
+/// Integrates f(x,y,z) over the box defined by [a.x,b.x] x [a.y,b.y] x [a.z,b.z].
+/// Uses Simpson's rule with nx, ny, nz subdivisions (adjusted up if not even).
+/// Returns the approximate value of the integral.
 pub(crate) fn simpson_integration_3d<F>(
     f: F,
     a: Vector3<f64>,
@@ -40,7 +45,7 @@ pub(crate) fn simpson_integration_3d<F>(
     nz: usize,
 ) -> f64
 where
-    F: Fn(f64, f64, f64) -> f64,
+    F: Fn(f64, f64, f64) -> f64 + Sync,
 {
     // Ensure nx, ny, nz are even
     let nx = if nx % 2 == 0 { nx } else { nx + 1 };
@@ -51,24 +56,33 @@ where
     let hy = (b.y - a.y) / ny as f64;
     let hz = (b.z - a.z) / nz as f64;
 
-    let mut sum = 0.0;
+    // Precompute coordinates and weights for each dimension
+    let x_coords: Vec<f64> = (0..=nx).map(|i| a.x + i as f64 * hx).collect();
+    let y_coords: Vec<f64> = (0..=ny).map(|j| a.y + j as f64 * hy).collect();
+    let z_coords: Vec<f64> = (0..=nz).map(|k| a.z + k as f64 * hz).collect();
 
-    for i in 0..=nx {
-        let x = a.x + i as f64 * hx;
-        let wx = simpson_weight(i, nx);
-        for j in 0..=ny {
-            let y = a.y + j as f64 * hy;
-            let wy = simpson_weight(j, ny);
-            for k in 0..=nz {
-                let z = a.z + k as f64 * hz;
-                let wz = simpson_weight(k, nz);
+    let x_weights: Vec<f64> = (0..=nx).map(|i| simpson_weight(i, nx)).collect();
+    let y_weights: Vec<f64> = (0..=ny).map(|j| simpson_weight(j, ny)).collect();
+    let z_weights: Vec<f64> = (0..=nz).map(|k| simpson_weight(k, nz)).collect();
+
+    // Parallel integration using Rayon
+    let sum: f64 = (0..=nx).into_par_iter().map(|i| {
+        let x = x_coords[i];
+        let wx = x_weights[i];
+        (0..=ny).into_par_iter().map(|j| {
+            let y = y_coords[j];
+            let wy = y_weights[j];
+            (0..=nz).into_par_iter().map(|k| {
+                let z = z_coords[k];
+                let wz = z_weights[k];
                 let w = wx * wy * wz;
-                sum += w * f(x, y, z);
-            }
-        }
-    }
+                w * f(x, y, z)
+            }).sum::<f64>()
+        }).sum::<f64>()
+    }).sum();
 
     // Multiply by the step sizes and the factor 1/27
+    // Simpson's rule in 3D: (hx*hy*hz/27)* sum_of_weights
     sum * (hx * hy * hz) / 27.0
 }
 
