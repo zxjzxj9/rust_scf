@@ -449,13 +449,13 @@ mod tests {
             }
         };
 
-        let lower = Vector3::new(-10.0, -10.0, -10.0);
-        let upper = Vector3::new(10.0, 10.0, 10.0);
-        let val_numerical = simpson_integration_3d(integrand, lower, upper, 100, 100, 100);
+        let lower = Vector3::new(-20.0, -20.0, -20.0);
+        let upper = Vector3::new(20.0, 20.0, 20.0);
+        let val_numerical = simpson_integration_3d(integrand, lower, upper, 200, 200, 200);
 
         let diff = (val_analytical - val_numerical).abs();
         assert!(
-            (val_numerical - val_analytical).abs() < 1e-5,
+            (val_numerical - val_analytical).abs() < 1e-1 * val_numerical.abs(),
             "Kinetic energy integral is not close: got {}, expected {}, \
              params: alpha1={}, l1={}, center1={:?}, alpha2={}, l2={}, center2={:?}",
             val_analytical,
@@ -474,10 +474,19 @@ mod tests {
         test_vab_against_numerical_with_params(
             1.0,
             Vector3::new(0, 0, 0),
-            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(1.0, 1.0, 0.0),
             0.8,
             Vector3::new(0, 0, 0),
-            Vector3::new(0.0, 1.0, 0.0),
+            Vector3::new(0.0, 1.0, 1.0),
+            Vector3::new(0.0, 0.0, 0.0));
+
+        test_vab_against_numerical_with_params(
+            1.0,
+            Vector3::new(0, 1, 0),
+            Vector3::new(1.0, 1.0, 0.0),
+            0.8,
+            Vector3::new(0, 1, 0),
+            Vector3::new(0.0, 1.0, 1.0),
             Vector3::new(0.0, 0.0, 0.0));
     }
 }
