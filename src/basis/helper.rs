@@ -1,6 +1,8 @@
 use libm::{erf, sqrt};
 use nalgebra::Vector3;
 use num_complex::Complex;
+use std::f64::consts::PI;
+use rayon::prelude::*;
 
 // Simpson's rule integration
 pub(crate) fn simpson_integration<F>(f: F, a: f64, b: f64, n: usize) -> f64
@@ -240,6 +242,60 @@ pub fn boys_function(n: i32, x: f64) -> f64 {
     vals[n]
 }
 
+pub fn integrate_spherical_3d<F>(
+    f: F,
+    a: Vector3<f64>,
+    b: Vector3<f64>,
+    R: Vector3<f64>,
+    nx: usize,
+    ny: usize,
+    nz: usize,
+    tolerance: f64,
+) -> f64
+where
+    F: Fn(Vector3<f64>) -> f64 + Sync,
+{
+    // Compute step sizes for each dimension
+    let dx = (b.x - a.x) / nx as f64;
+    let dy = (b.y - a.y) / ny as f64;
+    let dz = (b.z - a.z) / nz as f64;
+
+    let volume_element = dx * dy * dz;
+
+    // Create a vector of all grid indices for parallel iteration
+    let indices: Vec<(usize, usize, usize)> = (0..nx)
+        .flat_map(|i| (0..ny).flat_map(move |j| (0..nz).map(move |k| (i, j, k))))
+        .collect();
+
+    // Use Rayon parallel iterator to compute sum
+    let sum: f64 = indices
+        .par_iter() // parallel iterator
+        .map(|&(i, j, k)| {
+            // Compute the midpoint coordinates in each dimension
+            let x = a.x + (i as f64 + 0.5) * dx;
+            let y = a.y + (j as f64 + 0.5) * dy;
+            let z = a.z + (k as f64 + 0.5) * dz;
+            let r = Vector3::new(x, y, z);
+
+            let dr = r - R;
+            let dist = dr.norm();
+
+            // Skip points too close to R
+            if dist < tolerance || dist == 0.0 {
+                return 0.0;
+            }
+
+            // Evaluate the integrand: f(r)/|r-R|
+            let val = f(r) / dist;
+            val
+        })
+        .sum();
+
+    // Multiply by the volume element to get the integral approximation
+    sum * volume_element
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +318,45 @@ mod tests {
         let val = boys_function(1, 1.0);
         // Just a sanity check: no panic
         assert!(val.is_finite());
+    }
+
+    #[test]
+    fn test_integration_unit_sphere() {
+        // Domain: cube [-1,1]^3
+        let a = Vector3::new(-1.0, -1.0, -1.0);
+        let b = Vector3::new( 1.0,  1.0,  1.0);
+
+        // Singularity at the origin
+        let R = Vector3::new(0.0, 0.0, 0.0);
+
+        // Grid resolution
+        let nx = 100;
+        let ny = 100;
+        let nz = 100;
+
+        // Tolerance for skipping points near R
+        let tolerance = 1e-6;
+
+        // f(r)=1 inside the unit sphere, and 0 outside
+        let f = |r: Vector3<f64>| if r.norm_squared() <= 1.0 { 1.0 } else { 0.0 };
+
+        let result = integrate_spherical_3d(f, a, b, R, nx, ny, nz, tolerance);
+
+        // Analytical result for ∫ (1/|r|) inside sphere radius 1: 2 * π * 1^2 = 2 * π
+        let analytical = 2.0 * PI;
+
+        let error = (result - analytical).abs();
+        let relative_error = error / analytical;
+
+        // Check that the relative error is reasonably small
+        // Depending on nx, ny, nz, you might get a few percent accuracy.
+        // Let's say we want within 5% for a quick test.
+        assert!(
+            relative_error < 0.05,
+            "Integration error too large: result={}, expected={} (rel err={})",
+            result,
+            analytical,
+            relative_error
+        );
     }
 }
