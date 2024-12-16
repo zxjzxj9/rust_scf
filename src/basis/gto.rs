@@ -291,7 +291,7 @@ impl GTO {
             }
         }
 
-        val
+        a.norm * b.norm * val * 2.0 * PI / c.alpha
     }
 
     pub(crate) fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
