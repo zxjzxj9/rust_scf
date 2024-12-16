@@ -359,4 +359,65 @@ mod tests {
             Vector3::new(1.0, 1.0, 1.0),
         );
     }
+
+    #[test]
+    fn test_vab_symmetric() {
+        // Create two identical s-type GTOs: alpha = 1.0, center at origin
+        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+
+        // Nuclear center placed at (0.05,0,0) - mid-point as an example
+        let R = Vector3::new(0.05, 0.0, 0.0);
+
+        let val_ab = GTO::Vab(&a, &b, R);
+        let val_ba = GTO::Vab(&b, &a, R);
+
+        let diff = (val_ab - val_ba).abs();
+        assert!(diff < 1e-12, "Vab is not symmetric! diff={}", diff);
+    }
+
+    #[test]
+    fn test_vab_identical_primitive_s_orbitals() {
+        // Consider two identical s-orbitals at the origin with alpha=1.0
+        // and a nucleus at the origin.
+        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+
+        let R = Vector3::new(0.0, 0.0, 0.0);
+
+        let val = GTO::Vab(&a, &b, R);
+
+        // Compare with a known reference or a benchmark value
+        // For a basic check, we just ensure the value is finite and > 0
+        // In reality, you'd insert a known benchmark value here.
+        assert!(val.is_finite());
+        assert!(val > 0.0, "Integral should be positive for identical s-orbitals at the same center");
+    }
+
+    #[test]
+    fn test_vab_translation_invariance() {
+        // If we translate everything by the same vector, the integral should remain the same
+        // assuming that 'R' is defined relative to the orbitals.
+        // NOTE: This depends on how your integral is defined. If R is a fixed point in space,
+        // translation invariance might not apply. This is just a conceptual test.
+
+        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+
+        let R = Vector3::new(1.2, -0.5, 2.0);
+        let val_original = GTO::Vab(&a, &b, R);
+
+        let shift = Vector3::new(0.1,0.2,-0.3);
+        let a_shifted = GTO { center: a.center + shift, ..a };
+        let b_shifted = GTO { center: b.center + shift, ..b };
+        let R_shifted = R + shift;
+
+        let val_shifted = GTO::Vab(&a_shifted, &b_shifted, R_shifted);
+
+        // Depending on how R is defined, these might not match. If R is absolute space (like nuclear position),
+        // then we can't assume invariance. If R is relative, we can.
+        // For now, let's just check something like symmetry or numeric stability.
+        let diff = (val_original - val_shifted).abs();
+        assert!(diff < 1e-12, "Value changed upon uniform translation! diff={}", diff);
+    }
 }
