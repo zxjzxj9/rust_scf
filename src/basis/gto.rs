@@ -169,6 +169,7 @@ pub struct GTO {
     pub gto1d: [GTO1d; 3],
 }
 
+
 #[allow(non_snake_case)]
 impl GTO {
     pub(crate) fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
@@ -239,15 +240,8 @@ impl GTO {
     ///
     /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
     pub fn hermite_coulomb(
-        t: i32,
-        u: i32,
-        v: i32,
-        n: i32,
-        p: f64,
-        PCx: f64,
-        PCy: f64,
-        PCz: f64,
-        RPC: f64,
+        t: i32, u: i32, v: i32, n: i32, p: f64,
+        PCx: f64, PCy: f64, PCz: f64, RPC: f64,
     ) -> f64 {
         let T = p * RPC * RPC;
         let mut val = 0.0;

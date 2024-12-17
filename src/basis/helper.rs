@@ -2,6 +2,7 @@ use libm::{erf, sqrt};
 use nalgebra::Vector3;
 use num_complex::Complex;
 use std::f64::consts::PI;
+use rand::Rng;
 use rayon::prelude::*;
 
 // Simpson's rule integration
@@ -310,8 +311,63 @@ where
 }
 
 
+pub(crate) fn two_electron_integral_monte_carlo<F>(psi: F, L: f64, samples: usize) -> (f64, f64)
+where
+    F: Fn(Vector3<f64>, Vector3<f64>) -> f64 + Sync,
+{
+    let volume = (2.0 * L).powi(3) * (2.0 * L).powi(3); // (2L)^3 for r1 and (2L)^3 for r2 => (2L)^6 total volume
+
+    let mut rng = rand::thread_rng();
+    let seed: u64 = rng.gen();
+
+    // Parallel iteration
+    let results: Vec<f64> = (0..samples).into_par_iter().map(|n| {
+        let mut thread_rng = rand::thread_rng();
+
+        // Random point r1
+        let x1 = thread_rng.gen_range(-L..L);
+        let y1 = thread_rng.gen_range(-L..L);
+        let z1 = thread_rng.gen_range(-L..L);
+        let r1 = Vector3::new(x1, y1, z1);
+
+        // Random point r2
+        let x2 = thread_rng.gen_range(-L..L);
+        let y2 = thread_rng.gen_range(-L..L);
+        let z2 = thread_rng.gen_range(-L..L);
+        let r2 = Vector3::new(x2, y2, z2);
+
+        let diff = r1 - r2;
+        let dist = diff.norm();
+        if dist > 1e-6 {
+            let val =  psi(r1, r2) / dist;
+            val
+        } else {
+            // If they're essentially the same point, integrand is singular.
+            // For a 3D integral of Coulomb potential, the measure of exact overlap is negligible,
+            // but to be safe, we can skip or approximate.
+            // We'll just skip by returning 0.0, since it's extremely rare in random sampling.
+            0.0
+        }
+    }).collect();
+
+    let sum: f64 = results.iter().sum();
+    let mean = sum / (samples as f64);
+
+    // Estimate standard deviation
+    let var = results.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (samples as f64 - 1.0);
+    let std_dev = var.sqrt();
+
+    let integral = mean * volume;
+    // Standard error of the mean = std_dev / sqrt(samples)
+    let std_err = std_dev * volume / (samples as f64).sqrt();
+
+    (integral, std_err)
+}
+
+
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
     use super::*;
 
     // Basic test: check behavior for a few values

@@ -1,5 +1,6 @@
 use crate::basis::gto::{GTO1d, GTO};
-use crate::basis::helper::{simpson_integration, simpson_integration_3d};
+use crate::basis::helper::{simpson_integration, simpson_integration_3d,
+                           two_electron_integral_monte_carlo};
 use nalgebra::Vector3;
 use std::f64::consts::PI;
 use rand_distr::Normal;
@@ -8,6 +9,7 @@ use rand_distr::Normal;
 #[cfg(test)]
 mod tests {
     use rand::Rng;
+    use rayon::prelude::IntoParallelIterator;
     use crate::basis::helper::integrate_spherical_3d;
     use super::*;
 
@@ -565,10 +567,27 @@ mod tests {
         let b = radom_gto();
         let c = radom_gto();
         let d = radom_gto();
+
+        let psi  = |r1: Vector3<f64>, r2: Vector3<f64>| {
+            let val1 = a.evaluate(&r1) * b.evaluate(&r1);
+            let val2 = c.evaluate(&r2) * d.evaluate(&r2);
+            val1 * val2 / (r1 - r2).norm()
+        };
+
+        let L = 3.0;
+        let (integral_numerical, std_err) = two_electron_integral_monte_carlo(psi, L, 10_000_000);
+        let integral_analytical = GTO::JKabcd(&a, &b, &c, &d);
+        println!("numerical: {}, analytical: {}, std_err: {}", integral_numerical, integral_analytical, std_err);
+        // assert!(
+        //     (integral_numerical - integral_analytical).abs() < 3.0 * std_err,
+        //     "JKabcd is not close: got {}, expected {}",
+        //     integral_numerical,
+        //     integral_analytical
+        // )
     }
 
     #[test]
     fn test_jkabcd_against_numerical() {
-
+        test_jkabcd_against_numerical_with_random_gtos();
     }
 }
