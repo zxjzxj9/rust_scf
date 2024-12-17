@@ -264,100 +264,52 @@ mod tests {
     #[test]
     fn test_gto_kinetic_with_params() {
         test_gto_kinetic(
-            1.0,
-            1,
-            Vector3::new(0.0, 0.0, 0.0),
-            1.0,
-            1,
-            Vector3::new(0.0, 0.0, 1.0),
+            1.0, 1, Vector3::new(0.0, 0.0, 0.0),
+            1.0, 1, Vector3::new(0.0, 0.0, 1.0),
         );
         test_gto_kinetic(
-            0.8,
-            2,
-            Vector3::new(-1.0, 0.5, 2.0),
-            1.2,
-            1,
-            Vector3::new(0.0, 0.0, 0.0),
+            0.8, 2, Vector3::new(-1.0, 0.5, 2.0),
+            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
         );
         test_gto_kinetic(
-            2.0,
-            0,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.5,
-            2,
-            Vector3::new(1.0, -1.0, 1.0),
+            2.0, 0, Vector3::new(0.0, 0.0, 0.0),
+            0.5, 2, Vector3::new(1.0, -1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            0,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            0,
-            Vector3::new(0.0, 0.0, 0.0),
+            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 0, Vector3::new(0.0, 0.0, 0.0),
         );
         test_gto_kinetic(
-            1.2,
-            0,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            1,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            1,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            0,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 0, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            1,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            1,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            2,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            0,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 0, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            0,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            2,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            2,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            1,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            1,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            2,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2,
-            2,
-            Vector3::new(0.0, 0.0, 0.0),
-            0.8,
-            2,
-            Vector3::new(1.0, 1.0, 1.0),
+            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
+            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
         );
     }
 
