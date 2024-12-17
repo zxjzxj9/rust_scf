@@ -571,7 +571,7 @@ mod tests {
         let psi  = |r1: Vector3<f64>, r2: Vector3<f64>| {
             let val1 = a.evaluate(&r1) * b.evaluate(&r1);
             let val2 = c.evaluate(&r2) * d.evaluate(&r2);
-            val1 * val2 / (r1 - r2).norm()
+            val1 * val2
         };
 
         let L = 3.0;
