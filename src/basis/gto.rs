@@ -299,14 +299,50 @@ impl GTO {
                     GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
 
                 eab_x * eab_y * eab_z * hermite_val
-            })
-            .sum::<f64>();
+            }).sum::<f64>();
 
         a.norm * b.norm * val * 2.0 * PI / c.alpha
     }
 
     pub(crate) fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
-        todo!("Implement Exab")
+        let e = GTO::merge(a, b);
+        let f = GTO::merge(c, d);
+        let dr = e.center - f.center;
+        let alpha = e.alpha * f.alpha / (e.alpha + f.alpha);
+
+        let  val = iproduct!(0..=e.l_xyz.x, 0..=e.l_xyz.y, 0..=e.l_xyz.z,
+                0..=f.l_xyz.x, 0..=f.l_xyz.y, 0..=f.l_xyz.z)
+            .par_bridge()
+            .map(|(i, j, k, l, m, n)| {
+                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
+                    a.center.x - b.center.x, a.alpha, b.alpha);
+
+                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
+                    a.center.y - b.center.y, a.alpha, b.alpha);
+
+                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
+                    a.center.z - b.center.z, a.alpha, b.alpha);
+
+                let ecd_x = GTO1d::Eab(c.l_xyz.x, d.l_xyz.x, l,
+                    c.center.x - d.center.x, c.alpha, d.alpha);
+
+                let ecd_y = GTO1d::Eab(c.l_xyz.y, d.l_xyz.y, m,
+                    c.center.y - d.center.y, c.alpha, d.alpha);
+
+                let ecd_z = GTO1d::Eab(c.l_xyz.z, d.l_xyz.z, n,
+                    c.center.z - d.center.z, c.alpha, d.alpha);
+
+                let hermite_val =
+                    GTO::hermite_coulomb(i + l, j + m, k + n, 0,
+                                         alpha, dr.x, dr.y, dr.z, dr.norm());
+
+                // if l + m + n is odd, then sgn is -1, otherwise sgn is 1
+                let sgn = if (l + m + n) % 2 == 0 { 1.0 } else { -1.0 };
+                eab_x * eab_y * eab_z * ecd_x * ecd_y * ecd_z * sgn * hermite_val
+            }).sum::<f64>();
+
+        a.norm * b.norm * c.norm * d.norm * val
+            * PI.powf(2.5) / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
     }
 }
 
