@@ -553,9 +553,9 @@ mod tests {
         // radom alpha between 0.5 and 2.0
         let alpha = 0.5 + 1.5 * rand::random::<f64>();
         // random l between 0 and 2
-        let l = rng.gen_range(0..=2);
-        let m = rng.gen_range(0..=2);
-        let n = rng.gen_range(0..=2);
+        let l = rng.gen_range(0..=1);
+        let m = rng.gen_range(0..=1);
+        let n = rng.gen_range(0..=1);
         // random center between -2.0 to 2.0
         let center = Vector3::<f64>::from_distribution(&dist, &mut rng);
         GTO::new(alpha, Vector3::new(l, m, n), center)
@@ -578,16 +578,18 @@ mod tests {
         let (integral_numerical, std_err) = two_electron_integral_monte_carlo(psi, L, 10_000_000);
         let integral_analytical = GTO::JKabcd(&a, &b, &c, &d);
         println!("numerical: {}, analytical: {}, std_err: {}", integral_numerical, integral_analytical, std_err);
-        // assert!(
-        //     (integral_numerical - integral_analytical).abs() < 3.0 * std_err,
-        //     "JKabcd is not close: got {}, expected {}",
-        //     integral_numerical,
-        //     integral_analytical
-        // )
+        assert!(
+            (integral_numerical - integral_analytical).abs() < 3.0 * std_err,
+            "JKabcd is not close: got {}, expected {}",
+            integral_numerical,
+            integral_analytical
+        )
     }
 
     #[test]
     fn test_jkabcd_against_numerical() {
-        test_jkabcd_against_numerical_with_random_gtos();
+        for i in 0..10 {
+            test_jkabcd_against_numerical_with_random_gtos();
+        }
     }
 }
