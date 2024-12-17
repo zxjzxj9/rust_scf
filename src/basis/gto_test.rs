@@ -2,9 +2,12 @@ use crate::basis::gto::{GTO1d, GTO};
 use crate::basis::helper::{simpson_integration, simpson_integration_3d};
 use nalgebra::Vector3;
 use std::f64::consts::PI;
+use rand_distr::Normal;
+
 
 #[cfg(test)]
 mod tests {
+    use rand::Rng;
     use crate::basis::helper::integrate_spherical_3d;
     use super::*;
 
@@ -388,20 +391,6 @@ mod tests {
 
         let val_analytical = GTO::Vab(&gto1, &gto2, R);
 
-        // let integrand = |x, y, z| {
-        //     let r = Vector3::new(x, y, z);
-        //     // let pa = gto1.evaluate(&r);
-        //     // let pb = gto2.evaluate(&r);
-        //     // let dr = r - R;
-        //     // let dr_norm = dr.norm();
-        //     //
-        //     // if dr_norm < 1e-14 {
-        //     //     0.0
-        //     // } else {
-        //     //     pa * pb / dr_norm
-        //     // }
-        //     gto1.evaluate(&r) * gto2.evaluate(&r)
-        // };
         let integrand = |vec| {
             let pa = gto1.evaluate(&vec);
             let pb = gto2.evaluate(&vec);
@@ -442,6 +431,55 @@ mod tests {
                 alpha2,
                 l2,
                 center2
+            );
+        }
+    }
+
+    fn test_vab_against_numerical_with_random_gto() {
+        let gto1 = radom_gto();
+        let gto2 = radom_gto();
+        let R = Vector3::new(0.0, 0.0, 0.0);
+        let val_analytical = GTO::Vab(&gto1, &gto2, R);
+
+        let integrand = |vec| {
+            let pa = gto1.evaluate(&vec);
+            let pb = gto2.evaluate(&vec);
+            pa * pb
+        };
+
+        let lower = Vector3::new(-20.0, -20.0, -20.0);
+        let upper = Vector3::new(20.0, 20.0, 20.0);
+        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-6);
+
+        let diff = (val_analytical - val_numerical).abs();
+
+        if  val_numerical.abs() < 1e-2 {
+            assert!(
+                (val_numerical - val_analytical).abs() < 1e-2,
+                "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
+                val_analytical,
+                val_numerical,
+                gto1.alpha,
+                gto1.l_xyz,
+                gto1.center,
+                gto2.alpha,
+                gto2.l_xyz,
+                gto2.center
+            );
+        } else {
+            assert!(
+                (val_numerical - val_analytical).abs() < 1e-2 * val_numerical.abs(),
+                "Kinetic energy integral is not close: got {}, expected {}, \
+             params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
+                val_analytical,
+                val_numerical,
+                gto1.alpha,
+                gto1.l_xyz,
+                gto1.center,
+                gto2.alpha,
+                gto2.l_xyz,
+                gto2.center
             );
         }
     }
@@ -501,5 +539,36 @@ mod tests {
             Vector3::new(1, 2, 0),
             Vector3::new(0.0, 1.0, 1.0),
             Vector3::new(0.0, 1.0, 0.0));
+
+        for i in 0..3 {
+            test_vab_against_numerical_with_random_gto();
+        }
+    }
+
+    fn radom_gto() -> GTO {
+        let mut rng = rand::thread_rng();
+        let dist = Normal::new(0.0, 1.0).unwrap();
+        // radom alpha between 0.5 and 2.0
+        let alpha = 0.5 + 1.5 * rand::random::<f64>();
+        // random l between 0 and 2
+        let l = rng.gen_range(0..=2);
+        let m = rng.gen_range(0..=2);
+        let n = rng.gen_range(0..=2);
+        // random center between -2.0 to 2.0
+        let center = Vector3::<f64>::from_distribution(&dist, &mut rng);
+        GTO::new(alpha, Vector3::new(l, m, n), center)
+    }
+
+    fn test_jkabcd_against_numerical_with_random_gtos() {
+        // generate a random gto, with random alpha, l, center
+        let a = radom_gto();
+        let b = radom_gto();
+        let c = radom_gto();
+        let d = radom_gto();
+    }
+
+    #[test]
+    fn test_jkabcd_against_numerical() {
+
     }
 }

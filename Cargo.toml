@@ -9,4 +9,6 @@ libm = "0.2.11"
 num-complex = "0.4.6"
 rayon = "1.10.0"
 itertools = "0.13.0"
+rand = "0.8.5"
+rand_distr = "0.4.3"
 

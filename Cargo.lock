@@ -295,6 +295,8 @@ dependencies = [
  "libm",
  "nalgebra",
  "num-complex",
+ "rand",
+ "rand_distr",
  "rayon",
 ]
 
