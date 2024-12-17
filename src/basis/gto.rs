@@ -1,7 +1,5 @@
 extern crate nalgebra as na;
 
-use crate::basis;
-// use basis::basis::Basis;
 use crate::basis::helper::boys_function;
 use itertools::iproduct;
 use na::Vector3;
