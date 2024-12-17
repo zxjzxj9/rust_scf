@@ -3,10 +3,8 @@ extern crate nalgebra as na;
 use crate::basis;
 // use basis::basis::Basis;
 use crate::basis::helper::boys_function;
-use basis::helper::{simpson_integration, simpson_integration_3d};
 use itertools::iproduct;
 use na::Vector3;
-use nalgebra::{ArrayStorage, Const, Matrix};
 use rayon::prelude::*;
 use std::f64::consts::PI;
 
