@@ -4,8 +4,10 @@ use crate::basis;
 // use basis::basis::Basis;
 use crate::basis::helper::boys_function;
 use basis::helper::{simpson_integration, simpson_integration_3d};
+use itertools::iproduct;
 use na::Vector3;
 use nalgebra::{ArrayStorage, Const, Matrix};
+use rayon::prelude::*;
 use std::f64::consts::PI;
 
 #[derive(Debug)]
@@ -229,7 +231,6 @@ impl GTO {
         GTO::new(alpha, l_xyz, center)
     }
 
-
     /// Computes the Coulomb auxiliary Hermite integrals.
     ///
     /// # Arguments
@@ -242,9 +243,15 @@ impl GTO {
     ///
     /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
     pub fn hermite_coulomb(
-        t: i32, u: i32, v: i32, n: i32,
+        t: i32,
+        u: i32,
+        v: i32,
+        n: i32,
         p: f64,
-        PCx: f64, PCy: f64, PCz: f64, RPC: f64,
+        PCx: f64,
+        PCy: f64,
+        PCz: f64,
+        RPC: f64,
     ) -> f64 {
         let T = p * RPC * RPC;
         let mut val = 0.0;
@@ -253,17 +260,20 @@ impl GTO {
             val += (-2.0 * p).powi(n as i32) * boys_function(n, T);
         } else if t == 0 && u == 0 {
             if v > 1 {
-                val += (v as f64 - 1.0) * GTO::hermite_coulomb(t, u, v - 2, n + 1, p, PCx, PCy, PCz, RPC);
+                val += (v as f64 - 1.0)
+                    * GTO::hermite_coulomb(t, u, v - 2, n + 1, p, PCx, PCy, PCz, RPC);
             }
             val += PCz * GTO::hermite_coulomb(t, u, v - 1, n + 1, p, PCx, PCy, PCz, RPC);
         } else if t == 0 {
             if u > 1 {
-                val += (u as f64 - 1.0) * GTO::hermite_coulomb(t, u - 2, v, n + 1, p, PCx, PCy, PCz, RPC);
+                val += (u as f64 - 1.0)
+                    * GTO::hermite_coulomb(t, u - 2, v, n + 1, p, PCx, PCy, PCz, RPC);
             }
             val += PCy * GTO::hermite_coulomb(t, u - 1, v, n + 1, p, PCx, PCy, PCz, RPC);
         } else {
             if t > 1 {
-                val += (t as f64 - 1.0) * GTO::hermite_coulomb(t - 2, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+                val += (t as f64 - 1.0)
+                    * GTO::hermite_coulomb(t - 2, u, v, n + 1, p, PCx, PCy, PCz, RPC);
             }
             val += PCx * GTO::hermite_coulomb(t - 1, u, v, n + 1, p, PCx, PCy, PCz, RPC);
         }
@@ -277,20 +287,24 @@ impl GTO {
         let mut val = 0.0;
         let dr = c.center - R;
 
-        for i in 0..=c.l_xyz.x {
-            for j in 0..=c.l_xyz.y {
-                for k in 0 ..=c.l_xyz.z {
-                    val += GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
-                                      a.center.x - b.center.x, a.alpha, b.alpha)
-                        * GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
-                                     a.center.y - b.center.y, a.alpha, b.alpha)
-                        * GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
-                                     a.center.z - b.center.z, a.alpha, b.alpha)
-                        * GTO::hermite_coulomb(i, j, k, 0, c.alpha,
-                                               dr.x, dr.y, dr.z, dr.norm());
-                }
-            }
-        }
+        let val = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
+            .par_bridge()
+            .map(|(i, j, k)| {
+                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
+                    a.center.x - b.center.x, a.alpha, b.alpha);
+
+                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
+                    a.center.y - b.center.y, a.alpha, b.alpha);
+
+                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
+                    a.center.z - b.center.z, a.alpha, b.alpha);
+
+                let hermite_val =
+                    GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
+
+                eab_x * eab_y * eab_z * hermite_val
+            })
+            .sum::<f64>();
 
         a.norm * b.norm * val * 2.0 * PI / c.alpha
     }
