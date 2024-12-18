@@ -22,7 +22,8 @@ fn factorial(n: i32) -> f64 {
 #[allow(non_snake_case)]
 impl GTO1d {
     pub fn new(alpha: f64, l: i32, center: f64) -> Self {
-        let norm = GTO1d::compute_norm(alpha, l);
+        // let norm = GTO1d::compute_norm(alpha, l);
+        let norm = 1.0;
         Self {
             alpha,
             l,
