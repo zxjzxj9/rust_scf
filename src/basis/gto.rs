@@ -343,26 +343,3 @@ impl GTO {
 }
 
 // https://chemistry.montana.edu/callis/courses/chmy564/460water.pdf
-
-//
-// impl Basis for GTO {
-//     fn evaluate(&self, r: &Vector3<f64>) -> f64 {
-//         todo!()
-//     }
-//
-//     fn overlap(&self, other: &Self) -> f64 {
-//         todo!()
-//     }
-//
-//     fn kinetic(&self, other: &Self) -> f64 {
-//         todo!()
-//     }
-//
-//     fn potential(&self, other: &Self, R: &Vector3<f64>) -> f64 {
-//         todo!()
-//     }
-//
-//     fn two_electron(&self, other: &Self) -> f64 {
-//         todo!()
-//     }
-// }
