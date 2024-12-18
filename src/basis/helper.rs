@@ -338,7 +338,7 @@ where
 
         let diff = r1 - r2;
         let dist = diff.norm();
-        if dist > 1e-6 {
+        if dist > 1e-12 {
             let val =  psi(r1, r2) / dist;
             val
         } else {
@@ -350,11 +350,13 @@ where
         }
     }).collect();
 
-    let sum: f64 = results.iter().sum();
+    let sum: f64 = results.par_iter().sum();
     let mean = sum / (samples as f64);
 
     // Estimate standard deviation
-    let var = results.iter().map(|&x| (x - mean).powi(2)).sum::<f64>() / (samples as f64 - 1.0);
+    // calculate variance: sum((x_i - mean)^2) / (n-1)
+    let var = results.par_iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (samples as f64 - 1.0);
+    // let var = results.into_par_iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (samples as f64 - 1.0);
     let std_dev = var.sqrt();
 
     let integral = mean * volume;

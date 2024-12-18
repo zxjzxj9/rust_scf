@@ -336,7 +336,7 @@ impl GTO {
             }).sum::<f64>();
 
         a.norm * b.norm * c.norm * d.norm * val
-            * PI.powf(2.5) / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
+            * 2.0 * PI.powf(2.5) / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
     }
 }
 
