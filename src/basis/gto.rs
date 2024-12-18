@@ -5,8 +5,9 @@ use itertools::iproduct;
 use na::Vector3;
 use rayon::prelude::*;
 use std::f64::consts::PI;
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GTO1d {
     pub alpha: f64,
     pub l: i32,
@@ -160,7 +161,7 @@ impl GTO1d {
     // }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct GTO {
     pub alpha: f64,
     pub l_xyz: Vector3<i32>,

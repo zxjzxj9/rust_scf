@@ -1,9 +1,25 @@
 use nalgebra::Vector3;
-#[allow(non_snake_case)]
-pub(crate) trait Basis {
-    fn evaluate(&self, r: &Vector3<f64>) -> f64;
-    fn overlap(&self, other: &Self) -> f64;
-    fn kinetic(&self, other: &Self) -> f64;
-    fn potential(&self, other: &Self, R: &Vector3<f64>) -> f64;
-    fn two_electron(&self, other: &Self) -> f64;
+use serde::{Deserialize, Serialize};
+use crate::basis::gto::GTO;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum ShellType {
+    S,  // l = 0
+    P,  // l = 1
+    D,  // l = 2
 }
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ContractedGTO {
+    pub primitives: Vec<GTO>,
+    pub coefficients: Vec<f64>,
+    pub shell_type: ShellType,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Basis631G {
+    pub core: ContractedGTO,
+    pub valence_inner: ContractedGTO,
+    pub valence_outer: GTO,
+}
+
