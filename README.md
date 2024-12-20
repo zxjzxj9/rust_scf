@@ -1,4 +1,4 @@
-# HowTo perform a Hartree-Fock SCF calculation?
+# HowTos: Perform a Hartree-Fock SCF calculation
 
 ---
 
