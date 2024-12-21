@@ -58,6 +58,8 @@ def parse_basis_set(json_data: Dict, element_number: str) -> BasisSet:
 
 if __name__ == "__main__":
 
+    base_url = "https://www"
+
     json_data = requests.get("https://www.basissetexchange.org/download_basis/basis/6-31g/format/json/?version=1&elements=20").json()
 
     # Parse all elements in the basis set
