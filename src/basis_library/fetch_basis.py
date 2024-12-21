@@ -1,5 +1,6 @@
 #! /usr/bin/env python
 
+import requests
 import json
 import pickle
 from dataclasses import dataclass
@@ -56,9 +57,8 @@ def parse_basis_set(json_data: Dict, element_number: str) -> BasisSet:
     )
 
 if __name__ == "__main__":
-    # Read the JSON data
-    with open('paste.txt', 'r') as f:
-        json_data = json.load(f)
+
+    json_data = requests.get("https://www.basissetexchange.org/download_basis/basis/6-31g/format/json/?version=1&elements=20").json()
 
     # Parse all elements in the basis set
     basis_sets = {}
