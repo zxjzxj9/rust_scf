@@ -1,11 +1,11 @@
 extern crate nalgebra as na;
 
-use crate::basis::helper::boys_function;
 use itertools::iproduct;
 use na::Vector3;
 use rayon::prelude::*;
 use std::f64::consts::PI;
 use serde::{Deserialize, Serialize};
+use crate::helper::boys_function;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GTO1d {

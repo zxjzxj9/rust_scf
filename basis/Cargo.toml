@@ -1,5 +1,5 @@
 [package]
-name = "rust_scf"
+name = "basis"
 version = "0.1.0"
 edition = "2021"
 
@@ -13,3 +13,5 @@ rand = "0.8.5"
 rand_distr = "0.4.3"
 serde = { version = "1.0.215", features = ["derive"] }
 serde-pickle = "1.2.0"
+
+[lib]

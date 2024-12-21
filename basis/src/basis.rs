@@ -3,7 +3,7 @@ use std::io::{Read, Write};
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use serde_pickle;
-use crate::basis::gto::GTO;
+use crate::gto::GTO;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum ShellType {

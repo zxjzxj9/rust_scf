@@ -1,17 +1,6 @@
-use crate::basis::gto::{GTO1d, GTO};
-use crate::basis::helper::{simpson_integration, simpson_integration_3d,
-                           two_electron_integral_monte_carlo};
-use nalgebra::Vector3;
-use std::f64::consts::PI;
-use rand_distr::Normal;
-
-
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-    use rayon::prelude::IntoParallelIterator;
-    use crate::basis::helper::integrate_spherical_3d;
-    use super::*;
+
 
     // #[test]
     // fn test_gto1d_normalization() {
@@ -32,6 +21,13 @@ mod tests {
     //     let diff = (integral - 1.0).abs();
     //     assert!(diff < 1e-5, "Integral is not close to 1: got {}", integral);
     // }
+
+    use std::f64::consts::PI;
+    use nalgebra::Vector3;
+    use rand::Rng;
+    use rand_distr::Normal;
+    use crate::gto::{GTO1d, GTO};
+    use crate::helper::{integrate_spherical_3d, simpson_integration, simpson_integration_3d, two_electron_integral_monte_carlo};
 
     #[test]
     fn test_gto1d_overlap() {
