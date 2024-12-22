@@ -2,13 +2,13 @@
 
 import sys
 import requests
-from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                              QLineEdit, QListWidget, QPushButton, QLabel, 
-                              QMessageBox, QProgressDialog, QDialog, QTextEdit,
-                              QDialogButtonBox, QHBoxLayout, QTabWidget)
+from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
+                               QLineEdit, QListWidget, QPushButton, QLabel,
+                               QMessageBox, QProgressDialog, QDialog, QTextEdit,
+                               QDialogButtonBox, QHBoxLayout, QTabWidget, QFileDialog)
 from PySide6.QtCore import Qt, QThread, Signal
 
-class DataFetcher(QThread):
+class MetaDataFetcher(QThread):
     finished = Signal(dict)
     error = Signal(str)
 
@@ -20,9 +20,34 @@ class DataFetcher(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+class FormatFetcher(QThread):
+    finished = Signal(dict)
+    error = Signal(str)
+
+    def run(self):
+        try:
+            base_url = "https://www.basissetexchange.org"
+            response = requests.get(base_url + '/api/formats')
+            self.finished.emit(response.json())
+        except Exception as e:
+            self.error.emit(str(e))
+
+# class BasisFetcher(QThread):
+#     finished = Signal(dict)
+#     error = Signal(str)
+#
+#     def run(self):
+#         try:
+#             base_url = "https://www.basissetexchange.org"
+#             response = requests.get(base_url + f'/api/basis/{basis_name}/format/json?elements={element}')
+#             self.finished.emit(response.json())
+#         except Exception as e:
+#             self.error.emit(str(e))
+
 class MetadataDialog(QDialog):
     def __init__(self, basis_name, basis_info, parent=None):
         super().__init__(parent)
+        self.basis_name = basis_name
         self.setWindowTitle(f"Basis Set Information: {basis_name}")
         self.setMinimumSize(600, 400)
 
@@ -83,6 +108,8 @@ class MetadataDialog(QDialog):
         layout.addWidget(button_gen)
 
     def generate_basis_file(self):
+        # popup a dialog to select save folder, if folder not exist then create it
+        save_folder = QFileDialog.getExistingDirectory(self, "Select Save Folder for Basis Set File")
         QMessageBox.information(self, "Basis Set File", "File generated successfully")
 
 class BasisSelector(QMainWindow):
@@ -129,7 +156,7 @@ class BasisSelector(QMainWindow):
         self.progress.setWindowModality(Qt.WindowModal)
         self.progress.show()
         
-        self.fetcher = DataFetcher()
+        self.fetcher = MetaDataFetcher()
         self.fetcher.finished.connect(self.handle_data)
         self.fetcher.error.connect(self.handle_error)
         self.fetcher.start()
