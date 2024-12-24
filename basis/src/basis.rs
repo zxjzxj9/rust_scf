@@ -6,13 +6,13 @@ use serde_pickle;
 use serde_pickle::Serializer;
 use crate::gto::GTO;
 
-
+// need to consider how to reuse GTO integral, since s, p share the same exponents
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractedGTO {
     pub primitives: Vec<GTO>,
     pub coefficients: Vec<f64>,
     // shell_type: 1s, 2s, 2px, 2py, 2pz, ...
-    pub shell_type: str,
+    pub shell_type: String,
     pub n: i32,
     pub l: i32,
     pub m: i32,
@@ -22,7 +22,7 @@ pub struct ContractedGTO {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Basis631G {
     // define of the basis set
-    pub name: str,
+    pub name: String,
     // define atomic number
     pub atomic_number: i32,
     pub basis_set: Vec<ContractedGTO>,
