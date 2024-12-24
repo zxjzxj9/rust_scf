@@ -12,6 +12,10 @@ pub struct ContractedGTO {
     pub coefficients: Vec<f64>,
     // shell_type: 1s, 2s, 2px, 2py, 2pz, ...
     pub shell_type: str,
+    pub n: i32,
+    pub l: i32,
+    pub m: i32,
+    pub s: i32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
