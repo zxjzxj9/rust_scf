@@ -9,7 +9,7 @@ use crate::gto::GTO;
 // need to consider how to reuse GTO integral, since s, p share the same exponents
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ContractedGTO {
-    pub primitives: Vec<&'static GTO>,
+    pub primitives: Vec<GTO>,
     pub coefficients: Vec<f64>,
     // shell_type: 1s, 2s, 2px, 2py, 2pz, ...
     pub shell_type: String,

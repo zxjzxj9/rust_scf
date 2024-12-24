@@ -3,5 +3,10 @@ name = "basis_py"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "basis_py"
+crate-type = ["cdylib"]
+
 [dependencies]
 basis = { path = "../basis" }
+pyo3 = { version = "0.23.3", features = ["auto-initialize", "extension-module"] }
