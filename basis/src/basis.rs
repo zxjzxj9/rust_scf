@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use serde_pickle;
+use serde_pickle::Serializer;
 use crate::gto::GTO;
 
 
@@ -15,15 +16,16 @@ pub struct ContractedGTO {
     pub n: i32,
     pub l: i32,
     pub m: i32,
-    pub s: i32,
+    pub s: i32, // +1 or -1, stand for alpha or beta
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Basis631G {
     // define of the basis set
-    pub core: ContractedGTO,
-    pub valence_inner: ContractedGTO,
-    pub valence_outer: GTO,
+    pub name: str,
+    // define atomic number
+    pub atomic_number: i32,
+    pub basis_set: Vec<ContractedGTO>,
 }
 
 impl Basis631G {
