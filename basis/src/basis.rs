@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_pickle;
 use serde_pickle::Serializer;
 use crate::gto::GTO;
+use mendeleev::Element;
+
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,116 +111,87 @@ impl Basis631G {
             basis_set: Vec::new()
         };
 
-        // We'll track what element and shell we are currently filling
-        let mut current_element: Option<String> = None;
-        let mut current_shell_type: Option<ShellType> = None;
-        let mut current_entries: ContractedGTO = ContractedGTO {
-            primitives: Vec::new(),
-            coefficients: Vec::new(),
-            shell_type: String::from(""),
-            n: 0,
-            l: 0,
-            m: 0,
-            s: 0,
-        };
+        let mut atomic_name = "";
 
-        // Helper to push the "current shell" into `basis.data`
-        // whenever we finish reading one.
-        let mut push_current_shell = |elem: &str,
-                                      shell_t: &ShellType,
-                                      entries: &mut Vec<GTO>,
-                                      basis: &mut Basis631G| {
-            if !entries.is_empty() {
-                let shell = ContractedGTO {
-                    shell_type: shell_t.clone(),
-                    entries: entries.drain(..).collect(),
-                };
-                basis.data.push((elem.to_string(), shell));
-            }
-        };
-
-        // Go line by line
         for line in bstr.lines() {
-            let line = line.trim();
-            // Skip comments and blank lines
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            // If we hit "END", we’re done reading
-            if line.eq_ignore_ascii_case("END") {
-                // Push the last shell we were accumulating
-                if let (Some(ref elem), Some(ref shell_t)) =
-                    (current_element.as_ref(), current_shell_type.as_ref())
-                {
-                    push_current_shell(elem, shell_t, &mut current_entries, &mut basis);
-                }
-                break;
-            }
 
-            // Check if line looks like "Mg    S" or "Mg    SP" etc
-            // Usually that means "Element  ShellType"
-            // We'll assume first token is element, everything after is the shell type.
-            let tokens: Vec<&str> = line.split_whitespace().collect();
-            if tokens.len() >= 2 {
-                // Heuristic: If second token is S, P, D, SP, ...
-                if let Some(shell_t) = parse_shell_type(tokens[1]) {
-                    // That means we encountered a new shell definition line
-
-                    // If we had an existing shell in progress, push it
-                    if let (Some(ref elem), Some(ref shell_typ)) =
-                        (current_element.as_ref(), current_shell_type.as_ref())
-                    {
-                        push_current_shell(elem, shell_typ, &mut current_entries, &mut basis);
-                    }
-
-                    // Start a new shell
-                    current_element = Some(tokens[0].to_string());
-                    current_shell_type = Some(shell_t);
-                    // We’ll parse exponents/coeffs on subsequent lines
-                    continue;
-                }
-            }
-
-            // Otherwise, we assume it’s an exponent+coeff line.
-            // E.g.  0.1172280000E+05       0.1977829317E-02
-            // or    0.1891800000E+03      -0.3237170471E-02       0.4928129921E-02
-            let numbers: Vec<f64> = line
-                .split_whitespace()
-                .filter_map(|s| parse_nwchem_float(s).ok())
-                .collect();
-
-            if !numbers.is_empty() {
-                // By convention, the first number is exponent,
-                // the rest are the coefficients for that row.
-                let exponent = numbers[0];
-                let coeffs = numbers[1..].to_vec();
-
-                current_entries.push(ContractedGTO {
-                    exponent,
-                    coefficients: coeffs,
-                });
-            }
         }
 
         basis
+        // // Go line by line
+        // for line in bstr.lines() {
+        //     let line = line.trim();
+        //     // Skip comments and blank lines
+        //     if line.is_empty() || line.starts_with('#') {
+        //         continue;
+        //     }
+        //     // If we hit "END", we’re done reading
+        //     if line.eq_ignore_ascii_case("END") {
+        //         // Push the last shell we were accumulating
+        //         if let (Some(ref elem), Some(ref shell_t)) =
+        //             (current_element.as_ref(), current_shell_type.as_ref())
+        //         {
+        //             push_current_shell(elem, shell_t, &mut current_entries, &mut basis);
+        //         }
+        //         break;
+        //     }
+        //
+        //     // Check if line looks like "Mg    S" or "Mg    SP" etc
+        //     // Usually that means "Element  ShellType"
+        //     // We'll assume first token is element, everything after is the shell type.
+        //     let tokens: Vec<&str> = line.split_whitespace().collect();
+        //     if tokens.len() >= 2 {
+        //         // Heuristic: If second token is S, P, D, SP, ...
+        //         if let Some(shell_t) = parse_shell_type(tokens[1]) {
+        //             // That means we encountered a new shell definition line
+        //
+        //             // If we had an existing shell in progress, push it
+        //             if let (Some(ref elem), Some(ref shell_typ)) =
+        //                 (current_element.as_ref(), current_shell_type.as_ref())
+        //             {
+        //                 push_current_shell(elem, shell_typ, &mut current_entries, &mut basis);
+        //             }
+        //
+        //             // Start a new shell
+        //             current_element = Some(tokens[0].to_string());
+        //             current_shell_type = Some(shell_t);
+        //             // We’ll parse exponents/coeffs on subsequent lines
+        //             continue;
+        //         }
+        //     }
+        //
+        //     // Otherwise, we assume it’s an exponent+coeff line.
+        //     // E.g.  0.1172280000E+05       0.1977829317E-02
+        //     // or    0.1891800000E+03      -0.3237170471E-02       0.4928129921E-02
+        //     let numbers: Vec<f64> = line
+        //         .split_whitespace()
+        //         .filter_map(|s| parse_nwchem_float(s).ok())
+        //         .collect();
+        //
+        //     if !numbers.is_empty() {
+        //         // By convention, the first number is exponent,
+        //         // the rest are the coefficients for that row.
+        //         let exponent = numbers[0];
+        //         let coeffs = numbers[1..].to_vec();
+        //
+        //         current_entries.push(ContractedGTO {
+        //             exponent,
+        //             coefficients: coeffs,
+        //         });
+        //     }
+        // }
+        //
+        // basis
     }
+
     fn new(bstr: String, format: BasisFormat) -> Self {
         match format {
             BasisFormat::NWChem => {
-                let basis_set = Self::parse_nwchem(&bstr);
-                Self {
-                    name: "6-31G".to_string(),
-                    atomic_number: 0,
-                    basis_set,
-                }
+                Self::parse_nwchem(&bstr);
             }
             BasisFormat::Json => {
-                let basis_set = Self::parse_json(&bstr);
-                Self {
-                    name: "6-31G".to_string(),
-                    atomic_number: 0,
-                    basis_set,
-                }
+                // not implemented
+                todo!()
             }
         }
 

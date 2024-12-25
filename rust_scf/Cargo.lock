@@ -23,6 +23,7 @@ version = "0.1.0"
 dependencies = [
  "itertools",
  "libm",
+ "mendeleev",
  "nalgebra",
  "num-complex",
  "rand",
@@ -127,6 +128,15 @@ checksum = "9380b911e3e96d10c1f415da0876389aaf1b56759054eeb0de7df940c456ba1a"
 dependencies = [
  "autocfg",
  "rawpointer",
+]
+
+[[package]]
+name = "mendeleev"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f8dd6ec5207f7f69db7abb42466511394956dc85faf163de1fe393246c8b7e4"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
