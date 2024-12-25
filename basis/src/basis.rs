@@ -126,10 +126,10 @@ impl Basis631G {
         // whenever we finish reading one.
         let mut push_current_shell = |elem: &str,
                                       shell_t: &ShellType,
-                                      entries: &mut Vec<GtoEntry>,
+                                      entries: &mut Vec<GTO>,
                                       basis: &mut Basis631G| {
             if !entries.is_empty() {
-                let shell = Shell {
+                let shell = ContractedGTO {
                     shell_type: shell_t.clone(),
                     entries: entries.drain(..).collect(),
                 };
@@ -193,7 +193,7 @@ impl Basis631G {
                 let exponent = numbers[0];
                 let coeffs = numbers[1..].to_vec();
 
-                current_entries.push(GtoEntry {
+                current_entries.push(ContractedGTO {
                     exponent,
                     coefficients: coeffs,
                 });
