@@ -6,6 +6,7 @@ use serde_pickle;
 use serde_pickle::Serializer;
 use crate::gto::GTO;
 use mendeleev::Element;
+use serde_json;
 
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
@@ -26,42 +27,13 @@ pub struct Basis631G {
     // define of the basis set
     pub name: String,
     // define atomic number
-    pub atomic_number: i32,
+    pub atomic_number: u32,
     pub basis_set: Vec<ContractedGTO>,
 }
 
 enum BasisFormat {
     NWChem,
     Json,
-}
-
-/// Possible shell types.
-#[derive(Debug)]
-pub enum ShellType {
-    S,
-    P,
-    D,
-    SP, // Combined S/P in one block, as in NWChem
-    // etc.
-}
-
-/// Helper to parse shell type from a string like "S" or "SP"
-fn parse_shell_type(s: &str) -> Option<ShellType> {
-    match s.to_ascii_uppercase().as_str() {
-        "S" => Some(ShellType::S),
-        "P" => Some(ShellType::P),
-        "D" => Some(ShellType::D),
-        "SP" => Some(ShellType::SP),
-        // ...
-        _ => None,
-    }
-}
-
-/// Helper to parse floats in NWChem style (0.1172280000E+05, etc.)
-fn parse_nwchem_float(s: &str) -> Result<f64, std::num::ParseFloatError> {
-    // In many cases, Rust's default `f64::from_str` can handle the typical
-    // "1.2340E+02" format. If not, you can do extra transformations here.
-    s.parse::<f64>()
 }
 
 impl Basis631G {
@@ -112,9 +84,50 @@ impl Basis631G {
         };
 
         let mut atomic_name = "";
+        let mut shell_type = "";
+        let mut element: Element;
 
         for line in bstr.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            if tokens.len() >= 2 {
+                if tokens[0].chars().all(char::is_alphabetic) {
+                    if atomic_name == "" {
+                        atomic_name = tokens[0];
+                        // rust reflect enum from string
+                        // use macro to generate the match code
+                        element = serde_json::from_str::<Element>(atomic_name).unwrap();
+                        basis.atomic_number = element.atomic_number();
+                        basis.name = element.symbol().to_string();
+                        basis.basis_set = Vec::new();
+                        basis.basis_set.push(ContractedGTO {
+                            primitives: Vec::new(),
+                            coefficients: Vec::new(),
+                            shell_type: String::from(""),
+                            n: 0, l: 0, m: 0, s: 0,
+                        });
+                    } else {
+                        if atomic_name != tokens[0] {
+                            panic!("Atomic name is not consistent");
+                        }
+                    }
+                    shell_type = tokens[1];
 
+                    match shell_type {
+                        "S" => {
+
+                        }
+                        "SP" => {
+
+                        }
+                        _ => {
+                            panic!("Unknown shell type");
+                    }
+                }
+            }
         }
 
         basis
