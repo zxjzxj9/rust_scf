@@ -87,6 +87,8 @@ impl Basis631G {
         let mut shell_type = "";
         let mut element: Element;
 
+        let mut n = 1;
+
         for line in bstr.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
@@ -107,24 +109,25 @@ impl Basis631G {
                             primitives: Vec::new(),
                             coefficients: Vec::new(),
                             shell_type: String::from(""),
-                            n: 0, l: 0, m: 0, s: 0,
+                            n: 0,
+                            l: 0,
+                            m: 0,
+                            s: 0,
                         });
                     } else {
                         if atomic_name != tokens[0] {
                             panic!("Atomic name is not consistent");
                         }
+                        element = serde_json::from_str::<Element>(atomic_name).unwrap();
                     }
                     shell_type = tokens[1];
 
                     match shell_type {
-                        "S" => {
-
-                        }
-                        "SP" => {
-
-                        }
+                        "S" => {}
+                        "SP" => {}
                         _ => {
                             panic!("Unknown shell type");
+                        }
                     }
                 }
             }
