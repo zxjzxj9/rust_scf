@@ -74,130 +74,95 @@ impl Basis631G {
     // Mg    SP
     // 0.4210610000E-01       0.1000000000E+01       0.1000000000E+01
     // END
+    fn parse_primitive_block(lines: &[&str], center: Vector3<f64>) -> Vec<ContractedGTO> {
+        let mut s_functions = Vec::new();
+        let mut p_functions = Vec::new();
+
+        for line in lines {
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            if tokens.len() < 2 {
+                continue;
+            }
+
+            // Parse the exponent and coefficients
+            let alpha = tokens[0].replace("E", "e").parse::<f64>().unwrap();
+            let s_coeff = tokens[1].replace("E", "e").parse::<f64>().unwrap();
+
+            // Create S-type GTO
+            let s_gto = Self::create_gto(
+                alpha,
+                Vector3::new(0, 0, 0), // S orbital: l_xyz = [0,0,0]
+                center,
+            );
+            s_functions.push(s_gto);
+
+            // If this is an SP shell, also create P-type GTOs
+            if tokens.len() >= 3 {
+                let p_coeff = tokens[2].replace("E", "e").parse::<f64>().unwrap();
+
+                // Create P-type GTOs for x, y, and z components
+                let p_gtos = vec![
+                    Self::create_gto(alpha, Vector3::new(1, 0, 0), center), // Px
+                    Self::create_gto(alpha, Vector3::new(0, 1, 0), center), // Py
+                    Self::create_gto(alpha, Vector3::new(0, 0, 1), center), // Pz
+                ];
+                p_functions.extend(p_gtos);
+            }
+        }
+
+        ParsedGTOSet {
+            s_functions,
+            p_functions,
+        }
+    }
+
+
 
     /// Parses a string in NWChem format, returning a Basis631G.
-    fn parse_nwchem(bstr: &str) -> Self {
+    pub fn parse_nwchem(input: &str) -> Self {
         let mut basis = Basis631G {
-            name: String::from(""),
+            name: String::from("6-31G"),
             atomic_number: 0,
-            basis_set: Vec::new()
+            basis_set: Vec::new(),
         };
 
-        let mut atomic_name = "";
-        let mut shell_type = "";
-        let mut element: Element;
+        let mut current_block = Vec::new();
+        let mut current_shell_type = None;
+        let center = Vector3::new(0.0, 0.0, 0.0); // Assuming center at origin
 
-        let mut n = 1;
-
-        for line in bstr.lines() {
+        for line in input.lines() {
             let line = line.trim();
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let tokens: Vec<&str> = line.split_whitespace().collect();
-            if tokens.len() >= 2 {
-                if tokens[0].chars().all(char::is_alphabetic) {
-                    if atomic_name == "" {
-                        atomic_name = tokens[0];
-                        // rust reflect enum from string
-                        // use macro to generate the match code
-                        element = serde_json::from_str::<Element>(atomic_name).unwrap();
-                        basis.atomic_number = element.atomic_number();
-                        basis.name = element.symbol().to_string();
-                        basis.basis_set = Vec::new();
-                        basis.basis_set.push(ContractedGTO {
-                            primitives: Vec::new(),
-                            coefficients: Vec::new(),
-                            shell_type: String::from(""),
-                            n: 0,
-                            l: 0,
-                            m: 0,
-                            s: 0,
-                        });
-                    } else {
-                        if atomic_name != tokens[0] {
-                            panic!("Atomic name is not consistent");
-                        }
-                        element = serde_json::from_str::<Element>(atomic_name).unwrap();
-                    }
-                    shell_type = tokens[1];
 
-                    match shell_type {
-                        "S" => {}
-                        "SP" => {}
-                        _ => {
-                            panic!("Unknown shell type");
-                        }
-                    }
+            let tokens: Vec<&str> = line.split_whitespace().collect();
+            if tokens.len() >= 2 && tokens[1] == "S" || tokens[1] == "SP" {
+                // Process previous block if it exists
+                if !current_block.is_empty() {
+                    let parsed = Self::parse_primitive_block(&current_block, center);
+                    // Add to basis_set with appropriate shell type...
+                    // You'll need to create ContractedGTO objects here
                 }
+
+                current_block.clear();
+                current_shell_type = Some(tokens[1].to_string());
+
+                if tokens[0] == "Mg" {
+                    basis.atomic_number = 12; // Magnesium
+                }
+            } else if !tokens.is_empty() && current_shell_type.is_some() {
+                current_block.push(line);
             }
         }
 
+        // Process the last block
+        if !current_block.is_empty() {
+            let parsed = Self::parse_primitive_block(&current_block, center);
+            // Add to basis_set...
+        }
+
         basis
-        // // Go line by line
-        // for line in bstr.lines() {
-        //     let line = line.trim();
-        //     // Skip comments and blank lines
-        //     if line.is_empty() || line.starts_with('#') {
-        //         continue;
-        //     }
-        //     // If we hit "END", we’re done reading
-        //     if line.eq_ignore_ascii_case("END") {
-        //         // Push the last shell we were accumulating
-        //         if let (Some(ref elem), Some(ref shell_t)) =
-        //             (current_element.as_ref(), current_shell_type.as_ref())
-        //         {
-        //             push_current_shell(elem, shell_t, &mut current_entries, &mut basis);
-        //         }
-        //         break;
-        //     }
-        //
-        //     // Check if line looks like "Mg    S" or "Mg    SP" etc
-        //     // Usually that means "Element  ShellType"
-        //     // We'll assume first token is element, everything after is the shell type.
-        //     let tokens: Vec<&str> = line.split_whitespace().collect();
-        //     if tokens.len() >= 2 {
-        //         // Heuristic: If second token is S, P, D, SP, ...
-        //         if let Some(shell_t) = parse_shell_type(tokens[1]) {
-        //             // That means we encountered a new shell definition line
-        //
-        //             // If we had an existing shell in progress, push it
-        //             if let (Some(ref elem), Some(ref shell_typ)) =
-        //                 (current_element.as_ref(), current_shell_type.as_ref())
-        //             {
-        //                 push_current_shell(elem, shell_typ, &mut current_entries, &mut basis);
-        //             }
-        //
-        //             // Start a new shell
-        //             current_element = Some(tokens[0].to_string());
-        //             current_shell_type = Some(shell_t);
-        //             // We’ll parse exponents/coeffs on subsequent lines
-        //             continue;
-        //         }
-        //     }
-        //
-        //     // Otherwise, we assume it’s an exponent+coeff line.
-        //     // E.g.  0.1172280000E+05       0.1977829317E-02
-        //     // or    0.1891800000E+03      -0.3237170471E-02       0.4928129921E-02
-        //     let numbers: Vec<f64> = line
-        //         .split_whitespace()
-        //         .filter_map(|s| parse_nwchem_float(s).ok())
-        //         .collect();
-        //
-        //     if !numbers.is_empty() {
-        //         // By convention, the first number is exponent,
-        //         // the rest are the coefficients for that row.
-        //         let exponent = numbers[0];
-        //         let coeffs = numbers[1..].to_vec();
-        //
-        //         current_entries.push(ContractedGTO {
-        //             exponent,
-        //             coefficients: coeffs,
-        //         });
-        //     }
-        // }
-        //
-        // basis
     }
 
     fn new(bstr: String, format: BasisFormat) -> Self {
