@@ -16,10 +16,10 @@ pub struct ContractedGTO {
     pub coefficients: Vec<f64>,
     // shell_type: 1s, 2s, 2px, 2py, 2pz, ...
     pub shell_type: String,
-    pub n: i32,
-    pub l: i32,
-    pub m: i32,
-    pub s: i32, // +1 or -1, stand for alpha or beta
+    pub n: i32, // 1, 2, ...
+    pub l: i32, // 0 .. n-1
+    pub m: i32, // -l .. +l
+    pub s: i32, // +1 or -1, stand for alpha or beta, 0 stands for closed shell
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -74,9 +74,40 @@ impl Basis631G {
     // Mg    SP
     // 0.4210610000E-01       0.1000000000E+01       0.1000000000E+01
     // END
-    fn parse_primitive_block(lines: &[&str], center: Vector3<f64>) -> Vec<ContractedGTO> {
-        let mut s_functions = Vec::new();
-        let mut p_functions = Vec::new();
+    fn parse_primitive_block(lines: &[&str], center: Vector3<f64>, basis_type: &str) -> Vec<ContractedGTO> {
+        let mut res: Vec<ContractedGTO> = Vec::new();
+
+        match basis_type {
+             "S" => {
+                res.push(
+                    ContractedGTO {
+                        primitives: Vec::new(),
+                        coefficients: Vec::new(),
+                        shell_type: "1s".to_string(),
+                        n: 1, l: 0, m: 0, s: 0,
+                    }
+                )
+            }
+             "SP" => {
+                 let shells = vec![
+                     ("1s", 0, 0, 0),
+                     ("2px", 1, -1, 0),
+                     ("2py", 1, 1, 0),
+                     ("2pz", 1, 0, 0),
+                 ];
+                 for (shell_type, l, m, s) in shells {
+                     res.push(ContractedGTO {
+                         primitives: Vec::new(),
+                         coefficients: Vec::new(),
+                         shell_type: shell_type.to_string(),
+                         n: 2, l, m, s,
+                     });
+                 }
+            }
+            _ => {
+                panic!("Unsupported basis type: {}", basis_type);
+            }
+        }
 
         for line in lines {
             let tokens: Vec<&str> = line.split_whitespace().collect();
@@ -88,32 +119,32 @@ impl Basis631G {
             let alpha = tokens[0].replace("E", "e").parse::<f64>().unwrap();
             let s_coeff = tokens[1].replace("E", "e").parse::<f64>().unwrap();
 
-            // Create S-type GTO
-            let s_gto = Self::create_gto(
+            let s_gto = GTO::new(
                 alpha,
                 Vector3::new(0, 0, 0), // S orbital: l_xyz = [0,0,0]
                 center,
             );
-            s_functions.push(s_gto);
+            res[0].primitives.push(s_gto);
+            res[0].coefficients.push(s_coeff);
+
 
             // If this is an SP shell, also create P-type GTOs
-            if tokens.len() >= 3 {
+            if basis_type == "SP" {
                 let p_coeff = tokens[2].replace("E", "e").parse::<f64>().unwrap();
+                let p_gto_x = GTO::new(alpha, Vector3::new(1, 0, 0), center);
+                let p_gto_y = GTO::new(alpha, Vector3::new(0, 1, 0), center);
+                let p_gto_z = GTO::new(alpha, Vector3::new(0, 0, 1), center);
 
-                // Create P-type GTOs for x, y, and z components
-                let p_gtos = vec![
-                    Self::create_gto(alpha, Vector3::new(1, 0, 0), center), // Px
-                    Self::create_gto(alpha, Vector3::new(0, 1, 0), center), // Py
-                    Self::create_gto(alpha, Vector3::new(0, 0, 1), center), // Pz
-                ];
-                p_functions.extend(p_gtos);
+                res[1].primitives.push(p_gto_x);
+                res[1].coefficients.push(p_coeff);
+                res[2].primitives.push(p_gto_y);
+                res[2].coefficients.push(p_coeff);
+                res[3].primitives.push(p_gto_z);
+                res[3].coefficients.push(p_coeff);
             }
         }
 
-        ParsedGTOSet {
-            s_functions,
-            p_functions,
-        }
+        res
     }
 
 
@@ -129,6 +160,7 @@ impl Basis631G {
         let mut current_block = Vec::new();
         let mut current_shell_type = None;
         let center = Vector3::new(0.0, 0.0, 0.0); // Assuming center at origin
+        let mut shell_type = "S";
 
         for line in input.lines() {
             let line = line.trim();
@@ -137,10 +169,11 @@ impl Basis631G {
             }
 
             let tokens: Vec<&str> = line.split_whitespace().collect();
+            shell_type = tokens[1];
             if tokens.len() >= 2 && tokens[1] == "S" || tokens[1] == "SP" {
                 // Process previous block if it exists
                 if !current_block.is_empty() {
-                    let parsed = Self::parse_primitive_block(&current_block, center);
+                    let parsed = Self::parse_primitive_block(&current_block, center, tokens[1]);
                     // Add to basis_set with appropriate shell type...
                     // You'll need to create ContractedGTO objects here
                 }
@@ -158,7 +191,7 @@ impl Basis631G {
 
         // Process the last block
         if !current_block.is_empty() {
-            let parsed = Self::parse_primitive_block(&current_block, center);
+            let parsed = Self::parse_primitive_block(&current_block, center, shell_type);
             // Add to basis_set...
         }
 
