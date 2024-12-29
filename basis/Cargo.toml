@@ -15,5 +15,6 @@ serde = { version = "1.0.215", features = ["derive"] }
 serde-pickle = "1.2.0"
 mendeleev = { version = "0.8.2", features = ["serde"] }
 serde_json = "1.0.134"
+periodic-table-on-an-enum = "0.3.2"
 
 [lib]

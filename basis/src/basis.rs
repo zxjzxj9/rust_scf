@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_pickle;
 use serde_pickle::Serializer;
 use crate::gto::GTO;
-use mendeleev::Element;
+// use mendeleev::Element;
+use periodic_table_on_an_enum;
 use serde_json;
 
 
@@ -176,7 +177,7 @@ impl Basis631G {
                 // Process previous block if it exists
                 if !current_block.is_empty() {
                     // initialize the element information
-
+                    let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]);
 
                     let parsed = Self::parse_primitive_block(&current_block, center, tokens[1]);
                     basis.basis_set.extend(parsed);
