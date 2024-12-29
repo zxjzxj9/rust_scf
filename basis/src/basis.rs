@@ -116,8 +116,8 @@ impl Basis631G {
             }
 
             // Parse the exponent and coefficients
-            let alpha = tokens[0].replace("E", "e").parse::<f64>().unwrap();
-            let s_coeff = tokens[1].replace("E", "e").parse::<f64>().unwrap();
+            let alpha = tokens[0].parse::<f64>().unwrap();
+            let s_coeff = tokens[1].parse::<f64>().unwrap();
 
             let s_gto = GTO::new(
                 alpha,
@@ -130,7 +130,7 @@ impl Basis631G {
 
             // If this is an SP shell, also create P-type GTOs
             if basis_type == "SP" {
-                let p_coeff = tokens[2].replace("E", "e").parse::<f64>().unwrap();
+                let p_coeff = tokens[2].parse::<f64>().unwrap();
                 let p_gto_x = GTO::new(alpha, Vector3::new(1, 0, 0), center);
                 let p_gto_y = GTO::new(alpha, Vector3::new(0, 1, 0), center);
                 let p_gto_z = GTO::new(alpha, Vector3::new(0, 0, 1), center);
@@ -171,9 +171,15 @@ impl Basis631G {
             let tokens: Vec<&str> = line.split_whitespace().collect();
             shell_type = tokens[1];
             if tokens.len() >= 2 && tokens[1] == "S" || tokens[1] == "SP" {
+                // pase element name
+
                 // Process previous block if it exists
                 if !current_block.is_empty() {
+                    // initialize the element information
+
+
                     let parsed = Self::parse_primitive_block(&current_block, center, tokens[1]);
+                    basis.basis_set.extend(parsed);
                     // Add to basis_set with appropriate shell type...
                     // You'll need to create ContractedGTO objects here
                 }
@@ -181,9 +187,6 @@ impl Basis631G {
                 current_block.clear();
                 current_shell_type = Some(tokens[1].to_string());
 
-                if tokens[0] == "Mg" {
-                    basis.atomic_number = 12; // Magnesium
-                }
             } else if !tokens.is_empty() && current_shell_type.is_some() {
                 current_block.push(line);
             }
@@ -193,6 +196,7 @@ impl Basis631G {
         if !current_block.is_empty() {
             let parsed = Self::parse_primitive_block(&current_block, center, shell_type);
             // Add to basis_set...
+            basis.basis_set.extend(parsed);
         }
 
         basis
