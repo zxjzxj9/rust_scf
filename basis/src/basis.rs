@@ -177,8 +177,9 @@ impl Basis631G {
                 // Process previous block if it exists
                 if !current_block.is_empty() {
                     // initialize the element information
-                    let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]);
-
+                    let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
+                    basis.name = element.get_name().to_string();
+                    basis.atomic_number = element.get_atomic_number() as u32;
                     let parsed = Self::parse_primitive_block(&current_block, center, tokens[1]);
                     basis.basis_set.extend(parsed);
                     // Add to basis_set with appropriate shell type...
