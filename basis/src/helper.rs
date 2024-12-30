@@ -1,3 +1,4 @@
+#![allow(non_snake_case, unused)]
 use libm::{erf, sqrt};
 use nalgebra::Vector3;
 use num_complex::Complex;

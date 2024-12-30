@@ -1,4 +1,4 @@
-use basis::basis::Basis631G;
+use basis::cgto::Basis631G;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 // use basis;

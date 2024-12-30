@@ -27,7 +27,8 @@ mod tests {
     use rand::Rng;
     use rand_distr::Normal;
     use crate::gto::{GTO1d, GTO};
-    use crate::helper::{integrate_spherical_3d, simpson_integration, simpson_integration_3d, two_electron_integral_monte_carlo};
+    use crate::helper::*;
+    use crate::basis::Basis;
 
     #[test]
     fn test_gto1d_overlap() {

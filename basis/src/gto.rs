@@ -1,3 +1,4 @@
+#![allow(non_snake_case)]
 extern crate nalgebra as na;
 
 use itertools::iproduct;
@@ -6,6 +7,7 @@ use rayon::prelude::*;
 use std::f64::consts::PI;
 use serde::{Deserialize, Serialize};
 use crate::helper::boys_function;
+use crate::basis::Basis;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GTO1d {
@@ -19,7 +21,6 @@ fn factorial(n: i32) -> f64 {
     (1..=n).fold(1.0, |acc, x| acc * x as f64)
 }
 
-#[allow(non_snake_case)]
 impl GTO1d {
     pub fn new(alpha: f64, l: i32, center: f64) -> Self {
         // let norm = GTO1d::compute_norm(alpha, l);
@@ -172,7 +173,6 @@ pub struct GTO {
 }
 
 
-#[allow(non_snake_case)]
 impl GTO {
     pub(crate) fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
         let gto1d = [
@@ -190,10 +190,6 @@ impl GTO {
         }
     }
 
-    pub(crate) fn evaluate(&self, r: &Vector3<f64>) -> f64 {
-        self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
-    }
-
     pub fn laplacian(&self, r: &Vector3<f64>) -> f64 {
         let laplacian_x = self.gto1d[0].laplacian(r.x);
         let laplacian_y = self.gto1d[1].laplacian(r.y);
@@ -202,24 +198,6 @@ impl GTO {
         laplacian_x * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
             + self.gto1d[0].evaluate(r.x) * laplacian_y * self.gto1d[2].evaluate(r.z)
             + self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * laplacian_z
-    }
-
-    pub(crate) fn Sab(a: &GTO, b: &GTO) -> f64 {
-        GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
-            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
-            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
-    }
-
-    pub(crate) fn Tab(a: &GTO, b: &GTO) -> f64 {
-        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
-            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
-            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
-            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
-                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
-                * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
-            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
-                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
-                * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
     }
 
     pub(crate) fn merge(a: &GTO, b: &GTO) -> GTO {
@@ -273,7 +251,32 @@ impl GTO {
         val
     }
 
-    pub(crate) fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
+
+}
+
+impl Basis for GTO {
+    fn evaluate(&self, r: &Vector3<f64>) -> f64 {
+        self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
+    }
+
+    fn Sab(a: &GTO, b: &GTO) -> f64 {
+        GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+    }
+
+    fn Tab(a: &GTO, b: &GTO) -> f64 {
+        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
+            * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+            + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
+            * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+    }
+    fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
         let c = GTO::merge(a, b);
         // println!("a: {:?}, b: {:?}, c: {:?}", a.l_xyz, b.l_xyz, c.l_xyz);
         // let mut val = 0.0;
@@ -283,13 +286,13 @@ impl GTO {
             .par_bridge()
             .map(|(i, j, k)| {
                 let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
-                    a.center.x - b.center.x, a.alpha, b.alpha);
+                                       a.center.x - b.center.x, a.alpha, b.alpha);
 
                 let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
-                    a.center.y - b.center.y, a.alpha, b.alpha);
+                                       a.center.y - b.center.y, a.alpha, b.alpha);
 
                 let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
-                    a.center.z - b.center.z, a.alpha, b.alpha);
+                                       a.center.z - b.center.z, a.alpha, b.alpha);
 
                 let hermite_val =
                     GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
@@ -300,7 +303,7 @@ impl GTO {
         a.norm * b.norm * val * 2.0 * PI / c.alpha
     }
 
-    pub(crate) fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
+    fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
         let e = GTO::merge(a, b);
         let f = GTO::merge(c, d);
         let dr = e.center - f.center;
@@ -311,22 +314,22 @@ impl GTO {
             .par_bridge()
             .map(|(i, j, k, l, m, n)| {
                 let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
-                    a.center.x - b.center.x, a.alpha, b.alpha);
+                                       a.center.x - b.center.x, a.alpha, b.alpha);
 
                 let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
-                    a.center.y - b.center.y, a.alpha, b.alpha);
+                                       a.center.y - b.center.y, a.alpha, b.alpha);
 
                 let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
-                    a.center.z - b.center.z, a.alpha, b.alpha);
+                                       a.center.z - b.center.z, a.alpha, b.alpha);
 
                 let ecd_x = GTO1d::Eab(c.l_xyz.x, d.l_xyz.x, l,
-                    c.center.x - d.center.x, c.alpha, d.alpha);
+                                       c.center.x - d.center.x, c.alpha, d.alpha);
 
                 let ecd_y = GTO1d::Eab(c.l_xyz.y, d.l_xyz.y, m,
-                    c.center.y - d.center.y, c.alpha, d.alpha);
+                                       c.center.y - d.center.y, c.alpha, d.alpha);
 
                 let ecd_z = GTO1d::Eab(c.l_xyz.z, d.l_xyz.z, n,
-                    c.center.z - d.center.z, c.alpha, d.alpha);
+                                       c.center.z - d.center.z, c.alpha, d.alpha);
 
                 let hermite_val =
                     GTO::hermite_coulomb(i + l, j + m, k + n, 0,
@@ -341,5 +344,6 @@ impl GTO {
             * 2.0 * PI.powf(2.5) / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
     }
 }
+
 
 // https://chemistry.montana.edu/callis/courses/chmy564/460water.pdf
