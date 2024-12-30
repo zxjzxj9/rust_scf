@@ -322,14 +322,17 @@ impl Basis for ContractedGTO {
 
 #[cfg(test)]
 mod tests {
+    use reqwest::get;
     use super::*;
 
     #[test]
     fn test_parse_nwchem() {
-        let url = "https://www.basissetexchange.org/api/basis/O/format/nwchem?elements=Mg";
+        let url = "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements=O";
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
-
         let basis = Basis631G::parse_nwchem(&basis_str);
-        assert_eq!(basis.basis_set.len(), 4);
+        // assert_eq!(basis.basis_set.len(), 4);
+        let v1 = ContractedGTO::Sab(&basis.basis_set[0], &basis.basis_set[0]);
+        assert!(( v1 - 1.0).abs() < 1e-3,
+                "Sab check failed, expected 1.0, got {}", v1);
     }
 }
