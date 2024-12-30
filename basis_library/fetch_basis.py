@@ -9,6 +9,7 @@ from typing import List, Dict, Optional
 import curses
 from curses import wrapper
 import logging
+from basis_py import load_basis_from_py_str
 
 def fetch_metadata():
     base_url = "https://www.basissetexchange.org"
@@ -40,3 +41,4 @@ if __name__ == "__main__":
     element = "O"
     basis = fetch_basis(basis_name, element)
     print("Basis:\n", basis)
+    load_basis_from_py_str(basis, "{}.{}.pkl".format(element, basis_name))

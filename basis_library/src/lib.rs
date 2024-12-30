@@ -18,9 +18,14 @@ use pyo3::wrap_pyfunction;
 //     Basis631G::load_from_file(filename).unwrap()
 // }
 
+#[pyfunction]
+fn load_basis_from_py_str(input: &str, fname: &str) {
+    Basis631G::parse_nwchem(input).save_to_file(fname).unwrap();
+}
+
 #[pymodule]
 fn basis_py(_py: Python, m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Add the `add` function to the Python module
-    // m.add_function(wrap_pyfunction!(load_basis_from_py_str, m)?)?;
+    m.add_function(wrap_pyfunction!(load_basis_from_py_str, m)?)?;
     Ok(())
 }
