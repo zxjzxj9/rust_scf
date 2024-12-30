@@ -7,6 +7,8 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::iter::{zip, Zip};
+use itertools::iproduct;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use serde_pickle;
@@ -14,7 +16,10 @@ use serde_pickle;
 use crate::gto::GTO;
 // use mendeleev::Element;
 use periodic_table_on_an_enum;
-use crate::basis::BasisFormat;
+use rayon::prelude::*;
+use rayon::slice::Iter;
+use crate::basis::{Basis, BasisFormat};
+use reqwest;
 
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
@@ -253,5 +258,78 @@ impl Basis631G {
 
         Self::from_pickle(&buffer)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+    }
+}
+
+impl Basis for ContractedGTO {
+    fn evaluate(&self, r: &Vector3<f64>) -> f64 {
+        self.coefficients.par_iter()
+            .zip(self.primitives.par_iter())
+            .map(|(c, gto)| c * gto.evaluate(r))
+            .sum()
+    }
+
+    fn Sab(a: &Self, b: &Self) -> f64 {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        iproduct!(
+            0..na, 0..nb
+        ).par_bridge()
+            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
+                GTO::Sab(&a.primitives[i], &b.primitives[j]))
+            .sum()
+    }
+
+    fn Tab(a: &Self, b: &Self) -> f64 {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        iproduct!(
+            0..na, 0..nb
+        ).par_bridge()
+            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
+                GTO::Tab(&a.primitives[i], &b.primitives[j]))
+            .sum()
+    }
+
+    fn Vab(a: &Self, b: &Self, R: Vector3<f64>) -> f64 {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        iproduct!(
+            0..na, 0..nb
+        ).par_bridge()
+            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
+                GTO::Vab(&a.primitives[i], &b.primitives[j], R))
+            .sum()
+    }
+
+    fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64 {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        let nc = c.primitives.len();
+        let nd = d.primitives.len();
+
+        iproduct!(
+            0..na, 0..nb, 0..nc, 0..nd
+        ).par_bridge()
+            .map(|(i, j, k, l)|
+                a.coefficients[i] * b.coefficients[j] *
+                    c.coefficients[k] * d.coefficients[l] *
+                GTO::JKabcd(&a.primitives[i], &b.primitives[j],
+                            &c.primitives[k], &d.primitives[l]))
+            .sum()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_nwchem() {
+        let url = "https://www.basissetexchange.org/api/basis/O/format/nwchem?elements=Mg";
+        let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
+
+        let basis = Basis631G::parse_nwchem(&basis_str);
+        assert_eq!(basis.basis_set.len(), 4);
     }
 }
