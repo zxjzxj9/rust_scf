@@ -162,7 +162,6 @@ impl Basis631G {
         let mut current_block = Vec::new();
         let mut current_shell_type = None;
         let center = Vector3::new(0.0, 0.0, 0.0); // Assuming center at origin
-        let mut shell_type = "S";
 
         for line in input.lines() {
             let line = line.trim();
@@ -171,24 +170,23 @@ impl Basis631G {
             }
 
             let tokens: Vec<&str> = line.split_whitespace().collect();
-            shell_type = tokens[1];
-            if tokens.len() >= 2 && tokens[1] == "S" || tokens[1] == "SP" {
+            if tokens.len() >= 2 && (tokens[1] == "S" || tokens[1] == "SP") {
                 // pase element name
 
                 // Process previous block if it exists
                 if !current_block.is_empty() {
                     // initialize the element information
                     let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
-                    basis.name = element.get_name().to_string();
+                    basis.name = element.get_symbol().to_string();
                     basis.atomic_number = element.get_atomic_number() as u32;
-                    let parsed = Self::parse_primitive_block(&current_block, center, tokens[1]);
+                    let parsed = Self::parse_primitive_block(&current_block, center, current_shell_type.unwrap());
                     basis.basis_set.extend(parsed);
                     // Add to basis_set with appropriate shell type...
                     // You'll need to create ContractedGTO objects here
                 }
 
                 current_block.clear();
-                current_shell_type = Some(tokens[1].to_string());
+                current_shell_type = Some(tokens[1]);
 
             } else if !tokens.is_empty() && current_shell_type.is_some() {
                 current_block.push(line);
@@ -197,7 +195,7 @@ impl Basis631G {
 
         // Process the last block
         if !current_block.is_empty() {
-            let parsed = Self::parse_primitive_block(&current_block, center, shell_type);
+            let parsed = Self::parse_primitive_block(&current_block, center, current_shell_type.unwrap());
             // Add to basis_set...
             basis.basis_set.extend(parsed);
         }
