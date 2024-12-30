@@ -42,3 +42,8 @@ if __name__ == "__main__":
     basis = fetch_basis(basis_name, element)
     print("Basis:\n", basis)
     load_basis_from_py_str(basis, "{}.{}.pkl".format(element, basis_name))
+
+    # prettify print the dictionary
+    with open("{}.{}.pkl".format(element, basis_name), 'rb') as f:
+        res = pickle.load(f)
+        print(json.dumps(res, indent=4))

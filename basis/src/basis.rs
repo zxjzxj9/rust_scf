@@ -131,7 +131,7 @@ impl Basis631G {
 
             // If this is an SP shell, also create P-type GTOs
             if basis_type == "SP" {
-                println!("test ### {:?}", tokens);
+                // println!("test ### {:?}", tokens);
                 let p_coeff = tokens[2].parse::<f64>().unwrap();
                 let p_gto_x = GTO::new(alpha, Vector3::new(1, 0, 0), center);
                 let p_gto_y = GTO::new(alpha, Vector3::new(0, 1, 0), center);
@@ -148,8 +148,6 @@ impl Basis631G {
 
         res
     }
-
-
 
     /// Parses a string in NWChem format, returning a Basis631G.
     pub fn parse_nwchem(input: &str) -> Self {
