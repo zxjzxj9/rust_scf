@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::helper::boys_function;
 use crate::basis::Basis;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct GTO1d {
     pub alpha: f64,
     pub l: i32,
@@ -163,7 +163,7 @@ impl GTO1d {
     // }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct GTO {
     pub alpha: f64,
     pub l_xyz: Vector3<i32>,
