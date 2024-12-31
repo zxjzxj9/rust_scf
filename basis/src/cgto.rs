@@ -29,6 +29,7 @@ pub struct ContractedGTO {
     pub coefficients: Vec<f64>,
     // shell_type: 1s, 2s, 2px, 2py, 2pz, ...
     pub shell_type: String,
+    pub Z: u32, // atomic number (and charge)
     pub n: i32, // 1, 2, ...
     pub l: i32, // 0 .. n-1
     pub m: i32, // -l .. +l
@@ -84,7 +85,8 @@ impl Basis631G {
     // Mg    SP
     // 0.4210610000E-01       0.1000000000E+01       0.1000000000E+01
     // END
-    fn parse_primitive_block(lines: &[&str], center: Vector3<f64>, basis_type: &str) -> Vec<ContractedGTO> {
+    fn parse_primitive_block(lines: &[&str], Z: u32,
+                             center: Vector3<f64>, basis_type: &str) -> Vec<ContractedGTO> {
         let mut res: Vec<ContractedGTO> = Vec::new();
 
         match basis_type {
@@ -94,7 +96,7 @@ impl Basis631G {
                         primitives: Vec::new(),
                         coefficients: Vec::new(),
                         shell_type: "1s".to_string(),
-                        n: 1, l: 0, m: 0, s: 0,
+                        Z: Z, n: 1, l: 0, m: 0, s: 0,
                     }
                 )
             }
@@ -110,7 +112,7 @@ impl Basis631G {
                          primitives: Vec::new(),
                          coefficients: Vec::new(),
                          shell_type: shell_type.to_string(),
-                         n: 2, l, m, s,
+                         Z: Z, n: 2, l, m, s,
                      });
                  }
             }
@@ -186,7 +188,9 @@ impl Basis631G {
                     let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
                     basis.name = element.get_symbol().to_string();
                     basis.atomic_number = element.get_atomic_number() as u32;
-                    let parsed = Self::parse_primitive_block(&current_block, center, current_shell_type.unwrap());
+                    let parsed =
+                        Self::parse_primitive_block(&current_block, basis.atomic_number,
+                                                    center, current_shell_type.unwrap());
                     basis.basis_set.extend(parsed);
                     // Add to basis_set with appropriate shell type...
                     // You'll need to create ContractedGTO objects here
@@ -202,7 +206,9 @@ impl Basis631G {
 
         // Process the last block
         if !current_block.is_empty() {
-            let parsed = Self::parse_primitive_block(&current_block, center, current_shell_type.unwrap());
+            let parsed =
+                Self::parse_primitive_block(&current_block, basis.atomic_number,
+                                            center, current_shell_type.unwrap());
             // Add to basis_set...
             basis.basis_set.extend(parsed);
         }
@@ -303,6 +309,8 @@ impl Basis for ContractedGTO {
     }
 
     fn Tab(a: &Self, b: &Self) -> f64 {
+        // need to assert a.center == b.center
+
         let na = a.primitives.len();
         let nb = b.primitives.len();
         iproduct!(
@@ -314,12 +322,14 @@ impl Basis for ContractedGTO {
     }
 
     fn Vab(a: &Self, b: &Self, R: Vector3<f64>) -> f64 {
+        // need to assert a.center == b.center == R
+
         let na = a.primitives.len();
         let nb = b.primitives.len();
         iproduct!(
             0..na, 0..nb
         ).par_bridge()
-            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
+            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] * a.Z as f64 *
                 GTO::Vab(&a.primitives[i], &b.primitives[j], R))
             .sum()
     }
