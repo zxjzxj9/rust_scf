@@ -14,7 +14,7 @@ pub trait Basis {
     fn Sab(a: &Self, b: &Self) -> f64;
     fn Tab(a: &Self, b: &Self) -> f64;
 
-    fn Vab(a: &Self, b: &Self, R: Vector3<f64>) -> f64;
+    fn Vab(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> f64;
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
 
 }

@@ -324,8 +324,8 @@ mod tests {
         // Nuclear center placed at (0.05,0,0) - mid-point as an example
         let R = Vector3::new(0.05, 0.0, 0.0);
 
-        let val_ab = GTO::Vab(&a, &b, R);
-        let val_ba = GTO::Vab(&b, &a, R);
+        let val_ab = GTO::Vab(&a, &b, R, 1);
+        let val_ba = GTO::Vab(&b, &a, R, 1);
 
         let diff = (val_ab - val_ba).abs();
         assert!(diff < 1e-12, "Vab is not symmetric! diff={}", diff);
@@ -340,7 +340,7 @@ mod tests {
 
         let R = Vector3::new(0.0, 0.0, 0.0);
 
-        let val = GTO::Vab(&a, &b, R);
+        let val = GTO::Vab(&a, &b, R, 1);
 
         // Compare with a known reference or a benchmark value
         // For a basic check, we just ensure the value is finite and > 0
@@ -360,14 +360,14 @@ mod tests {
         let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
 
         let R = Vector3::new(1.2, -0.5, 2.0);
-        let val_original = GTO::Vab(&a, &b, R);
+        let val_original = GTO::Vab(&a, &b, R, 1);
 
         let shift = Vector3::new(0.1,0.2,-0.3);
         let a_shifted = GTO { center: a.center + shift, ..a };
         let b_shifted = GTO { center: b.center + shift, ..b };
         let R_shifted = R + shift;
 
-        let val_shifted = GTO::Vab(&a_shifted, &b_shifted, R_shifted);
+        let val_shifted = GTO::Vab(&a_shifted, &b_shifted, R_shifted, 1);
 
         // Depending on how R is defined, these might not match. If R is absolute space (like nuclear position),
         // then we can't assume invariance. If R is relative, we can.
@@ -388,7 +388,7 @@ mod tests {
         let gto1 = GTO::new(alpha1, l1, center1);
         let gto2 = GTO::new(alpha2, l2, center2);
 
-        let val_analytical = GTO::Vab(&gto1, &gto2, R);
+        let val_analytical = GTO::Vab(&gto1, &gto2, R, 1);
 
         let integrand = |vec| {
             let pa = gto1.evaluate(&vec);
@@ -438,7 +438,7 @@ mod tests {
         let gto1 = radom_gto();
         let gto2 = radom_gto();
         let R = Vector3::new(0.0, 0.0, 0.0);
-        let val_analytical = GTO::Vab(&gto1, &gto2, R);
+        let val_analytical = GTO::Vab(&gto1, &gto2, R, 1);
 
         let integrand = |vec| {
             let pa = gto1.evaluate(&vec);

@@ -5,6 +5,7 @@ use itertools::iproduct;
 use na::Vector3;
 use rayon::prelude::*;
 use std::f64::consts::PI;
+use std::os::raw::c_double;
 use serde::{Deserialize, Serialize};
 use crate::helper::boys_function;
 use crate::basis::Basis;
@@ -276,7 +277,7 @@ impl Basis for GTO {
             * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
             * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
     }
-    fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>) -> f64 {
+    fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>, Z: u32) -> f64 {
         let c = GTO::merge(a, b);
         // println!("a: {:?}, b: {:?}, c: {:?}", a.l_xyz, b.l_xyz, c.l_xyz);
         // let mut val = 0.0;
@@ -300,7 +301,7 @@ impl Basis for GTO {
                 eab_x * eab_y * eab_z * hermite_val
             }).sum::<f64>();
 
-        a.norm * b.norm * val * 2.0 * PI / c.alpha
+        a.norm * b.norm * val * 2.0 * PI * (Z as f64)/ c.alpha
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {

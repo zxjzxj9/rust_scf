@@ -321,7 +321,7 @@ impl Basis for ContractedGTO {
             .sum()
     }
 
-    fn Vab(a: &Self, b: &Self, R: Vector3<f64>) -> f64 {
+    fn Vab(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> f64 {
         // need to assert a.center == b.center == R
 
         let na = a.primitives.len();
@@ -329,8 +329,8 @@ impl Basis for ContractedGTO {
         iproduct!(
             0..na, 0..nb
         ).par_bridge()
-            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] * a.Z as f64 *
-                GTO::Vab(&a.primitives[i], &b.primitives[j], R))
+            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
+                GTO::Vab(&a.primitives[i], &b.primitives[j], R, Z))
             .sum()
     }
 
