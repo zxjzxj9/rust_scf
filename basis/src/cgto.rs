@@ -23,7 +23,7 @@ use reqwest;
 
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ContractedGTO {
     pub primitives: Vec<GTO>,
     pub coefficients: Vec<f64>,
@@ -35,7 +35,7 @@ pub struct ContractedGTO {
     pub s: i32, // +1 or -1, stand for alpha or beta, 0 stands for closed shell
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Basis631G {
     // define of the basis set
     pub name: String,
