@@ -23,8 +23,8 @@ fn factorial(n: i32) -> f64 {
 
 impl GTO1d {
     pub fn new(alpha: f64, l: i32, center: f64) -> Self {
-        // let norm = GTO1d::compute_norm(alpha, l);
-        let norm = 1.0;
+        let norm = GTO1d::compute_norm(alpha, l);
+        // let norm = 1.0;
         Self {
             alpha,
             l,
