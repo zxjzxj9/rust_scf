@@ -330,9 +330,12 @@ mod tests {
         let url = "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements=O";
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
         let basis = Basis631G::parse_nwchem(&basis_str);
-        // assert_eq!(basis.basis_set.len(), 4);
-        let v1 = ContractedGTO::Sab(&basis.basis_set[0], &basis.basis_set[0]);
-        assert!(( v1 - 1.0).abs() < 1e-3,
-                "Sab check failed, expected 1.0, got {}", v1);
+        assert_eq!(basis.basis_set.len(), 9); // 1s, (2s, 2p * 3) * 2 = 9
+        for cgto in basis.basis_set.iter() {
+            // println!("{:?}", cgto);
+            let v1 = ContractedGTO::Sab(cgto, cgto);
+            assert!(( v1 - 1.0).abs() < 1e-3,
+                    "Sab check failed, expected 1.0, got {}", v1);
+        }
     }
 }
