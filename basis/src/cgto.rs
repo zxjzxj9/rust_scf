@@ -227,6 +227,28 @@ impl Basis631G {
             basis_set: Vec::new(),
         }
     }
+
+    fn set_center(&mut self, center: Vector3<f64>) {
+        for cgto in self.basis_set.iter_mut() {
+            for gto in cgto.primitives.iter_mut() {
+                gto.center = center;
+            }
+        }
+    }
+
+    fn get_center(&self) -> Option<Vector3<f64>> {
+        if let Some(first_center) = self.basis_set.first()
+            .and_then(|cgto| cgto.primitives.first())
+            .map(|gto| gto.center) {
+            if self.basis_set.iter()
+                .all(|cgto|
+                    cgto.primitives.iter().all
+                    (|gto| gto.center == first_center)) {
+                return Some(first_center);
+            }
+        }
+        None // Return None if the centers are not the same or if there are no primitives
+    }
 }
 
 impl Basis631G {
