@@ -4,4 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+nalgebra = { version = "0.33.0", features = ["rand", "serde-serialize"] }
+periodic-table-on-an-enum = "0.3.2"
+
 basis = { path = "../basis" }

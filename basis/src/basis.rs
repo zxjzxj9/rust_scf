@@ -11,6 +11,7 @@ use nalgebra::Vector3;
 
 pub trait Basis {
     fn evaluate(&self, r: &Vector3<f64>) -> f64;
+
     fn Sab(a: &Self, b: &Self) -> f64;
     fn Tab(a: &Self, b: &Self) -> f64;
 
