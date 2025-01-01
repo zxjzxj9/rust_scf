@@ -13,20 +13,20 @@ struct SimpleSCF {
     coords: Vec<Vector3<f64>>,
 }
 
-impl SCF for SimpleSCF {
-    // fn init_basis(&self, basis: HashMap<&str, &dyn Basis>) {
-    //     println!("Initializing basis...");
-    // }
-    
-    fn init_geometry(&self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
-        println!("Initializing geometry...");
-    }
-
-    fn init_density_matrix(&self) {
-        println!("Initializing density matrix...");
-    }
-
-    fn init_fock_matrix(&self) {
-        println!("Initializing Fock matrix...");
-    }
-}
+// impl SCF for SimpleSCF {
+//     // fn init_basis(&self, basis: HashMap<&str, &dyn Basis>) {
+//     //     println!("Initializing basis...");
+//     // }
+//     
+//     fn init_geometry(&self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
+//         println!("Initializing geometry...");
+//     }
+// 
+//     fn init_density_matrix(&self) {
+//         println!("Initializing density matrix...");
+//     }
+// 
+//     fn init_fock_matrix(&self) {
+//         println!("Initializing Fock matrix...");
+//     }
+// }

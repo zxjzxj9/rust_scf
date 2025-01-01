@@ -17,7 +17,6 @@ pub trait Basis {
 
     fn Vab(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> f64;
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
-
 }
 
 pub enum BasisFormat {
