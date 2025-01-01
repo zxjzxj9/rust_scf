@@ -24,3 +24,8 @@ pub enum BasisFormat {
     NWChem,
     Json,
 }
+
+pub enum BasisType {
+    // STO,
+
+}

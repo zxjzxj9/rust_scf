@@ -46,7 +46,6 @@ pub struct Basis631G {
 }
 
 
-
 impl Basis631G {
 
     // Example of nwchem format:
