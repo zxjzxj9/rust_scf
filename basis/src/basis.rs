@@ -19,6 +19,12 @@ pub trait Basis {
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
 }
 
+pub trait AOBasis {
+    type BasisType: Basis;
+    fn set_center(&mut self, center: Vector3<f64>);
+    fn get_center(&self) -> Option<Vector3<f64>>;
+}
+
 pub enum BasisFormat {
     NWChem,
     Json,
