@@ -19,6 +19,8 @@ pub trait Basis {
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
 }
 
+
+// define a trait for atomic orbital basis sets
 pub trait AOBasis {
     type BasisType: Basis;
     fn set_center(&mut self, center: Vector3<f64>);
