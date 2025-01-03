@@ -18,7 +18,7 @@ use crate::gto::GTO;
 use periodic_table_on_an_enum;
 use rayon::prelude::*;
 use rayon::slice::Iter;
-use crate::basis::{Basis, BasisFormat};
+use crate::basis::{AOBasis, Basis, BasisFormat};
 use reqwest;
 
 
@@ -233,6 +233,11 @@ impl Basis631G {
         }
     }
 
+
+}
+
+impl AOBasis for Basis631G{
+    type BasisType = ContractedGTO;
     fn set_center(&mut self, center: Vector3<f64>) {
         for cgto in self.basis_set.iter_mut() {
             for gto in cgto.primitives.iter_mut() {
