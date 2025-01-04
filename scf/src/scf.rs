@@ -1,12 +1,12 @@
 extern crate nalgebra as na;
 
 use std::collections::HashMap;
-use basis::basis::Basis;
+use basis::basis::AOBasis;
 use na::Vector3;
 use periodic_table_on_an_enum::Element;
 
 pub trait SCF {
-    type BasisType: Basis;
+    type BasisType: AOBasis;
     
     fn init_basis(&self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>);
     fn init_geometry(&self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>);

@@ -259,6 +259,10 @@ impl AOBasis for Basis631G{
         }
         None // Return None if the centers are not the same or if there are no primitives
     }
+
+    fn basis_size(&self) -> usize {
+        self.basis_set.len()
+    }
 }
 
 impl Basis631G {

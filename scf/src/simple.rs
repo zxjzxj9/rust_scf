@@ -6,16 +6,16 @@ use std::collections::HashMap;
 use na::Vector3;
 use periodic_table_on_an_enum::Element;
 use crate::scf::SCF;
-use basis::basis::Basis;
+use basis::basis::AOBasis;
 
-pub struct SimpleSCF<B: Basis> {
+pub struct SimpleSCF<B: AOBasis> {
     num_atoms: u32,
     mo_basis: Vec<B>,
     coords: Vec<Vector3<f64>>,
 }
 
 // implement the scf trait for the simple scf struct
-impl <B: Basis> SCF for SimpleSCF<B> {
+impl <B: AOBasis> SCF for SimpleSCF<B> {
     type BasisType = B;
 
     fn init_basis(&self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>) {
