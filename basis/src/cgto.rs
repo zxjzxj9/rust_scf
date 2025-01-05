@@ -262,6 +262,10 @@ impl AOBasis for Basis631G{
     fn basis_size(&self) -> usize {
         self.basis_set.len()
     }
+
+    fn get_basis(&self) -> &Vec<Self::BasisType> {
+        self.basis_set.as_ref()
+    }
 }
 
 impl Basis631G {

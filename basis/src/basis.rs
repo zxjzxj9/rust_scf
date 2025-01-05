@@ -26,6 +26,7 @@ pub trait AOBasis {
     fn set_center(&mut self, center: Vector3<f64>);
     fn get_center(&self) -> Option<Vector3<f64>>;
     fn basis_size(&self) -> usize;
+    fn get_basis(&self) -> &Vec<Self::BasisType>;
 }
 
 pub enum BasisFormat {
