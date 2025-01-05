@@ -45,7 +45,6 @@ pub struct Basis631G {
     pub basis_set: Vec<ContractedGTO>,
 }
 
-
 impl Basis631G {
 
     // Example of nwchem format:
