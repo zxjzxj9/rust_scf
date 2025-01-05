@@ -8,6 +8,7 @@
 use std::fs::File;
 use std::io::{Read, Write};
 use std::iter::{zip, Zip};
+use std::sync::Arc;
 use itertools::iproduct;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
@@ -263,8 +264,10 @@ impl AOBasis for Basis631G{
         self.basis_set.len()
     }
 
-    fn get_basis(&self) -> &Vec<Self::BasisType> {
-        self.basis_set.as_ref()
+    fn get_basis(&self) -> Vec<Arc<Self::BasisType>> {
+        // self.basis_set.as_ref()
+        // make Arc from self.basis_set
+        self.basis_set.iter().map(|cgto| Arc::new(cgto.clone())).collect()
     }
 }
 

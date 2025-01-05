@@ -7,6 +7,8 @@
 // define the basis trait
 
 #![allow(non_snake_case, unused)]
+
+use std::sync::Arc;
 use nalgebra::Vector3;
 
 pub trait Basis {
@@ -26,7 +28,7 @@ pub trait AOBasis {
     fn set_center(&mut self, center: Vector3<f64>);
     fn get_center(&self) -> Option<Vector3<f64>>;
     fn basis_size(&self) -> usize;
-    fn get_basis(&self) -> &Vec<Self::BasisType>;
+    fn get_basis(&self) -> Vec<Arc<Self::BasisType>>;
 }
 
 pub enum BasisFormat {
