@@ -3,7 +3,7 @@
 extern crate nalgebra as na;
 
 use std::collections::HashMap;
-use na::Vector3;
+use na::{Vector3, DVector, DMatrix};
 use periodic_table_on_an_enum::Element;
 use crate::scf::SCF;
 use basis::basis::AOBasis;
@@ -13,6 +13,9 @@ pub struct SimpleSCF<B: AOBasis> {
     num_basis: usize,
     mo_basis: Vec<B>,
     coords: Vec<Vector3<f64>>,
+    // use nalgebra for the density matrix, fock matrix, etc.
+    coeffs: DVector<f64>,
+    density_matrix: DMatrix<f64>,
 }
 
 // implement the scf trait for the simple scf struct
