@@ -65,7 +65,6 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
     }
 
     fn init_density_matrix(&mut self) {
-        self.coeffs = DVector::from_element(self.num_basis, 0.0);
         println!("Initializing density matrix...");
         // core hamiltonian initialization
         // self.density_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
@@ -99,10 +98,26 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let eigvals = eig.eigenvalues;
         self.coeffs = l_inv * eigvecs;
         self.e_level = eigvals;
+
+        // print energy levels
+        println!("Energy levels: {:?}", self.e_level);
     }
 
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
+        self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                for k in 0.. self.num_basis {
+                    for l in 0.. self.num_basis {
+                        // self.fock_matrix[(i, j)] += self.coeffs[(k, i)] *
+                        //     self.coeffs[(l, j)] *
+                        //     B::BasisType::JKabcd(&self.mo_basis[i], &self.mo_basis[j],
+                        //                          &self.mo_basis[k], &self.mo_basis[l]);
+                    }
+                }
+            }
+        }
     }
 
     fn scf_cycle(&mut self) {
