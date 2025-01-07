@@ -2,12 +2,12 @@
 
 extern crate nalgebra as na;
 
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use na::{Vector3, DVector, DMatrix};
-use periodic_table_on_an_enum::Element;
 use crate::scf::SCF;
 use basis::basis::{AOBasis, Basis};
+use na::{DMatrix, DVector, Vector3};
+use periodic_table_on_an_enum::Element;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 pub struct SimpleSCF<B: AOBasis> {
     num_atoms: usize,
@@ -19,13 +19,14 @@ pub struct SimpleSCF<B: AOBasis> {
     // use nalgebra for the density matrix, fock matrix, etc.
     coeffs: DMatrix<f64>,
     // density_matrix: DMatrix<f64>,
+    integrals: HashMap<(usize, usize, usize, usize), f64>,
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
     e_level: DVector<f64>,
 }
 
 // implement the scf trait for the simple scf struct
-impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
+impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     type BasisType = B;
 
     fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>) {
@@ -36,7 +37,11 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.num_basis = 0;
         for elem in elems {
             let b = *basis.get(elem.get_symbol()).unwrap();
-            println!("Element: {}, basis size: {}", elem.get_symbol(), b.basis_size());
+            println!(
+                "Element: {}, basis size: {}",
+                elem.get_symbol(),
+                b.basis_size()
+            );
 
             let b_arc = Arc::new(Mutex::new((*b).clone()));
             // Push to ao_basis
@@ -59,7 +64,11 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
         assert!(coords.len() == elems.len());
         let size = coords.len();
         for i in 0..size {
-            println!("Element: {}, coords: {:?}", elems[i].get_symbol(), coords[i]);
+            println!(
+                "Element: {}, coords: {:?}",
+                elems[i].get_symbol(),
+                coords[i]
+            );
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);
         }
     }
@@ -71,28 +80,31 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.overlap_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
 
-        for i in 0..self.num_basis {
-            for j in 0..self.num_basis {
-                self.overlap_matrix[(i, j)] = B::BasisType::Sab(&self.mo_basis[i], &self.mo_basis[j]);
-                self.fock_matrix[(i, j)] = B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
-                for k in 0.. self.num_atoms {
-                    self.fock_matrix[(i, j)] += B::BasisType::Vab(
-                        &self.mo_basis[i], &self.mo_basis[j],
-                        self.coords[k], self.elems[k].get_atomic_number() as u32);
-                }
-            }
-        }
-
         // solve Hc = ScE to initialize density matrix
         // let eig =
         //     self.overlap_matrix.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
         // let eigvecs = eig.eigenvectors;
         // let eigvals = eig.eigenvalues;
 
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                self.overlap_matrix[(i, j)] =
+                    B::BasisType::Sab(&self.mo_basis[i], &self.mo_basis[j]);
+                self.fock_matrix[(i, j)] = B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
+                for k in 0..self.num_atoms {
+                    self.fock_matrix[(i, j)] += B::BasisType::Vab(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[k],
+                        self.elems[k].get_atomic_number() as u32,
+                    );
+                }
+            }
+        }
+
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
-        let f_prime = l_inv.clone() * self.fock_matrix.clone_owned() *
-            l_inv.clone().transpose();
+        let f_prime = l_inv.clone() * self.fock_matrix.clone_owned() * l_inv.clone().transpose();
         let eig = f_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
         let eigvecs = l_inv.clone().transpose() * eig.eigenvectors;
         let eigvals = eig.eigenvalues;
@@ -105,19 +117,25 @@ impl <B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
-        self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+
+        // Precompute two-electron integrals and store them in a hashmap or tensor
+        self.integrals = HashMap::new();
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
-                for k in 0.. self.num_basis {
-                    for l in 0.. self.num_basis {
-                        // self.fock_matrix[(i, j)] += self.coeffs[(k, i)] *
-                        //     self.coeffs[(l, j)] *
-                        //     B::BasisType::JKabcd(&self.mo_basis[i], &self.mo_basis[j],
-                        //                          &self.mo_basis[k], &self.mo_basis[l]);
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        let value = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            &self.mo_basis[k],
+                            &self.mo_basis[l],
+                        );
+                        self.integrals.insert((i, j, k, l), value);
                     }
                 }
             }
         }
+
     }
 
     fn scf_cycle(&mut self) {
