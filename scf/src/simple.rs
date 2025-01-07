@@ -19,7 +19,7 @@ pub struct SimpleSCF<B: AOBasis> {
     // use nalgebra for the density matrix, fock matrix, etc.
     coeffs: DMatrix<f64>,
     // density_matrix: DMatrix<f64>,
-    integrals: HashMap<(usize, usize, usize, usize), f64>,
+    integral_matrix:  DMatrix<f64>, // <ij|1/r12|kl>
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
     e_level: DVector<f64>,
@@ -119,18 +119,16 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Initializing Fock matrix...");
 
         // Precompute two-electron integrals and store them in a hashmap or tensor
-        self.integrals = HashMap::new();
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
-                        let value = B::BasisType::JKabcd(
-                            &self.mo_basis[i],
-                            &self.mo_basis[j],
-                            &self.mo_basis[k],
-                            &self.mo_basis[l],
-                        );
-                        self.integrals.insert((i, j, k, l), value);
+                        let integral = B::BasisType::JKabcd(
+                            &self.mo_basis[i], &self.mo_basis[j],
+                            &self.mo_basis[k], &self.mo_basis[l]);
+                        let row = i * self.num_basis + j;
+                        let col = k * self.num_basis + l;
+                        self.integral_matrix[(row, col)] = integral;
                     }
                 }
             }
