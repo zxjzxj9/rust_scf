@@ -137,6 +137,52 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     }
 
     fn scf_cycle(&mut self) {
-        println!("Performing SCF cycle...");
+        // println!("Performing SCF cycle...");
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nalgebra::Vector3;
+    use periodic_table_on_an_enum::Element;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_simple_scf() {
+        let mut scf = SimpleSCF {
+            num_atoms: 0,
+            num_basis: 0,
+            ao_basis: Vec::new(),
+            mo_basis: Vec::new(),
+            coords: Vec::new(),
+            elems: Vec::new(),
+            coeffs: DMatrix::from_element(0, 0, 0.0),
+            integral_matrix: DMatrix::from_element(0, 0, 0.0),
+            fock_matrix: DMatrix::from_element(0, 0, 0.0),
+            overlap_matrix: DMatrix::from_element(0, 0, 0.0),
+            e_level: DVector::from_element(0, 0.0),
+        };
+
+        let h2o_coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.0),
+            Vector3::new(1.0, 0.0, 0.0),
+        ];
+
+        let h2o_elems = vec![
+            Element::Oxygen,
+            Element::Hydrogen,
+            Element::Hydrogen,
+        ];
+
+        let mut basis = HashMap::new();
+
+        scf.init_basis(&h2o_elems, basis);
+        scf.init_geometry(&h2o_coords, &h2o_elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
     }
 }
