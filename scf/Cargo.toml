@@ -8,3 +8,4 @@ nalgebra = { version = "0.33.0", features = ["rand", "serde-serialize"] }
 periodic-table-on-an-enum = "0.3.2"
 
 basis = { path = "../basis" }
+reqwest = "0.12.11"

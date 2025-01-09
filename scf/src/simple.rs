@@ -148,12 +148,24 @@ mod tests {
     use nalgebra::Vector3;
     use periodic_table_on_an_enum::Element;
     use std::collections::HashMap;
+    use basis::cgto::Basis631G;
+
+    fn fetch_basis(atomic_symbol: &str) -> Basis631G {
+        let url =
+            "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}"
+                .format(atomic_symbol);
+        let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
+        Basis631G::parse_nwchem(&basis_str)
+    }
 
     #[test]
     fn test_simple_scf() {
+
+
+
         let mut scf = SimpleSCF {
-            num_atoms: 0,
-            num_basis: 0,
+            num_atoms: 3,
+            num_basis: 2,
             ao_basis: Vec::new(),
             mo_basis: Vec::new(),
             coords: Vec::new(),
