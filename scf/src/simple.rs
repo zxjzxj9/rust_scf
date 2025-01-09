@@ -165,10 +165,11 @@ mod tests {
             e_level: DVector::from_element(0, 0.0),
         };
 
+        // h2o coordinates in Bohr
         let h2o_coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.0),
-            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.809),
+            Vector3::new(1.443, 0.0, -0.453),
         ];
 
         let h2o_elems = vec![
