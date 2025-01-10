@@ -25,6 +25,24 @@ pub struct SimpleSCF<B: AOBasis> {
     e_level: DVector<f64>,
 }
 
+impl<B: AOBasis + Clone> SimpleSCF<B> {
+    pub fn new() -> SimpleSCF<B> {
+        SimpleSCF {
+            num_atoms: 0,
+            num_basis: 0,
+            ao_basis: Vec::new(),
+            mo_basis: Vec::new(),
+            coords: Vec::new(),
+            elems: Vec::new(),
+            coeffs: DMatrix::from_element(0, 0, 0.0),
+            integral_matrix: DMatrix::from_element(0, 0, 0.0),
+            fock_matrix: DMatrix::from_element(0, 0, 0.0),
+            overlap_matrix: DMatrix::from_element(0, 0, 0.0),
+            e_level: DVector::from_element(0, 0.0),
+        }
+    }
+}
+
 // implement the scf trait for the simple scf struct
 impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     type BasisType = B;
@@ -160,30 +178,12 @@ mod tests {
 
     #[test]
     fn test_simple_scf() {
-
-
-
-        let mut scf = SimpleSCF {
-            num_atoms: 3,
-            num_basis: 2,
-            ao_basis: Vec::new(),
-            mo_basis: Vec::new(),
-            coords: Vec::new(),
-            elems: Vec::new(),
-            coeffs: DMatrix::from_element(0, 0, 0.0),
-            integral_matrix: DMatrix::from_element(0, 0, 0.0),
-            fock_matrix: DMatrix::from_element(0, 0, 0.0),
-            overlap_matrix: DMatrix::from_element(0, 0, 0.0),
-            e_level: DVector::from_element(0, 0.0),
-        };
-
-        // h2o coordinates in Bohr
+        let mut scf = SimpleSCF::new(); // h2o coordinates in Bohr
         let h2o_coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
             Vector3::new(0.0, 0.0, 1.809),
             Vector3::new(1.443, 0.0, -0.453),
         ];
-
         let h2o_elems = vec![
             Element::Oxygen,
             Element::Hydrogen,
@@ -191,6 +191,12 @@ mod tests {
         ];
 
         let mut basis = HashMap::new();
+
+        // download basis first
+        basis.insert("O", &fetch_basis("O"));
+        basis.insert("H", &fetch_basis("H"));
+
+
 
         scf.init_basis(&h2o_elems, basis);
         scf.init_geometry(&h2o_coords, &h2o_elems);
