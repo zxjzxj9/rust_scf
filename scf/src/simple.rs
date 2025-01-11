@@ -155,7 +155,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     }
 
     fn scf_cycle(&mut self) {
-        // println!("Performing SCF cycle...");
+        println!("Performing SCF cycle...");
     }
 }
 
@@ -195,8 +195,6 @@ mod tests {
         // download basis first
         basis.insert("O", &fetch_basis("O"));
         basis.insert("H", &fetch_basis("H"));
-
-
 
         scf.init_basis(&h2o_elems, basis);
         scf.init_geometry(&h2o_coords, &h2o_elems);
