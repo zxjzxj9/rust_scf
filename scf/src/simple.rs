@@ -23,6 +23,7 @@ pub struct SimpleSCF<B: AOBasis> {
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
     e_level: DVector<f64>,
+    MAX_CYCLE: usize,
 }
 
 impl<B: AOBasis + Clone> SimpleSCF<B> {
@@ -39,6 +40,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             fock_matrix: DMatrix::from_element(0, 0, 0.0),
             overlap_matrix: DMatrix::from_element(0, 0, 0.0),
             e_level: DVector::from_element(0, 0.0),
+            MAX_CYCLE: 100,
         }
     }
 }
@@ -156,6 +158,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
+        for _ in 0..self.MAX_CYCLE {
+            // calculate new density matrix
+        }
     }
 }
 
