@@ -138,6 +138,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
 
+        // suppose all the shell is occupied
         self.integral_matrix= DMatrix::from_element(
             self.num_basis * self.num_basis,
             self.num_basis * self.num_basis, 0.0);
