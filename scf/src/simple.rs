@@ -138,17 +138,24 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
 
+        self.integral_matrix= DMatrix::from_element(
+            self.num_basis.powi(2), self.num_basis.powi(2), 0.0);
+
         // Precompute two-electron integrals and store them in a hashmap or tensor
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
-                        let integral = B::BasisType::JKabcd(
+                        let integral_ijkl = B::BasisType::JKabcd(
                             &self.mo_basis[i], &self.mo_basis[j],
                             &self.mo_basis[k], &self.mo_basis[l]);
+                        let integral_ikjl = B::BasisType::JKabcd(
+                            &self.mo_basis[i], &self.mo_basis[k],
+                            &self.mo_basis[j], &self.mo_basis[l]);
                         let row = i * self.num_basis + j;
                         let col = k * self.num_basis + l;
-                        self.integral_matrix[(row, col)] = integral;
+                        // self.integral_matrix[(row, col)] = integral;
+                        self.integral_matrix[(row, col)] = integral_ijkl - 0.5 * integral_ikjl;
                     }
                 }
             }
@@ -156,7 +163,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     }
 
-    fn scf_cycle(&mut self) {
+            fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
         for _ in 0..self.MAX_CYCLE {
             // calculate new density matrix
