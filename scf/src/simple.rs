@@ -164,7 +164,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     }
 
-            fn scf_cycle(&mut self) {
+    fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
         for _ in 0..self.MAX_CYCLE {
             // calculate new density matrix
