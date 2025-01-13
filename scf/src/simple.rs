@@ -139,7 +139,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Initializing Fock matrix...");
 
         self.integral_matrix= DMatrix::from_element(
-            self.num_basis.powi(2), self.num_basis.powi(2), 0.0);
+            self.num_basis * self.num_basis,
+            self.num_basis * self.num_basis, 0.0);
 
         // Precompute two-electron integrals and store them in a hashmap or tensor
         for i in 0..self.num_basis {
