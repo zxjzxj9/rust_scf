@@ -171,6 +171,26 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             // calculate new density matrix
             let mut new_density_matrix =
                 self.coeffs.clone() * self.coeffs.transpose();
+            let mut new_density_matrix = new_density_matrix
+                .view((0, 0), (self.num_basis * self.num_basis, 1));
+            let integral_matrix = self.integral_matrix.clone()
+                * new_density_matrix.clone();
+            let integral_matrix = integral_matrix
+                .view((0, 0), (self.num_basis, self.num_basis));
+            let mut hamiltonian =
+                self.fock_matrix.clone() + integral_matrix;
+
+            let l = self.overlap_matrix.clone().cholesky().unwrap();
+            let l_inv = l.inverse();
+            let f_prime = l_inv.clone() * hamiltonian.clone_owned() * l_inv.clone().transpose();
+            let eig = f_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
+            let eigvecs = l_inv.clone().transpose() * eig.eigenvectors;
+            let eigvals = eig.eigenvalues;
+            self.coeffs = l_inv * eigvecs;
+            self.e_level = eigvals;
+
+            // print energy levels
+            println!("Energy levels: {:?}", self.e_level);
         }
     }
 }
