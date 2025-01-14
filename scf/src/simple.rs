@@ -205,9 +205,9 @@ mod tests {
     use basis::cgto::Basis631G;
 
     fn fetch_basis(atomic_symbol: &str) -> Basis631G {
-        let url =
-            "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}"
-                .format(atomic_symbol);
+        let url = format!(
+            "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
+            atomic_symbol);
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
         Basis631G::parse_nwchem(&basis_str)
     }
@@ -229,8 +229,10 @@ mod tests {
         let mut basis = HashMap::new();
 
         // download basis first
-        basis.insert("O", &fetch_basis("O"));
-        basis.insert("H", &fetch_basis("H"));
+        let h_basis = fetch_basis("H");
+        let o_basis = fetch_basis("O");
+        basis.insert("O", &h_basis);
+        basis.insert("H", &o_basis);
 
         scf.init_basis(&h2o_elems, basis);
         scf.init_geometry(&h2o_coords, &h2o_elems);
