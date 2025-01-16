@@ -64,6 +64,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             );
 
             let b_arc = Arc::new(Mutex::new((*b).clone()));
+
+            // set geometry
+            // b_arc.lock().unwrap().set_center(self.coords[idx]);
+
             // Push to ao_basis
             self.ao_basis.push(b_arc.clone());
 
