@@ -91,6 +91,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             );
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);
         }
+        self.coords = coords.clone();
     }
 
     fn init_density_matrix(&mut self) {
