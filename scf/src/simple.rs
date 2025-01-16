@@ -57,6 +57,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.num_basis = 0;
         for elem in elems {
             let b = *basis.get(elem.get_symbol()).unwrap();
+            // b.get_basis().iter().for_each(|tb| {
+            //     println!("tb: {:?}", tb);
+            // });
             println!(
                 "Element: {}, basis size: {}",
                 elem.get_symbol(),
@@ -214,6 +217,7 @@ mod tests {
             "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
             atomic_symbol);
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
+        println!("Basis set for {}: {}", atomic_symbol, basis_str);
         Basis631G::parse_nwchem(&basis_str)
     }
 
