@@ -58,7 +58,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         for elem in elems {
             let b = *basis.get(elem.get_symbol()).unwrap();
             // b.get_basis().iter().for_each(|tb| {
-            //     println!("tb: {:?}", tb);
+            //     // println!("tb: {:?}", tb);
             // });
             println!(
                 "Element: {}, basis size: {}",
