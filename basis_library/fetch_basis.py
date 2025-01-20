@@ -38,7 +38,8 @@ if __name__ == "__main__":
     # print("Formats:", formats)
 
     basis_name = "6-31g"
-    element = "H"
+    # element = "H"
+    element = "O"
     basis = fetch_basis(basis_name, element)
     print("Basis:\n", basis)
     load_basis_from_py_str(basis, "{}.{}.pkl".format(element, basis_name))
