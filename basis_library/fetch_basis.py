@@ -47,8 +47,12 @@ if __name__ == "__main__":
     # prettify print the dictionary
     with open("{}.{}.pkl".format(element, basis_name), 'rb') as f:
         res = pickle.load(f)
+        print(element)
         print(len(res['basis_set'])) # size 2, correct
         for basis in res['basis_set']:
-            print(len(basis))
-        print(list(res['basis_set']))
+            # print(basis)
+            print(json.dumps(basis, indent=4))
+            break
+            # print(len(basis))
+        # print(list(res['basis_set']))
         # print(json.dumps(res, indent=4))
