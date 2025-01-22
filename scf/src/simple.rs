@@ -97,6 +97,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 coords[i]
             );
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);
+            println!("Center: {:?}", self.ao_basis[i].lock().unwrap().get_center());
         }
         self.coords = coords.clone();
     }
