@@ -241,8 +241,8 @@ mod tests {
         // download basis first
         let h_basis = fetch_basis("H");
         let o_basis = fetch_basis("O");
-        basis.insert("O", &h_basis);
-        basis.insert("H", &o_basis);
+        basis.insert("H", &h_basis);
+        basis.insert("O", &o_basis);
 
         scf.init_basis(&h2o_elems, basis);
         scf.init_geometry(&h2o_coords, &h2o_elems);
