@@ -178,8 +178,6 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Performing SCF cycle...");
         for _ in 0..self.MAX_CYCLE {
             // calculate new density matrix
-            // let mut new_density_matrix =
-            //     self.coeffs.clone() * self.coeffs.transpose();
             let new_density_matrix = self.coeffs.clone() * self.coeffs.transpose();
             let mut new_density_matrix = new_density_matrix
                 .view((0, 0), (self.num_basis * self.num_basis, 1));
