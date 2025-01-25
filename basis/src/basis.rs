@@ -36,7 +36,7 @@ pub enum BasisFormat {
     Json,
 }
 
-pub enum BasisType {
-    // STO,
-
-}
+//
+// pub enum BasisType {
+//     // STO,
+// }
