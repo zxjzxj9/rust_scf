@@ -8,7 +8,7 @@ use std::f64::consts::PI;
 use std::os::raw::c_double;
 use serde::{Deserialize, Serialize};
 use crate::helper::boys_function;
-use crate::basis::Basis;
+use crate::basis::{AOBasis, Basis};
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct GTO1d {
@@ -172,7 +172,6 @@ pub struct GTO {
     pub norm: f64,
     pub gto1d: [GTO1d; 3],
 }
-
 
 impl GTO {
     pub(crate) fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {

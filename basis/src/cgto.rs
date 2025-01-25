@@ -242,6 +242,12 @@ impl AOBasis for Basis631G{
         for cgto in self.basis_set.iter_mut() {
             for gto in cgto.primitives.iter_mut() {
                 gto.center = center;
+
+                // this is a flawed implementation, we shouldn't set them twice
+                // set the center of the GTO, separately for each dimension
+                gto.gto1d[0].center = center[0];
+                gto.gto1d[1].center = center[1];
+                gto.gto1d[2].center = center[2];
             }
         }
     }
@@ -257,7 +263,8 @@ impl AOBasis for Basis631G{
                 return Some(first_center);
             }
         }
-        None // Return None if the centers are not the same or if there are no primitives
+        // Return None if the centers are not the same or if there are no primitives
+        None
     }
 
     fn basis_size(&self) -> usize {
