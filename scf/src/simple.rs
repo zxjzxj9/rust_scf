@@ -17,8 +17,7 @@ pub struct SimpleSCF<B: AOBasis> {
     coords: Vec<Vector3<f64>>,
     elems: Vec<Element>,
     // use nalgebra for the density matrix, fock matrix, etc.
-    coeffs: DMatrix<f64>,
-    // density_matrix: DMatrix<f64>,
+    coeffs: DVector<f64>,
     integral_matrix:  DMatrix<f64>, // <ij|1/r12|kl>
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
@@ -35,7 +34,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             mo_basis: Vec::new(),
             coords: Vec::new(),
             elems: Vec::new(),
-            coeffs: DMatrix::from_element(0, 0, 0.0),
+            coeffs: DVector::zeros(0),
             integral_matrix: DMatrix::from_element(0, 0, 0.0),
             fock_matrix: DMatrix::from_element(0, 0, 0.0),
             overlap_matrix: DMatrix::from_element(0, 0, 0.0),
@@ -193,7 +192,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Performing SCF cycle...");
         for _ in 0..self.MAX_CYCLE {
             // calculate new density matrix
-            let new_density_matrix = self.coeffs.clone() * self.coeffs.transpose();
+            let new_density_matrix = self.coeffs.transpose() * self.coeffs.clone();
+            print!("Density matrix shape: {:?}", new_density_matrix.shape());
             let mut new_density_matrix = new_density_matrix
                 .view((0, 0), (self.num_basis * self.num_basis, 1));
             let integral_matrix = self.integral_matrix.clone()
