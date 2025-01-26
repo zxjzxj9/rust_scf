@@ -100,6 +100,18 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             println!("Center: {:?}", self.ao_basis[i].lock().unwrap().get_center());
         }
         self.coords = coords.clone();
+
+        // Rebuild the molecular orbital basis with updated coordinates
+        self.mo_basis.clear();
+        self.num_basis = 0;
+        for ao in &self.ao_basis {
+            let ao_locked = ao.lock().unwrap();
+            for tb in ao_locked.get_basis() {
+                self.mo_basis.push(tb.clone());
+            }
+            self.num_basis += ao_locked.basis_size();
+        }
+        println!("Rebuilt MO basis with {} basis functions.", self.num_basis);
     }
 
     fn init_density_matrix(&mut self) {
