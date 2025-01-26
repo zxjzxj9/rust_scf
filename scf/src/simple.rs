@@ -154,6 +154,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.coeffs = l_inv * eigvecs;
         self.e_level = eigvals;
 
+        // print!("Coeffs shape: {:?}", self.coeffs.shape());
+
         // print energy levels
         println!("Energy levels: {:?}", self.e_level);
     }
@@ -191,29 +193,36 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
         for _ in 0..self.MAX_CYCLE {
-            // calculate new density matrix
-            let new_density_matrix = self.coeffs.transpose() * self.coeffs.clone();
-            print!("Coeffs shape: {:?}", self.coeffs.shape());
-            print!("Density matrix shape: {:?}", new_density_matrix.shape());
-            let mut new_density_matrix = new_density_matrix
-                .view((0, 0), (self.num_basis * self.num_basis, 1));
-            let integral_matrix = self.integral_matrix.clone()
-                * new_density_matrix.clone();
-            let integral_matrix = integral_matrix
-                .view((0, 0), (self.num_basis, self.num_basis));
-            let mut hamiltonian =
-                self.fock_matrix.clone() + integral_matrix;
+            // 1. close shell density matrix
+            let new_density_matrix = 2.0 * &self.coeffs * self.coeffs.transpose();
 
+            // 2. flatten density matrix as the column vector (num_basis² x 1)
+            let density_flattened = new_density_matrix.reshape_generic(
+                self.num_basis * self.num_basis,
+                1
+            );
+
+            // 3. calculate g matrix (for electron repulsion)
+            let g_matrix_flattened = &self.integral_matrix * &density_flattened;
+
+            // 4. reshape it back to matrix form
+            let g_matrix = g_matrix_flattened.reshape_generic(
+                self.num_basis,
+                self.num_basis
+            );
+
+            // 5. construct fock matrix
+            let hamiltonian = self.fock_matrix.clone() + g_matrix;
+
+            // 6. orthogonalize the fock matrix
             let l = self.overlap_matrix.clone().cholesky().unwrap();
             let l_inv = l.inverse();
-            let f_prime = l_inv.clone() * hamiltonian.clone_owned() * l_inv.clone().transpose();
-            let eig = f_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
-            let eigvecs = l_inv.clone().transpose() * eig.eigenvectors;
-            let eigvals = eig.eigenvalues;
+            let f_prime = l_inv.clone() * &hamiltonian * l_inv.transpose();
+            let eig = f_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
+            let eigvecs = l_inv.transpose() * eig.eigenvectors;
             self.coeffs = l_inv * eigvecs;
-            self.e_level = eigvals;
+            self.e_level = eig.eigenvalues;
 
-            // print energy levels
             println!("Energy levels: {:?}", self.e_level);
         }
     }
