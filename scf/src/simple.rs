@@ -74,16 +74,16 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             // Push to ao_basis
             self.ao_basis.push(b_arc.clone());
 
-            for tb in b_arc.lock().unwrap().get_basis() {
-                // If tb is Arc<...> already:
-                self.mo_basis.push(tb.clone());
-            }
+            // for tb in b_arc.lock().unwrap().get_basis() {
+            //     // If tb is Arc<...> already:
+            //     self.mo_basis.push(tb.clone());
+            // }
 
-            self.num_basis += b.basis_size();
+            // self.num_basis += b.basis_size();
         }
 
         println!("Number of atoms: {}", self.num_atoms);
-        println!("Number of basis functions: {}", self.mo_basis.len());
+        // println!("Number of basis functions: {}", self.mo_basis.len());
     }
 
     fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
@@ -144,7 +144,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         }
 
         // print overlap matrix for debugging
-        println!("Overlap Matrix: {:?}", self.overlap_matrix);
+        // println!("Overlap Matrix: {:?}", self.overlap_matrix);
 
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
