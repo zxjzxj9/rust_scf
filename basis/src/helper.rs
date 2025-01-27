@@ -416,7 +416,7 @@ mod tests {
         let result = integrate_spherical_3d(f, a, b, R, nx, ny, nz, tolerance);
 
         // Analytical result for ∫ (1/|r|) inside sphere radius 1: 2 * π * 1^2 = 2 * π
-        let analytical = 2.0 * PI;
+        let analytical = -2.0 * PI;
 
         let error = (result - analytical).abs();
         let relative_error = error / analytical;

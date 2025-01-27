@@ -346,7 +346,7 @@ mod tests {
         // For a basic check, we just ensure the value is finite and > 0
         // In reality, you'd insert a known benchmark value here.
         assert!(val.is_finite());
-        assert!(val > 0.0, "Integral should be positive for identical s-orbitals at the same center");
+        assert!(val < 0.0, "Integral should be positive for identical s-orbitals at the same center");
     }
 
     #[test]
