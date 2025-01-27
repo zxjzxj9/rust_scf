@@ -4,10 +4,11 @@ extern crate nalgebra as na;
 
 use crate::scf::SCF;
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, Vector3};
+use na::{DMatrix, DVector, Vector3, SymmetricEigen};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use nalgebra::{Const, Dyn};
 
 pub struct SimpleSCF<B: AOBasis> {
     num_atoms: usize,
@@ -67,18 +68,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
             let b_arc = Arc::new(Mutex::new((*b).clone()));
 
-            // set geometry
-            // b_arc.lock().unwrap().set_center(self.coords[idx]);
-
             // Push to ao_basis
             self.ao_basis.push(b_arc.clone());
-
-            // for tb in b_arc.lock().unwrap().get_basis() {
-            //     // If tb is Arc<...> already:
-            //     self.mo_basis.push(tb.clone());
-            // }
-
-            // self.num_basis += b.basis_size();
         }
 
         println!("Number of atoms: {}", self.num_atoms);
@@ -192,14 +183,26 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
+
+        // 1. calculate all the electron numbers and number of occupied orbitals
+        let total_electrons: usize = self.elems.iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+
+        // 2. calculate the number of occupied orbitals
+        let n_occ = total_electrons / 2;
+
         for _ in 0..self.MAX_CYCLE {
+            // 0. truncate the coeffs matrix to the number of occupied orbitals
+            self.coeffs = <DMatrix<f64>>::from(self.coeffs.columns(0, n_occ));
+
             // 1. close shell density matrix
             let new_density_matrix = 2.0 * &self.coeffs * self.coeffs.transpose();
 
             // 2. flatten density matrix as the column vector (num_basis² x 1)
             let density_flattened = new_density_matrix.reshape_generic(
-                self.num_basis * self.num_basis,
-                1
+                Dyn(self.num_basis * self.num_basis),
+                Dyn(1)
             );
 
             // 3. calculate g matrix (for electron repulsion)
@@ -207,8 +210,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
             // 4. reshape it back to matrix form
             let g_matrix = g_matrix_flattened.reshape_generic(
-                self.num_basis,
-                self.num_basis
+                Dyn(self.num_basis),
+                Dyn(self.num_basis)
             );
 
             // 5. construct fock matrix
