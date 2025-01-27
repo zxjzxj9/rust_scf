@@ -4,11 +4,11 @@ extern crate nalgebra as na;
 
 use crate::scf::SCF;
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, Vector3, SymmetricEigen};
+use na::{DMatrix, DVector, SymmetricEigen, Vector3};
+use nalgebra::{Const, Dyn};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use nalgebra::{Const, Dyn};
 
 pub struct SimpleSCF<B: AOBasis> {
     num_atoms: usize,
@@ -79,7 +79,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 coords[i]
             );
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);
-            println!("Center: {:?}", self.ao_basis[i].lock().unwrap().get_center());
+            println!(
+                "Center: {:?}",
+                self.ao_basis[i].lock().unwrap().get_center()
+            );
         }
         self.coords = coords.clone();
 
@@ -126,7 +129,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let eigenvectors = eig.eigenvectors.clone();
         let mut indices: Vec<usize> = (0..eigenvalues.len()).collect();
         indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
-        let sorted_eigenvalues = DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
+        let sorted_eigenvalues =
+            DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
         let sorted_eigenvectors = eigenvectors.select_columns(&indices);
 
         let eigvecs = l_inv.clone().transpose() * sorted_eigenvectors;
@@ -139,20 +143,28 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
 
-        self.integral_matrix= DMatrix::from_element(
+        self.integral_matrix = DMatrix::from_element(
             self.num_basis * self.num_basis,
-            self.num_basis * self.num_basis, 0.0);
+            self.num_basis * self.num_basis,
+            0.0,
+        );
 
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
                         let integral_ijkl = B::BasisType::JKabcd(
-                            &self.mo_basis[i], &self.mo_basis[j],
-                            &self.mo_basis[k], &self.mo_basis[l]);
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            &self.mo_basis[k],
+                            &self.mo_basis[l],
+                        );
                         let integral_ikjl = B::BasisType::JKabcd(
-                            &self.mo_basis[i], &self.mo_basis[k],
-                            &self.mo_basis[j], &self.mo_basis[l]);
+                            &self.mo_basis[i],
+                            &self.mo_basis[k],
+                            &self.mo_basis[j],
+                            &self.mo_basis[l],
+                        );
                         let row = i * self.num_basis + j;
                         let col = k * self.num_basis + l;
                         self.integral_matrix[(row, col)] = integral_ijkl - 0.5 * integral_ikjl;
@@ -165,7 +177,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
 
-        let total_electrons: usize = self.elems.iter()
+        let total_electrons: usize = self
+            .elems
+            .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
         let n_occ = total_electrons / 2;
@@ -174,16 +188,12 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             let occupied_coeffs = self.coeffs.columns(0, n_occ);
             let new_density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
 
-            let density_flattened = new_density_matrix.reshape_generic(
-                Dyn(self.num_basis * self.num_basis),
-                Dyn(1)
-            );
+            let density_flattened =
+                new_density_matrix.reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
 
             let g_matrix_flattened = &self.integral_matrix * &density_flattened;
-            let g_matrix = g_matrix_flattened.reshape_generic(
-                Dyn(self.num_basis),
-                Dyn(self.num_basis)
-            );
+            let g_matrix =
+                g_matrix_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
 
             let hamiltonian = self.fock_matrix.clone() + g_matrix;
 
@@ -197,7 +207,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             let eigenvectors = eig.eigenvectors.clone();
             let mut indices: Vec<usize> = (0..eigenvalues.len()).collect();
             indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
-            let sorted_eigenvalues = DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
+            let sorted_eigenvalues =
+                DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
             let sorted_eigenvectors = eigenvectors.select_columns(&indices);
 
             let eigvecs = l_inv.transpose() * sorted_eigenvectors;
@@ -212,17 +223,216 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use basis::cgto::Basis631G;
     use nalgebra::Vector3;
     use periodic_table_on_an_enum::Element;
     use std::collections::HashMap;
-    use basis::cgto::Basis631G;
 
     fn fetch_basis(atomic_symbol: &str) -> Basis631G {
         let url = format!(
             "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
-            atomic_symbol);
+            atomic_symbol
+        );
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
         Basis631G::parse_nwchem(&basis_str)
+    }
+    // Mock implementations for testing
+    #[derive(Clone)]
+    struct MockAOBasis {
+        center: Vector3<f64>,
+    }
+
+    impl AOBasis for MockAOBasis {
+        type BasisType = MockBasis;
+
+        fn basis_size(&self) -> usize {
+            1
+        }
+
+        fn get_basis(&self) -> Vec<Arc<Self::BasisType>> {
+            vec![Arc::new(MockBasis)]
+        }
+
+        fn set_center(&mut self, center: Vector3<f64>) {
+            self.center = center;
+        }
+
+        fn get_center(&self) -> Option<Vector3<f64>> {
+            Some(self.center)
+        }
+    }
+
+    #[derive(PartialEq)]
+    struct MockBasis;
+
+    impl Basis for MockBasis {
+        fn evaluate(&self, r: &Vector3<f64>) -> f64 {
+            todo!()
+        }
+
+        fn Sab(_: &Self, _: &Self) -> f64 {
+            1.0 // Overlap integral (diagonal)
+        }
+
+        fn Tab(_: &Self, _: &Self) -> f64 {
+            0.1 // Kinetic energy integral
+        }
+
+        fn Vab(_: &Self, _: &Self, _: Vector3<f64>, charge: u32) -> f64 {
+            -0.2 * charge as f64 // Potential energy integral
+        }
+
+        fn JKabcd(_: &Self, _: &Self, _: &Self, _: &Self) -> f64 {
+            0.01 // Two-electron integral
+        }
+    }
+
+    // Helper function to create mock basis
+    fn create_mock_basis() -> MockAOBasis {
+        MockAOBasis {
+            center: Vector3::zeros(),
+        }
+    }
+
+    #[test]
+    fn test_init_basis() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+
+        assert_eq!(scf.num_atoms, 2);
+        assert_eq!(scf.ao_basis.len(), 2);
+        assert_eq!(scf.elems, elems);
+    }
+
+    #[test]
+    fn test_init_geometry() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+
+        assert_eq!(scf.coords, coords);
+        assert_eq!(scf.num_basis, 2);
+        for (i, ao) in scf.ao_basis.iter().enumerate() {
+            let center = ao.lock().unwrap().get_center().unwrap();
+            assert_eq!(center, coords[i]);
+        }
+    }
+
+    #[test]
+    fn test_init_density_matrix() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+
+        // Test matrix dimensions
+        assert_eq!(scf.overlap_matrix.shape(), (2, 2));
+        assert_eq!(scf.fock_matrix.shape(), (2, 2));
+
+        // Verify overlap matrix values (mock returns 1.0 for all Sab)
+        assert!(scf.overlap_matrix.iter().all(|&x| x == 1.0));
+
+        // Verify Fock matrix values: Tab + sum(Vab)
+        // Each Vab contributes -0.2 * charge (1 per atom, 2 atoms total)
+        let expected_fock_value = 0.1 + (-0.2 * 1.0 * 2.0);
+        assert!(scf
+            .fock_matrix
+            .iter()
+            .all(|&x| (x - expected_fock_value).abs() < 1e-6));
+
+        // Verify energy levels are sorted
+        let eigenvalues = scf.e_level.as_slice();
+        assert!(eigenvalues.windows(2).all(|w| w[0] <= w[1]));
+    }
+
+    #[test]
+    fn test_init_fock_matrix() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+
+        // Test integral matrix dimensions
+        assert_eq!(
+            scf.integral_matrix.shape(),
+            (scf.num_basis * scf.num_basis, scf.num_basis * scf.num_basis)
+        );
+
+        // Verify integral values (0.01 - 0.5*0.01 = 0.005)
+        let expected_value = 0.01 - 0.5 * 0.01;
+        assert!(scf
+            .integral_matrix
+            .iter()
+            .all(|&x| (x - expected_value).abs() < 1e-6));
+    }
+
+    #[test]
+    fn test_scf_cycle_updates() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+
+        let initial_coeffs = scf.coeffs.clone();
+        let initial_energy = scf.e_level.clone();
+
+        scf.scf_cycle();
+
+        // Verify updates after SCF cycle
+        assert_ne!(scf.coeffs, initial_coeffs);
+        assert_ne!(scf.e_level, initial_energy);
+        assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
+    }
+
+    #[test]
+    fn test_occupied_orbitals() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Helium]; // Atomic number 2
+        let coords = vec![Vector3::zeros()];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("He", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+
+        // Verify occupied orbitals count
+        let total_electrons: usize = elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+        assert_eq!(total_electrons, 2);
+        let n_occ = total_electrons / 2;
+        assert_eq!(n_occ, 1);
     }
 
     #[test]
@@ -233,11 +443,7 @@ mod tests {
             Vector3::new(0.0, 0.0, 1.809),
             Vector3::new(1.443, 0.0, -0.453),
         ];
-        let h2o_elems = vec![
-            Element::Oxygen,
-            Element::Hydrogen,
-            Element::Hydrogen,
-        ];
+        let h2o_elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
 
         let mut basis = HashMap::new();
         let h_basis = fetch_basis("H");
