@@ -5,10 +5,9 @@ use itertools::iproduct;
 use na::Vector3;
 use rayon::prelude::*;
 use std::f64::consts::PI;
-use std::os::raw::c_double;
 use serde::{Deserialize, Serialize};
 use crate::helper::boys_function;
-use crate::basis::{AOBasis, Basis};
+use crate::basis::Basis;
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct GTO1d {

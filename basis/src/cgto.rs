@@ -7,20 +7,15 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
-use std::iter::{zip, Zip};
 use std::sync::Arc;
 use itertools::iproduct;
 use nalgebra::Vector3;
 use serde::{Deserialize, Serialize};
 use serde_pickle;
-// use serde_pickle::Serializer;
 use crate::gto::GTO;
-// use mendeleev::Element;
 use periodic_table_on_an_enum;
 use rayon::prelude::*;
-use rayon::slice::Iter;
 use crate::basis::{AOBasis, Basis, BasisFormat};
-use reqwest;
 
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
