@@ -17,9 +17,8 @@ pub struct SimpleSCF<B: AOBasis> {
     mo_basis: Vec<Arc<B::BasisType>>,
     coords: Vec<Vector3<f64>>,
     elems: Vec<Element>,
-    // use nalgebra for the density matrix, fock matrix, etc.
     coeffs: DMatrix<f64>,
-    integral_matrix:  DMatrix<f64>, // <ij|1/r12|kl>
+    integral_matrix: DMatrix<f64>,
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
     e_level: DVector<f64>,
@@ -45,7 +44,6 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
     }
 }
 
-// implement the scf trait for the simple scf struct
 impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     type BasisType = B;
 
@@ -57,9 +55,6 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.num_basis = 0;
         for elem in elems {
             let b = *basis.get(elem.get_symbol()).unwrap();
-            // b.get_basis().iter().for_each(|tb| {
-            //     // println!("tb: {:?}", tb);
-            // });
             println!(
                 "Element: {}, basis size: {}",
                 elem.get_symbol(),
@@ -67,13 +62,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             );
 
             let b_arc = Arc::new(Mutex::new((*b).clone()));
-
-            // Push to ao_basis
             self.ao_basis.push(b_arc.clone());
         }
 
         println!("Number of atoms: {}", self.num_atoms);
-        // println!("Number of basis functions: {}", self.mo_basis.len());
     }
 
     fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
@@ -91,7 +83,6 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         }
         self.coords = coords.clone();
 
-        // Rebuild the molecular orbital basis with updated coordinates
         self.mo_basis.clear();
         self.num_basis = 0;
         for ao in &self.ao_basis {
@@ -106,16 +97,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
     fn init_density_matrix(&mut self) {
         println!("Initializing density matrix...");
-        // core hamiltonian initialization
-        // self.density_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.overlap_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
-
-        // solve Hc = ScE to initialize density matrix
-        // let eig =
-        //     self.overlap_matrix.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
-        // let eigvecs = eig.eigenvectors;
-        // let eigvals = eig.eigenvalues;
 
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
@@ -133,33 +116,33 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
         }
 
-        // print overlap matrix for debugging
-        // println!("Overlap Matrix: {:?}", self.overlap_matrix);
-
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
         let f_prime = l_inv.clone() * self.fock_matrix.clone_owned() * l_inv.clone().transpose();
         let eig = f_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
-        let eigvecs = l_inv.clone().transpose() * eig.eigenvectors;
-        let eigvals = eig.eigenvalues;
+
+        // Sort eigenvalues and eigenvectors
+        let eigenvalues = eig.eigenvalues.clone();
+        let eigenvectors = eig.eigenvectors.clone();
+        let mut indices: Vec<usize> = (0..eigenvalues.len()).collect();
+        indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
+        let sorted_eigenvalues = DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
+        let sorted_eigenvectors = eigenvectors.select_columns(&indices);
+
+        let eigvecs = l_inv.clone().transpose() * sorted_eigenvectors;
         self.coeffs = l_inv * eigvecs;
-        self.e_level = eigvals;
+        self.e_level = sorted_eigenvalues;
 
-        // print!("Coeffs shape: {:?}", self.coeffs.shape());
-
-        // print energy levels
         println!("Energy levels: {:?}", self.e_level);
     }
 
     fn init_fock_matrix(&mut self) {
         println!("Initializing Fock matrix...");
 
-        // suppose all the shell is occupied
         self.integral_matrix= DMatrix::from_element(
             self.num_basis * self.num_basis,
             self.num_basis * self.num_basis, 0.0);
 
-        // Precompute two-electron integrals and store them in a hashmap or tensor
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 for k in 0..self.num_basis {
@@ -172,65 +155,59 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                             &self.mo_basis[j], &self.mo_basis[l]);
                         let row = i * self.num_basis + j;
                         let col = k * self.num_basis + l;
-                        // self.integral_matrix[(row, col)] = integral;
                         self.integral_matrix[(row, col)] = integral_ijkl - 0.5 * integral_ikjl;
                     }
                 }
             }
         }
-
     }
 
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
 
-        // 1. calculate all the electron numbers and number of occupied orbitals
         let total_electrons: usize = self.elems.iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-
-        // 2. calculate the number of occupied orbitals
         let n_occ = total_electrons / 2;
 
         for _ in 0..self.MAX_CYCLE {
-            // 0. truncate the coeffs matrix to the number of occupied orbitals
-            self.coeffs = <DMatrix<f64>>::from(self.coeffs.columns(0, n_occ));
+            let occupied_coeffs = self.coeffs.columns(0, n_occ);
+            let new_density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
 
-            // 1. close shell density matrix
-            let new_density_matrix = 2.0 * &self.coeffs * self.coeffs.transpose();
-
-            // 2. flatten density matrix as the column vector (num_basis² x 1)
             let density_flattened = new_density_matrix.reshape_generic(
                 Dyn(self.num_basis * self.num_basis),
                 Dyn(1)
             );
 
-            // 3. calculate g matrix (for electron repulsion)
             let g_matrix_flattened = &self.integral_matrix * &density_flattened;
-
-            // 4. reshape it back to matrix form
             let g_matrix = g_matrix_flattened.reshape_generic(
                 Dyn(self.num_basis),
                 Dyn(self.num_basis)
             );
 
-            // 5. construct fock matrix
             let hamiltonian = self.fock_matrix.clone() + g_matrix;
 
-            // 6. orthogonalize the fock matrix
             let l = self.overlap_matrix.clone().cholesky().unwrap();
             let l_inv = l.inverse();
             let f_prime = l_inv.clone() * &hamiltonian * l_inv.transpose();
             let eig = f_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
-            let eigvecs = l_inv.transpose() * eig.eigenvectors;
+
+            // Sort eigenvalues and eigenvectors
+            let eigenvalues = eig.eigenvalues.clone();
+            let eigenvectors = eig.eigenvectors.clone();
+            let mut indices: Vec<usize> = (0..eigenvalues.len()).collect();
+            indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
+            let sorted_eigenvalues = DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
+            let sorted_eigenvectors = eigenvectors.select_columns(&indices);
+
+            let eigvecs = l_inv.transpose() * sorted_eigenvectors;
             self.coeffs = l_inv * eigvecs;
-            self.e_level = eig.eigenvalues;
+            self.e_level = sorted_eigenvalues;
 
             println!("Energy levels: {:?}", self.e_level);
         }
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -245,13 +222,12 @@ mod tests {
             "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
             atomic_symbol);
         let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
-        println!("Basis set for {}: {}", atomic_symbol, basis_str);
         Basis631G::parse_nwchem(&basis_str)
     }
 
     #[test]
     fn test_simple_scf() {
-        let mut scf = SimpleSCF::new(); // h2o coordinates in Bohr
+        let mut scf = SimpleSCF::new();
         let h2o_coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
             Vector3::new(0.0, 0.0, 1.809),
@@ -264,8 +240,6 @@ mod tests {
         ];
 
         let mut basis = HashMap::new();
-
-        // download basis first
         let h_basis = fetch_basis("H");
         let o_basis = fetch_basis("O");
         basis.insert("H", &h_basis);

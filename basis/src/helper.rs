@@ -301,8 +301,8 @@ where
                 return 0.0;
             }
 
-            // Evaluate the integrand: f(r)/|r-R|
-            let val = f(r) / dist;
+            // Evaluate the integrand: -f(r)/|r-R|
+            let val = -f(r) / dist;
             val
         })
         .sum();

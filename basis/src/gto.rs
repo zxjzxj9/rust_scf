@@ -266,7 +266,7 @@ impl Basis for GTO {
     }
 
     fn Tab(a: &GTO, b: &GTO) -> f64 {
-        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
+            GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
             * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
             * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
             + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
@@ -300,7 +300,8 @@ impl Basis for GTO {
                 eab_x * eab_y * eab_z * hermite_val
             }).sum::<f64>();
 
-        a.norm * b.norm * val * 2.0 * PI * (Z as f64)/ c.alpha
+        // add minus sign to the result, since it is a nuclear attraction term
+        -1.0 * a.norm * b.norm * val * 2.0 * PI * (Z as f64)/ c.alpha
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
