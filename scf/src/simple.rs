@@ -251,8 +251,9 @@ mod tests {
         }
 
         fn get_basis(&self) -> Vec<Arc<Self::BasisType>> {
-            vec![Arc::new(MockBasis)]
-        }
+            vec![Arc::new(MockBasis {
+                center: self.center,
+            })]        }
 
         fn set_center(&mut self, center: Vector3<f64>) {
             self.center = center;
@@ -263,16 +264,23 @@ mod tests {
         }
     }
 
-    #[derive(PartialEq)]
-    struct MockBasis;
+
+    #[derive(Clone)]
+    struct MockBasis {
+        center: Vector3<f64>,
+    }
 
     impl Basis for MockBasis {
         fn evaluate(&self, r: &Vector3<f64>) -> f64 {
             todo!()
         }
 
-        fn Sab(_: &Self, _: &Self) -> f64 {
-            1.0 // Overlap integral (diagonal)
+        fn Sab(a: &Self, b: &Self) -> f64 {
+            if a.center == b.center {
+                1.0
+            } else {
+                0.0
+            }
         }
 
         fn Tab(_: &Self, _: &Self) -> f64 {
@@ -347,16 +355,19 @@ mod tests {
         assert_eq!(scf.overlap_matrix.shape(), (2, 2));
         assert_eq!(scf.fock_matrix.shape(), (2, 2));
 
-        // Verify overlap matrix values (mock returns 1.0 for all Sab)
-        assert!(scf.overlap_matrix.iter().all(|&x| x == 1.0));
+        // Verify overlap matrix is identity
+        assert!(scf.overlap_matrix.clone().is_identity(1e-6));
 
         // Verify Fock matrix values: Tab + sum(Vab)
-        // Each Vab contributes -0.2 * charge (1 per atom, 2 atoms total)
-        let expected_fock_value = 0.1 + (-0.2 * 1.0 * 2.0);
-        assert!(scf
-            .fock_matrix
-            .iter()
-            .all(|&x| (x - expected_fock_value).abs() < 1e-6));
+        let expected_diagonal = 0.1 + (-0.2 * 1.0 * 2.0); // -0.3 for diagonal
+        let expected_off_diagonal = 0.1 + (-0.2 * 1.0 * 2.0); // -0.3 for off-diagonal in current mock setup
+
+        for i in 0..scf.num_basis {
+            for j in 0..scf.num_basis {
+                let expected = if i == j { expected_diagonal } else { expected_off_diagonal };
+                assert!((scf.fock_matrix[(i, j)] - expected).abs() < 1e-6);
+            }
+        }
 
         // Verify energy levels are sorted
         let eigenvalues = scf.e_level.as_slice();
