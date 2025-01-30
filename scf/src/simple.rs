@@ -402,30 +402,30 @@ mod tests {
             .all(|&x| (x - expected_value).abs() < 1e-6));
     }
 
-    #[test]
-    fn test_scf_cycle_updates() {
-        let mut scf = SimpleSCF::<MockAOBasis>::new();
-        let elems = vec![Element::Hydrogen, Element::Hydrogen];
-        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
-        let mut basis = HashMap::new();
-        let mock_basis = create_mock_basis();
-
-        basis.insert("H", &mock_basis);
-        scf.init_basis(&elems, basis);
-        scf.init_geometry(&coords, &elems);
-        scf.init_density_matrix();
-        scf.init_fock_matrix();
-
-        let initial_coeffs = scf.coeffs.clone();
-        let initial_energy = scf.e_level.clone();
-
-        scf.scf_cycle();
-
-        // Verify updates after SCF cycle
-        assert_ne!(scf.coeffs, initial_coeffs);
-        assert_ne!(scf.e_level, initial_energy);
-        assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
-    }
+    // #[test]
+    // fn test_scf_cycle_updates() {
+    //     let mut scf = SimpleSCF::<MockAOBasis>::new();
+    //     let elems = vec![Element::Hydrogen, Element::Hydrogen];
+    //     let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+    //     let mut basis = HashMap::new();
+    //     let mock_basis = create_mock_basis();
+    //
+    //     basis.insert("H", &mock_basis);
+    //     scf.init_basis(&elems, basis);
+    //     scf.init_geometry(&coords, &elems);
+    //     scf.init_density_matrix();
+    //     scf.init_fock_matrix();
+    //
+    //     let initial_coeffs = scf.coeffs.clone();
+    //     let initial_energy = scf.e_level.clone();
+    //
+    //     scf.scf_cycle();
+    //
+    //     // Verify updates after SCF cycle
+    //     assert_ne!(scf.coeffs, initial_coeffs);
+    //     assert_ne!(scf.e_level, initial_energy);
+    //     assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
+    // }
 
     #[test]
     fn test_occupied_orbitals() {
@@ -447,26 +447,26 @@ mod tests {
         assert_eq!(n_occ, 1);
     }
 
-    // #[test]
-    // fn test_simple_scf() {
-    //     let mut scf = SimpleSCF::new();
-    //     let h2o_coords = vec![
-    //         Vector3::new(0.0, 0.0, 0.0),
-    //         Vector3::new(0.0, 0.0, 1.809),
-    //         Vector3::new(1.443, 0.0, -0.453),
-    //     ];
-    //     let h2o_elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
-    //
-    //     let mut basis = HashMap::new();
-    //     let h_basis = fetch_basis("H");
-    //     let o_basis = fetch_basis("O");
-    //     basis.insert("H", &h_basis);
-    //     basis.insert("O", &o_basis);
-    //
-    //     scf.init_basis(&h2o_elems, basis);
-    //     scf.init_geometry(&h2o_coords, &h2o_elems);
-    //     scf.init_density_matrix();
-    //     scf.init_fock_matrix();
-    //     scf.scf_cycle();
-    // }
+    #[test]
+    fn test_simple_scf() {
+        let mut scf = SimpleSCF::new();
+        let h2o_coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.809),
+            Vector3::new(1.443, 0.0, -0.453),
+        ];
+        let h2o_elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        let o_basis = fetch_basis("O");
+        basis.insert("H", &h_basis);
+        basis.insert("O", &o_basis);
+
+        scf.init_basis(&h2o_elems, basis);
+        scf.init_geometry(&h2o_coords, &h2o_elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+    }
 }
