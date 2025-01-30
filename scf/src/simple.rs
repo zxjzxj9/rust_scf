@@ -135,10 +135,11 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let sorted_eigenvectors = eigenvectors.select_columns(&indices);
 
         let eigvecs = l_inv.clone().transpose() * sorted_eigenvectors;
-        self.coeffs = l_inv * eigvecs;
+        // Corrected line: Remove l_inv multiplication here
+        self.coeffs = eigvecs;
         self.e_level = sorted_eigenvalues;
 
-        println!("Energy levels: {:?}", self.e_level);
+        // println!("Energy levels: {:?}", self.e_level);
     }
 
     fn init_fock_matrix(&mut self) {
@@ -183,6 +184,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
+        // Ensure even number of electrons for closed-shell
+        assert!(total_electrons % 2 == 0, "Total number of electrons must be even");
         let n_occ = total_electrons / 2;
 
         for _ in 0..self.MAX_CYCLE {
@@ -213,7 +216,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             let sorted_eigenvectors = eigenvectors.select_columns(&indices);
 
             let eigvecs = l_inv.transpose() * sorted_eigenvectors;
-            self.coeffs = l_inv * eigvecs;
+            // Corrected line: Remove l_inv multiplication here
+            self.coeffs = eigvecs;
             self.e_level = sorted_eigenvalues;
 
             println!("Energy levels: {:?}", self.e_level);
