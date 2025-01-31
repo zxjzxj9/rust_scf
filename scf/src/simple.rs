@@ -406,30 +406,30 @@ mod tests {
             .all(|&x| (x - expected_value).abs() < 1e-6));
     }
 
-    // #[test]
-    // fn test_scf_cycle_updates() {
-    //     let mut scf = SimpleSCF::<MockAOBasis>::new();
-    //     let elems = vec![Element::Hydrogen, Element::Hydrogen];
-    //     let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
-    //     let mut basis = HashMap::new();
-    //     let mock_basis = create_mock_basis();
-    //
-    //     basis.insert("H", &mock_basis);
-    //     scf.init_basis(&elems, basis);
-    //     scf.init_geometry(&coords, &elems);
-    //     scf.init_density_matrix();
-    //     scf.init_fock_matrix();
-    //
-    //     let initial_coeffs = scf.coeffs.clone();
-    //     let initial_energy = scf.e_level.clone();
-    //
-    //     scf.scf_cycle();
-    //
-    //     // Verify updates after SCF cycle
-    //     assert_ne!(scf.coeffs, initial_coeffs);
-    //     assert_ne!(scf.e_level, initial_energy);
-    //     assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
-    // }
+    #[test]
+    fn test_scf_cycle_updates() {
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+
+        let initial_coeffs = scf.coeffs.clone();
+        let initial_energy = scf.e_level.clone();
+
+        scf.scf_cycle();
+
+        // Verify updates after SCF cycle
+        assert_ne!(scf.coeffs, initial_coeffs);
+        assert_ne!(scf.e_level, initial_energy);
+        assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
+    }
 
     #[test]
     fn test_occupied_orbitals() {
