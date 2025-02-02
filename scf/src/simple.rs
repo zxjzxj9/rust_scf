@@ -426,10 +426,6 @@ mod tests {
         scf.scf_cycle();
 
         // Verify updates after SCF cycle
-        // assert_ne!(scf.coeffs, initial_coeffs);
-        // assert_ne!(scf.e_level, initial_energy);
-
-        // assert scf.coeffs, initial_coeffs diff is close to zero
         let diff = scf.coeffs.clone() - initial_coeffs;
         assert!(diff.iter().all(|&x| x.abs() < 1e-6));
 
