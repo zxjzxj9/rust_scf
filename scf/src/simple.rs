@@ -429,10 +429,6 @@ mod tests {
         let diff = scf.coeffs.clone() - initial_coeffs;
         assert!(diff.iter().all(|&x| x.abs() < 1e-6));
 
-        // let diff = scf.e_level - initial_energy;
-        // println!("Energy level diff: {:?}", diff);
-        // assert!(diff.iter().all(|&x| x.abs() < 1e-6));
-
         assert_eq!(scf.coeffs.ncols(), 2); // Should maintain dimensions
     }
 
