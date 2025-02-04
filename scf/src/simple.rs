@@ -119,7 +119,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
         }
 
-        println!("Overlap matrix: {:?}", self.overlap_matrix);
+        // println!("Overlap matrix: {:?}", self.overlap_matrix);
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
         let f_prime = l_inv.clone() * self.fock_matrix.clone_owned() * l_inv.clone().transpose();
