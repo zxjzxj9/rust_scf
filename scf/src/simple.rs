@@ -25,6 +25,29 @@ pub struct SimpleSCF<B: AOBasis> {
     MAX_CYCLE: usize,
 }
 
+/// Given a matrix where each column is an eigenvector,
+/// this function aligns each eigenvector so that the entry with the largest
+/// absolute value is positive.
+fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
+    for j in 0..eigvecs.ncols() {
+        // Extract column j as a slice
+        let col = eigvecs.column(j);
+        // Find the index and value of the entry with maximum absolute value.
+        let (max_idx, &max_val) = col
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
+            .unwrap();
+        // If that maximum element is negative, flip the whole column.
+        if max_val < 0.0 {
+            for i in 0..eigvecs.nrows() {
+                eigvecs[(i, j)] = -eigvecs[(i, j)];
+            }
+        }
+    }
+    eigvecs
+}
+
 impl<B: AOBasis + Clone> SimpleSCF<B> {
     pub fn new() -> SimpleSCF<B> {
         SimpleSCF {
@@ -98,6 +121,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Rebuilt MO basis with {} basis functions.", self.num_basis);
     }
 
+
+
     fn init_density_matrix(&mut self) {
         println!("Initializing density matrix...");
         self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
@@ -132,8 +157,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
         let sorted_eigenvalues =
             DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
-        let sorted_eigenvectors = eigenvectors.select_columns(&indices);
-
+        let sorted_eigenvectors = align_eigenvectors(eigenvectors.select_columns(&indices));
         let eigvecs = l_inv.clone().transpose() * sorted_eigenvectors;
         // Corrected line: Remove l_inv multiplication here
         self.coeffs = eigvecs;
@@ -213,7 +237,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
             let sorted_eigenvalues =
                 DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
-            let sorted_eigenvectors = eigenvectors.select_columns(&indices);
+            let sorted_eigenvectors = align_eigenvectors(eigenvectors.select_columns(&indices));
 
             let eigvecs = l_inv.transpose() * sorted_eigenvectors;
             // Corrected line: Remove l_inv multiplication here
