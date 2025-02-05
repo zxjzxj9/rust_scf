@@ -19,6 +19,7 @@ pub struct SimpleSCF<B: AOBasis> {
     elems: Vec<Element>,
     coeffs: DMatrix<f64>,
     integral_matrix: DMatrix<f64>,
+    density_matrix: DMatrix<f64>,
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
     e_level: DVector<f64>,
@@ -58,6 +59,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             coords: Vec::new(),
             elems: Vec::new(),
             coeffs: DMatrix::zeros(0, 0),
+            density_matrix: DMatrix::zeros(0, 0),
             integral_matrix: DMatrix::zeros(0, 0),
             fock_matrix: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
@@ -157,7 +159,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
         let sorted_eigenvalues =
             DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
-        let sorted_eigenvectors = align_eigenvectors(eigenvectors.select_columns(&indices));
+        let sorted_eigenvectors = eigenvectors.select_columns(&indices);
         let eigvecs = l_inv.clone().transpose() * sorted_eigenvectors;
         // Corrected line: Remove l_inv multiplication here
         self.coeffs = eigvecs;
@@ -237,7 +239,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             indices.sort_by(|&a, &b| eigenvalues[a].partial_cmp(&eigenvalues[b]).unwrap());
             let sorted_eigenvalues =
                 DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
-            let sorted_eigenvectors = align_eigenvectors(eigenvectors.select_columns(&indices));
+            let sorted_eigenvectors = eigenvectors.select_columns(&indices);
 
             let eigvecs = l_inv.transpose() * sorted_eigenvectors;
             // Corrected line: Remove l_inv multiplication here
