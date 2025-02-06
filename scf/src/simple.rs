@@ -19,6 +19,7 @@ pub struct SimpleSCF<B: AOBasis> {
     elems: Vec<Element>,
     coeffs: DMatrix<f64>,
     integral_matrix: DMatrix<f64>,
+    density_mixing: f64,
     density_matrix: DMatrix<f64>,
     fock_matrix: DMatrix<f64>,
     overlap_matrix: DMatrix<f64>,
@@ -61,6 +62,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             coeffs: DMatrix::zeros(0, 0),
             density_matrix: DMatrix::zeros(0, 0),
             integral_matrix: DMatrix::zeros(0, 0),
+            density_mixing: 0.0,
             fock_matrix: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
             e_level: DVector::zeros(0),
@@ -166,6 +168,18 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.e_level = sorted_eigenvalues;
 
         // println!("Energy levels: {:?}", self.e_level);
+
+        let total_electrons: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+        // Ensure even number of electrons for closed-shell
+        assert!(total_electrons % 2 == 0, "Total number of electrons must be even");
+        let n_occ = total_electrons / 2;
+
+        let occupied_coeffs = self.coeffs.columns(0, n_occ);
+        self.density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
     }
 
     fn init_fock_matrix(&mut self) {
@@ -205,21 +219,11 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn scf_cycle(&mut self) {
         println!("Performing SCF cycle...");
 
-        let total_electrons: usize = self
-            .elems
-            .iter()
-            .map(|e| e.get_atomic_number() as usize)
-            .sum();
-        // Ensure even number of electrons for closed-shell
-        assert!(total_electrons % 2 == 0, "Total number of electrons must be even");
-        let n_occ = total_electrons / 2;
-
         for _ in 0..self.MAX_CYCLE {
-            let occupied_coeffs = self.coeffs.columns(0, n_occ);
-            let new_density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
 
             let density_flattened =
-                new_density_matrix.reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
+                self.density_matrix.clone()
+                    .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
 
             let g_matrix_flattened = &self.integral_matrix * &density_flattened;
             let g_matrix =
