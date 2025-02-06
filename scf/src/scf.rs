@@ -1,5 +1,6 @@
 extern crate nalgebra as na;
 
+use std::assert;
 use std::collections::HashMap;
 use basis::basis::AOBasis;
 use na::Vector3;
@@ -11,6 +12,7 @@ pub trait SCF {
     fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>);
     fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>);
     fn init_density_matrix(&mut self);
+    fn update_density_matrix(&mut self);
     fn init_fock_matrix(&mut self);
     fn scf_cycle(&mut self);
 }

@@ -62,7 +62,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             coeffs: DMatrix::zeros(0, 0),
             density_matrix: DMatrix::zeros(0, 0),
             integral_matrix: DMatrix::zeros(0, 0),
-            density_mixing: 0.0,
+            density_mixing: 0.1,
             fock_matrix: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
             e_level: DVector::zeros(0),
@@ -168,7 +168,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.e_level = sorted_eigenvalues;
 
         // println!("Energy levels: {:?}", self.e_level);
+        self.update_density_matrix();
+    }
 
+    fn update_density_matrix(&mut self) {
         let total_electrons: usize = self
             .elems
             .iter()
@@ -179,7 +182,14 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let n_occ = total_electrons / 2;
 
         let occupied_coeffs = self.coeffs.columns(0, n_occ);
-        self.density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
+        if self.density_matrix.shape() == (0, 0) {
+            self.density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
+            return;
+        } else {
+            let new_density = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
+            self.density_matrix = self.density_mixing * new_density
+                + (1.0 - self.density_mixing) * self.density_matrix.clone();
+        }
     }
 
     fn init_fock_matrix(&mut self) {
@@ -220,7 +230,6 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         println!("Performing SCF cycle...");
 
         for _ in 0..self.MAX_CYCLE {
-
             let density_flattened =
                 self.density_matrix.clone()
                     .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
@@ -250,6 +259,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             self.coeffs = eigvecs;
             self.e_level = sorted_eigenvalues;
 
+            self.update_density_matrix();
             println!("Energy levels: {:?}", self.e_level);
         }
     }
