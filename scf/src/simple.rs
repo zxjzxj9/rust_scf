@@ -24,7 +24,7 @@ pub struct SimpleSCF<B: AOBasis> {
     pub(crate) fock_matrix: DMatrix<f64>,
     pub(crate) overlap_matrix: DMatrix<f64>,
     pub(crate) e_level: DVector<f64>,
-    MAX_CYCLE: usize,
+    max_cycle: usize,
 }
 
 /// Given a matrix where each column is an eigenvector,
@@ -66,7 +66,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             fock_matrix: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
             e_level: DVector::zeros(0),
-            MAX_CYCLE: 1000,
+            max_cycle: 1000,
         }
     }
 }
@@ -256,7 +256,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         const CONVERGENCE_THRESHOLD: f64 = 1e-6; // Define convergence threshold
         let mut cycle = 0;
 
-        for _ in 0..self.MAX_CYCLE {
+        for _ in 0..self.max_cycle {
             cycle += 1;
             println!("\n------------------ SCF Cycle: {} ------------------", cycle);
 
@@ -320,9 +320,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
             previous_e_level = current_e_level.clone();
         }
-        if cycle == self.MAX_CYCLE {
+        if cycle == self.max_cycle {
             println!("\n------------------- SCF Not Converged -------------------");
-            println!("  SCF did not converge within {} cycles.", self.MAX_CYCLE);
+            println!("  SCF did not converge within {} cycles.", self.max_cycle);
             println!("  Please increase MAX_CYCLE or check system setup.");
             println!("-----------------------------------------------------\n");
         } else {

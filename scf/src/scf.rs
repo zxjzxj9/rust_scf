@@ -1,6 +1,4 @@
 extern crate nalgebra as na;
-
-use std::assert;
 use std::collections::HashMap;
 use basis::basis::AOBasis;
 use na::Vector3;

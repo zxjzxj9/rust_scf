@@ -1,0 +1,140 @@
+use basis::basis::{AOBasis, Basis};
+use periodic_table_on_an_enum::Element;
+use nalgebra::Vector3;
+use std::collections::HashMap;
+use serde_derive::{Deserialize, Serialize};
+use clap::Parser;
+use std::fs;
+use basis::cgto::Basis631G;
+use crate::scf::SCF;
+use crate::simple::SimpleSCF;
+
+// Define a configuration struct to hold YAML data
+#[derive(Debug, Deserialize, Serialize)]
+struct Config {
+    geometry: Vec<Atom>,
+    basis_sets: HashMap<String, String>, // Element symbol -> basis set name (string for now)
+    scf_params: ScfParams,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct Atom {
+    element: String,
+    coords: [f64; 3],
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+struct ScfParams {
+    density_mixing: Option<f64>,
+    max_cycle: Option<usize>,
+    diis_subspace_size: Option<usize>,
+    convergence_threshold: Option<f64>,
+}
+
+/// Simple SCF calculation with YAML configuration
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Path to the YAML configuration file
+    #[arg(short, long, default_value = "config.yaml")]
+    config_file: String,
+
+    /// Override density mixing parameter
+    #[arg(long)]
+    density_mixing: Option<f64>,
+
+    /// Override maximum SCF cycles
+    #[arg(long)]
+    max_cycle: Option<usize>,
+
+    /// Override DIIS subspace size
+    #[arg(long)]
+    diis_subspace_size: Option<usize>,
+
+    /// Override convergence threshold
+    #[arg(long)]
+    convergence_threshold: Option<f64>,
+}
+
+fn main() {
+    let args = Args::parse();
+
+    // 1. Read YAML configuration file
+    println!("Reading configuration from: {}", args.config_file);
+    let config_file_content = fs::read_to_string(&args.config_file)
+        .expect("Unable to read configuration file");
+
+    let mut config: Config = serde_yaml::from_str(&config_file_content)
+        .expect("Unable to parse configuration file");
+
+    println!("Configuration loaded:\n{:?}", config);
+
+    // 2. Override parameters from command line if provided
+    if let Some(dm) = args.density_mixing {
+        println!("Overriding density_mixing with: {}", dm);
+        config.scf_params.density_mixing = Some(dm);
+    }
+    if let Some(mc) = args.max_cycle {
+        println!("Overriding max_cycle with: {}", mc);
+        config.scf_params.max_cycle = Some(mc);
+    }
+    if let Some(diis_size) = args.diis_subspace_size {
+        println!("Overriding diis_subspace_size with: {}", diis_size);
+        config.scf_params.diis_subspace_size = Some(diis_size);
+    }
+    if let Some(conv_thresh) = args.convergence_threshold {
+        println!("Overriding convergence_threshold with: {}", conv_thresh);
+        config.scf_params.convergence_threshold = Some(conv_thresh);
+    }
+
+    // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
+    println!("\nPreparing basis sets...");
+    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new(); // Assuming GaussianBasis
+    // Placeholder: You'll need to populate basis_map based on your basis_sets config
+    // For example, if your basis library has a way to create basis sets by name,
+    // you would do it here.
+    // For this example, let's assume you have some pre-defined basis sets or
+    // a function to create them based on name.
+
+    // Example hardcoded basis sets (replace with your actual basis set loading)
+    let basis_6_31g = Basis631G::new_minimal(); // Replace with actual 6-31G basis creation if available
+    let basis_sto_3g = Basis631G::new_minimal(); // Replace with actual STO-3G basis creation if available
+
+    basis_map.insert("H", &basis_sto_3g); // Example: Hydrogen uses STO-3G
+    basis_map.insert("C", &basis_6_31g);  // Example: Carbon uses 6-31G
+    basis_map.insert("O", &basis_6_31g);  // Example: Oxygen uses 6-31G
+    basis_map.insert("N", &basis_6_31g);  // Example: Nitrogen uses 6-31G
+
+
+    // 4. Prepare Geometry
+    println!("\nPreparing geometry...");
+    let mut elements = Vec::new();
+    let mut coords_vec = Vec::new();
+    for atom_config in &config.geometry {
+        let element = atom_config.element.parse::<Element>()
+            .expect(&format!("Invalid element symbol: {}", atom_config.element));
+        let coords = Vector3::new(
+            atom_config.coords[0],
+            atom_config.coords[1],
+            atom_config.coords[2],
+        );
+        elements.push(element);
+        coords_vec.push(coords);
+    }
+
+    // 5. Initialize and run SCF
+    println!("\nInitializing SCF calculation...");
+    let mut scf = SimpleSCF::<Basis631G>::new(); // Assuming GaussianBasis is your AOBasis type
+
+    scf.init_basis(&elements, basis_map);
+    scf.init_geometry(&coords_vec, &elements);
+    scf.init_density_matrix();
+    scf.init_fock_matrix();
+
+    println!("\nStarting SCF cycle...\n");
+    scf.scf_cycle();
+
+    println!("\nSCF calculation finished.");
+    println!("Final Energy Levels:\n{:?}", scf.e_level);
+    // You can add code here to print other results like total energy if you implement it in SimpleSCF
+}

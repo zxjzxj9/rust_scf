@@ -9,3 +9,6 @@ periodic-table-on-an-enum = "0.3.2"
 
 basis = { path = "../basis" }
 reqwest = "0.12.11"
+serde_derive = "1.0.216"
+clap = { version = "4.5.28", features = ["derive"] }
+serde_yaml = "0.9.34+deprecated"
