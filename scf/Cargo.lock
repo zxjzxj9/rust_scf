@@ -1257,7 +1257,7 @@ dependencies = [
  "nalgebra",
  "periodic-table-on-an-enum",
  "reqwest",
- "serde_derive",
+ "serde",
  "serde_yaml",
 ]
 
