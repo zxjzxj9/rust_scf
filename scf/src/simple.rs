@@ -23,7 +23,7 @@ pub struct SimpleSCF<B: AOBasis> {
     density_matrix: DMatrix<f64>,
     pub(crate) fock_matrix: DMatrix<f64>,
     pub(crate) overlap_matrix: DMatrix<f64>,
-    pub(crate) e_level: DVector<f64>,
+    pub e_level: DVector<f64>,
     max_cycle: usize,
 }
 

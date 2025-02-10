@@ -20,6 +20,15 @@ struct Config {
     scf_params: ScfParams,
 }
 
+fn fetch_basis(atomic_symbol: &str) -> Basis631G {
+    let url = format!(
+        "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
+        atomic_symbol
+    );
+    let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
+    Basis631G::parse_nwchem(&basis_str)
+}
+
 #[derive(Debug, Deserialize, Serialize)]
 struct Atom {
     element: String,
@@ -92,39 +101,48 @@ fn main() {
 
     // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
     println!("\nPreparing basis sets...");
-    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new(); // Assuming GaussianBasis
-    // Need to fetch basis sets from the web or load from disk
-    todo!("Fetch basis sets from the web or load from disk");
+
 
     // // 4. Prepare Geometry
-    // println!("\nPreparing geometry...");
-    // let mut elements = Vec::new();
-    // let mut coords_vec = Vec::new();
-    // for atom_config in &config.geometry {
-    //     let element = atom_config.element.parse::<Element>()
-    //         .expect(&format!("Invalid element symbol: {}", atom_config.element));
-    //     let coords = Vector3::new(
-    //         atom_config.coords[0],
-    //         atom_config.coords[1],
-    //         atom_config.coords[2],
-    //     );
-    //     elements.push(element);
-    //     coords_vec.push(coords);
-    // }
-    //
-    // // 5. Initialize and run SCF
-    // println!("\nInitializing SCF calculation...");
-    // let mut scf = SimpleSCF::new();
-    //
-    // scf.init_basis(&elements, basis_map);
-    // scf.init_geometry(&coords_vec, &elements);
-    // scf.init_density_matrix();
-    // scf.init_fock_matrix();
-    //
-    // println!("\nStarting SCF cycle...\n");
-    // scf.scf_cycle();
-    //
-    // println!("\nSCF calculation finished.");
-    // println!("Final Energy Levels:\n{:?}", scf.e_level);
-    // // You can add code here to print other results like total energy if you implement it in SimpleSCF
+    println!("\nPreparing geometry...");
+    let mut elements = Vec::new();
+    let mut coords_vec = Vec::new();
+    for atom_config in &config.geometry {
+        let element =  Element::from_symbol(&atom_config.element)
+            .expect(&format!("Invalid element symbol: {}", atom_config.element));
+        let coords = Vector3::new(
+            atom_config.coords[0],
+            atom_config.coords[1],
+            atom_config.coords[2],
+        );
+        elements.push(element);
+        coords_vec.push(coords);
+    }
+
+    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new(); // Assuming GaussianBasis
+    for elem in &elements {
+        if basis_map.contains_key(&elem.get_symbol()) {
+            continue;
+        } else {
+            let basis = fetch_basis(&elem.get_symbol());
+            basis_map.insert(elem.get_symbol(), &basis);
+        }
+    }
+
+
+    // 5. Initialize and run SCF
+    println!("\nInitializing SCF calculation...");
+    let mut scf = SimpleSCF::new();
+
+    scf.init_basis(&elements, basis_map);
+    scf.init_geometry(&coords_vec, &elements);
+    scf.init_density_matrix();
+    scf.init_fock_matrix();
+
+    println!("\nStarting SCF cycle...\n");
+    scf.scf_cycle();
+
+    println!("\nSCF calculation finished.");
+    println!("Final Energy Levels:\n{:?}", scf.e_level);
+    // You can add code here to print other results like total energy if you implement it in SimpleSCF
 }
