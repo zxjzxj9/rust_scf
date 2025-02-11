@@ -1,7 +1,7 @@
 use basis::basis::{AOBasis, Basis};
 use periodic_table_on_an_enum::Element;
 use nalgebra::Vector3;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use clap::Parser;
 use std::fs;
@@ -119,14 +119,20 @@ fn main() {
         coords_vec.push(coords);
     }
 
-    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new(); // Assuming GaussianBasis
-    for elem in &elements {
-        if basis_map.contains_key(&elem.get_symbol()) {
+    let  num_elem_type=
+        HashSet::<&str>::from_iter(elements.iter().map(|elem| elem.get_symbol())).len();
+    let mut basis_storage: Vec<Basis631G> = Vec::with_capacity(num_elem_type);
+    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
+
+    for (idx, elem) in elements.iter().enumerate() {
+        let symbol = elem.get_symbol();
+        if basis_map.contains_key(symbol) {
             continue;
-        } else {
-            let basis = fetch_basis(&elem.get_symbol());
-            basis_map.insert(elem.get_symbol(), &basis);
         }
+
+        // mutable borrow of basis_storage
+        basis_storage[idx] = fetch_basis(symbol);
+        basis_map.insert(symbol,&basis_storage[idx]);
     }
 
 
