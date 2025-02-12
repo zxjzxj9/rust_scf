@@ -119,20 +119,18 @@ fn main() {
         coords_vec.push(coords);
     }
 
-    let  num_elem_type=
-        HashSet::<&str>::from_iter(elements.iter().map(|elem| elem.get_symbol())).len();
-    let mut basis_storage: Vec<Basis631G> = Vec::with_capacity(num_elem_type);
-    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
+    let mut basis_map: HashMap<&str, &'static Basis631G> = HashMap::new();
 
-    for (idx, elem) in elements.iter().enumerate() {
+    for elem in &elements {
         let symbol = elem.get_symbol();
         if basis_map.contains_key(symbol) {
             continue;
         }
 
+        let basis = fetch_basis(symbol);
+
         // mutable borrow of basis_storage
-        basis_storage[idx] = fetch_basis(symbol);
-        basis_map.insert(symbol,&basis_storage[idx]);
+        basis_map.insert(symbol, &basis);
     }
 
 
