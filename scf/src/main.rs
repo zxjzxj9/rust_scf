@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use clap::Parser;
 use std::fs;
+use std::rc::Rc;
 use basis::cgto::Basis631G;
 
 mod scf;
@@ -119,7 +120,9 @@ fn main() {
         coords_vec.push(coords);
     }
 
-    let mut basis_map: HashMap<&str, &'static Basis631G> = HashMap::new();
+
+    // HashMap from symbol to a reference of the stored basis.
+    let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
 
     for elem in &elements {
         let symbol = elem.get_symbol();
@@ -128,9 +131,9 @@ fn main() {
         }
 
         let basis = fetch_basis(symbol);
-
-        // mutable borrow of basis_storage
-        basis_map.insert(symbol, &basis);
+        // Allocate on the heap to ensure a stable memory address.
+        let basis_ref: &Basis631G = Box::leak(Box::new(basis));
+        basis_map.insert(symbol, basis_ref);
     }
 
 
