@@ -67,6 +67,10 @@ struct Args {
     /// Override convergence threshold
     #[arg(long)]
     convergence_threshold: Option<f64>,
+
+    /// Override output file: (default stdout)
+    #[arg(short, long, default_value = "output.txt")]
+    output: Option<String>,
 }
 
 fn main() {
