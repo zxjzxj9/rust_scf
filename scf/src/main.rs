@@ -4,7 +4,10 @@ use nalgebra::Vector3;
 use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 use clap::Parser;
-use std::fs;
+use std::{fs, io};
+use std::fs::File;
+use std::io::Write;
+use std::process::{id, Command};
 use std::rc::Rc;
 use basis::cgto::Basis631G;
 
@@ -75,6 +78,19 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
+
+    // Choose the writer based on the presence of the output file path.
+    let mut writer: Box<dyn Write> = match args.output {
+        Some(ref path) => {
+            println!("Output will be written to: {}", path);
+            Box::new(File::create(path).expect("Could not create file"))
+        },
+        None => {
+            println!("Output will be printed to stdout");
+            Box::new(io::stdout())
+        },
+    };
+
 
     // 1. Read YAML configuration file
     println!("Reading configuration from: {}", args.config_file);
