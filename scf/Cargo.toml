@@ -12,3 +12,6 @@ reqwest = "0.12.11"
 serde = { version = "1.0.215", features = ["derive"] }
 clap = { version = "4.5.28", features = ["derive"] }
 serde_yaml = "0.9.34+deprecated"
+color-eyre = "0.6.3"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"

@@ -10,11 +10,15 @@ use std::io::Write;
 use std::process::{id, Command};
 use std::rc::Rc;
 use basis::cgto::Basis631G;
+use color_eyre::eyre::Result;
 
 mod scf;
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
+use tracing::{event, span, Level};
+use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
+
 
 // Define a configuration struct to hold YAML data
 #[derive(Debug, Deserialize, Serialize)]
@@ -76,18 +80,24 @@ struct Args {
     output: Option<String>,
 }
 
-fn main() {
+fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let args = Args::parse();
 
     // Choose the writer based on the presence of the output file path.
-    let mut writer: Box<dyn Write> = match args.output {
+    match args.output {
         Some(ref path) => {
             println!("Output will be written to: {}", path);
-            Box::new(File::create(path).expect("Could not create file"))
+            let log = File::create(path).expect("Could not create file");
+            let file_layer = layer().with_writer(log);
+            // install writer to log, using tracing
+            Registry::default()
+                .with(file_layer)
+                .init()
         },
         None => {
             println!("Output will be printed to stdout");
-            Box::new(io::stdout())
         },
     };
 
@@ -172,4 +182,6 @@ fn main() {
     println!("\nSCF calculation finished.");
     println!("Final Energy Levels:\n{:?}", scf.e_level);
     // You can add code here to print other results like total energy if you implement it in SimpleSCF
+
+    Ok(())
 }
