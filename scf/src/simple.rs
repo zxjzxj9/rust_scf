@@ -9,6 +9,7 @@ use nalgebra::{Const, Dyn};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tracing::{info, span, Level};
 
 pub struct SimpleSCF<B: AOBasis> {
     pub(crate) num_atoms: usize,
@@ -77,14 +78,14 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>) {
         self.elems = elems.clone();
         self.num_atoms = elems.len();
-        println!("\n#####################################################");
-        println!("------------- Initializing Basis Set -------------");
-        println!("#####################################################");
+        info!("\n#####################################################");
+        info!("------------- Initializing Basis Set -------------");
+        info!("#####################################################");
 
         self.num_basis = 0;
         for elem in elems {
             let b = *basis.get(elem.get_symbol()).unwrap();
-            println!(
+            info!(
                 "  Element: {}, Basis Size: {}",
                 elem.get_symbol(),
                 b.basis_size()
@@ -94,24 +95,24 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             self.ao_basis.push(b_arc.clone());
         }
 
-        println!("  Number of Atoms: {}", self.num_atoms);
-        println!("-----------------------------------------------------\n");
+        info!("  Number of Atoms: {}", self.num_atoms);
+        info!("-----------------------------------------------------\n");
     }
 
     fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
-        println!("#####################################################");
-        println!("--------------- Initializing Geometry ---------------");
-        println!("#####################################################");
+        info!("#####################################################");
+        info!("--------------- Initializing Geometry ---------------");
+        info!("#####################################################");
         assert!(coords.len() == elems.len());
         let size = coords.len();
         for i in 0..size {
-            println!(
+            info!(
                 "  Element: {}, Coordinates: {:?}",
                 elems[i].get_symbol(),
                 coords[i]
             );
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);
-            println!(
+            info!(
                 "    Center set to: {:?}",
                 self.ao_basis[i].lock().unwrap().get_center()
             );
@@ -127,17 +128,15 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
             self.num_basis += ao_locked.basis_size();
         }
-        println!("  Rebuilt MO basis with {} basis functions.", self.num_basis);
-        println!("-----------------------------------------------------\n");
+        info!("  Rebuilt MO basis with {} basis functions.", self.num_basis);
+        info!("-----------------------------------------------------\n");
     }
 
-
-
     fn init_density_matrix(&mut self) {
-        println!("#####################################################");
-        println!("------------ Initializing Density Matrix ------------");
-        println!("#####################################################");
-        println!("  Building Overlap and Fock Matrices...");
+        info!("#####################################################");
+        info!("------------ Initializing Density Matrix ------------");
+        info!("#####################################################");
+        info!("  Building Overlap and Fock Matrices...");
         self.fock_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.overlap_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
 
@@ -157,7 +156,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
         }
 
-        println!("  Diagonalizing Fock matrix to get initial coefficients...");
+        info!("  Diagonalizing Fock matrix to get initial coefficients...");
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
         let f_prime = l_inv.clone() * self.fock_matrix.clone_owned() * l_inv.clone().transpose();
@@ -176,18 +175,18 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         self.coeffs = eigvecs;
         self.e_level = sorted_eigenvalues;
 
-        println!("  Initial Energy Levels:");
+        info!("  Initial Energy Levels:");
         for i in 0..self.e_level.len() {
-            println!("    Level {}: {:.8} au", i + 1, self.e_level[i]);
+            info!("    Level {}: {:.8} au", i + 1, self.e_level[i]);
         }
 
         self.update_density_matrix();
-        println!("  Initial Density Matrix built.");
-        println!("-----------------------------------------------------\n");
+        info!("  Initial Density Matrix built.");
+        info!("-----------------------------------------------------\n");
     }
 
     fn update_density_matrix(&mut self) {
-        println!("  Updating Density Matrix...");
+        info!("  Updating Density Matrix...");
         let total_electrons: usize = self
             .elems
             .iter()
@@ -205,14 +204,14 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             self.density_matrix = self.density_mixing * new_density
                 + (1.0 - self.density_mixing) * self.density_matrix.clone();
         }
-        println!("  Density Matrix updated with mixing factor {:.2}.", self.density_mixing);
+        info!("  Density Matrix updated with mixing factor {:.2}.", self.density_mixing);
     }
 
     fn init_fock_matrix(&mut self) {
-        println!("#####################################################");
-        println!("------------- Initializing Fock Matrix -------------");
-        println!("#####################################################");
-        println!("  Building Integral Matrix (Two-electron integrals)...");
+        info!("#####################################################");
+        info!("------------- Initializing Fock Matrix -------------");
+        info!("#####################################################");
+        info!("  Building Integral Matrix (Two-electron integrals)...");
 
         self.integral_matrix = DMatrix::from_element(
             self.num_basis * self.num_basis,
@@ -243,14 +242,14 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 }
             }
         }
-        println!("  Integral Matrix (Two-electron integrals) built.");
-        println!("-----------------------------------------------------\n");
+        info!("  Integral Matrix (Two-electron integrals) built.");
+        info!("-----------------------------------------------------\n");
     }
 
     fn scf_cycle(&mut self) {
-        println!("#####################################################");
-        println!("--------------- Performing SCF Cycle ---------------");
-        println!("#####################################################");
+        info!("#####################################################");
+        info!("--------------- Performing SCF Cycle ---------------");
+        info!("#####################################################");
 
         let mut previous_e_level = DVector::zeros(self.num_basis); // Initialize previous energy level
         const CONVERGENCE_THRESHOLD: f64 = 1e-6; // Define convergence threshold
@@ -258,30 +257,30 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
         for _ in 0..self.max_cycle {
             cycle += 1;
-            println!("\n------------------ SCF Cycle: {} ------------------", cycle);
+            info!("\n------------------ SCF Cycle: {} ------------------", cycle);
 
-            println!("  Step 1: Flattening Density Matrix...");
+            info!("  Step 1: Flattening Density Matrix...");
             let density_flattened =
                 self.density_matrix.clone()
                     .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
-            println!("  Density Matrix flattened.");
+            info!("  Density Matrix flattened.");
 
-            println!("  Step 2: Building G Matrix from Density Matrix and Integrals...");
+            info!("  Step 2: Building G Matrix from Density Matrix and Integrals...");
             let g_matrix_flattened = &self.integral_matrix * &density_flattened;
             let g_matrix =
                 g_matrix_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
-            println!("  G Matrix built.");
+            info!("  G Matrix built.");
 
-            println!("  Step 3: Building Hamiltonian (Fock + G) Matrix...");
+            info!("  Step 3: Building Hamiltonian (Fock + G) Matrix...");
             let hamiltonian = self.fock_matrix.clone() + g_matrix;
-            println!("  Hamiltonian Matrix built.");
+            info!("  Hamiltonian Matrix built.");
 
-            println!("  Step 4: Diagonalizing Hamiltonian Matrix...");
+            info!("  Step 4: Diagonalizing Hamiltonian Matrix...");
             let l = self.overlap_matrix.clone().cholesky().unwrap();
             let l_inv = l.inverse();
             let f_prime = l_inv.clone() * &hamiltonian * l_inv.transpose();
             let eig = f_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
-            println!("  Hamiltonian Matrix diagonalized.");
+            info!("  Hamiltonian Matrix diagonalized.");
 
             // Sort eigenvalues and eigenvectors
             let eigenvalues = eig.eigenvalues.clone();
@@ -297,36 +296,36 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             self.coeffs = eigvecs;
             let current_e_level = sorted_eigenvalues;
 
-            println!("  Step 5: Energy Levels obtained:");
+            info!("  Step 5: Energy Levels obtained:");
             for i in 0..current_e_level.len() {
-                println!("    Level {}: {:.8} au", i + 1, current_e_level[i]);
+                info!("    Level {}: {:.8} au", i + 1, current_e_level[i]);
             }
 
             self.update_density_matrix();
 
             if cycle > 1 { // Start convergence check from the second cycle
-                println!("  Step 6: Checking for Convergence...");
+                info!("  Step 6: Checking for Convergence...");
                 let energy_change = (current_e_level.clone() - previous_e_level.clone()).norm();
-                println!("    Energy change: {:.8} au", energy_change);
+                info!("    Energy change: {:.8} au", energy_change);
                 if energy_change < CONVERGENCE_THRESHOLD {
-                    println!("  SCF converged early at cycle {}.", cycle);
-                    println!("-------------------- SCF Converged ---------------------\n");
+                    info!("  SCF converged early at cycle {}.", cycle);
+                    info!("-------------------- SCF Converged ---------------------\n");
                     break; // Exit the loop if converged
                 } else {
-                    println!("    SCF not yet converged.");
+                    info!("    SCF not yet converged.");
                 }
             } else {
-                println!("  Convergence check not performed for the first cycle.");
+                info!("  Convergence check not performed for the first cycle.");
             }
             previous_e_level = current_e_level.clone();
         }
         if cycle == self.max_cycle {
-            println!("\n------------------- SCF Not Converged -------------------");
-            println!("  SCF did not converge within {} cycles.", self.max_cycle);
-            println!("  Please increase MAX_CYCLE or check system setup.");
-            println!("-----------------------------------------------------\n");
+            info!("\n------------------- SCF Not Converged -------------------");
+            info!("  SCF did not converge within {} cycles.", self.max_cycle);
+            info!("  Please increase MAX_CYCLE or check system setup.");
+            info!("-----------------------------------------------------\n");
         } else {
-            println!("-----------------------------------------------------\n");
+            info!("-----------------------------------------------------\n");
         }
     }
 }

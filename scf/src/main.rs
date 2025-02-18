@@ -150,7 +150,6 @@ fn main() -> Result<()> {
         coords_vec.push(coords);
     }
 
-
     // HashMap from symbol to a reference of the stored basis.
     let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
 
