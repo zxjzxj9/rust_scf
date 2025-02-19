@@ -16,7 +16,7 @@ mod scf;
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
-use tracing::{event, span, Level};
+use tracing::{event, span, info, Level};
 use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 
@@ -88,7 +88,7 @@ fn main() -> Result<()> {
     // Choose the writer based on the presence of the output file path.
     match args.output {
         Some(ref path) => {
-            println!("Output will be written to: {}", path);
+            info!("Output will be written to: {}", path);
             let log = File::create(path).expect("Could not create file");
             let file_layer = layer().with_writer(log);
             // install writer to log, using tracing
@@ -97,45 +97,45 @@ fn main() -> Result<()> {
                 .init()
         },
         None => {
-            println!("Output will be printed to stdout");
+            info!("Output will be printed to stdout");
         },
     };
 
 
     // 1. Read YAML configuration file
-    println!("Reading configuration from: {}", args.config_file);
+    info!("Reading configuration from: {}", args.config_file);
     let config_file_content = fs::read_to_string(&args.config_file)
         .expect("Unable to read configuration file");
 
     let mut config: Config = serde_yaml::from_str(&config_file_content)
         .expect("Unable to parse configuration file");
 
-    println!("Configuration loaded:\n{:?}", config);
+    info!("Configuration loaded:\n{:?}", config);
 
     // 2. Override parameters from command line if provided
     if let Some(dm) = args.density_mixing {
-        println!("Overriding density_mixing with: {}", dm);
+        info!("Overriding density_mixing with: {}", dm);
         config.scf_params.density_mixing = Some(dm);
     }
     if let Some(mc) = args.max_cycle {
-        println!("Overriding max_cycle with: {}", mc);
+        info!("Overriding max_cycle with: {}", mc);
         config.scf_params.max_cycle = Some(mc);
     }
     if let Some(diis_size) = args.diis_subspace_size {
-        println!("Overriding diis_subspace_size with: {}", diis_size);
+        info!("Overriding diis_subspace_size with: {}", diis_size);
         config.scf_params.diis_subspace_size = Some(diis_size);
     }
     if let Some(conv_thresh) = args.convergence_threshold {
-        println!("Overriding convergence_threshold with: {}", conv_thresh);
+        info!("Overriding convergence_threshold with: {}", conv_thresh);
         config.scf_params.convergence_threshold = Some(conv_thresh);
     }
 
     // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
-    println!("\nPreparing basis sets...");
+    info!("\nPreparing basis sets...");
 
 
     // // 4. Prepare Geometry
-    println!("\nPreparing geometry...");
+    info!("\nPreparing geometry...");
     let mut elements = Vec::new();
     let mut coords_vec = Vec::new();
     for atom_config in &config.geometry {
@@ -167,7 +167,7 @@ fn main() -> Result<()> {
 
 
     // 5. Initialize and run SCF
-    println!("\nInitializing SCF calculation...");
+    info!("\nInitializing SCF calculation...");
     let mut scf = SimpleSCF::new();
 
     scf.init_basis(&elements, basis_map);
@@ -175,11 +175,11 @@ fn main() -> Result<()> {
     scf.init_density_matrix();
     scf.init_fock_matrix();
 
-    println!("\nStarting SCF cycle...\n");
+    info!("\nStarting SCF cycle...\n");
     scf.scf_cycle();
 
-    println!("\nSCF calculation finished.");
-    println!("Final Energy Levels:\n{:?}", scf.e_level);
+    info!("\nSCF calculation finished.");
+    info!("Final Energy Levels:\n{:?}", scf.e_level);
     // You can add code here to print other results like total energy if you implement it in SimpleSCF
 
     Ok(())
