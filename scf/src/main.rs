@@ -180,7 +180,6 @@ fn main() -> Result<()> {
 
     info!("\nSCF calculation finished.");
     info!("Final Energy Levels:\n{:?}", scf.e_level);
-    // You can add code here to print other results like total energy if you implement it in SimpleSCF
 
     Ok(())
 }
