@@ -51,6 +51,18 @@ struct ScfParams {
     convergence_threshold: Option<f64>,
 }
 
+// set default values for ScfParams
+impl Default for ScfParams {
+    fn default() -> Self {
+        ScfParams {
+            density_mixing: Some(0.5),
+            max_cycle: Some(100),
+            diis_subspace_size: Some(8),
+            convergence_threshold: Some(1e-6),
+        }
+    }
+}
+
 /// Simple SCF calculation with YAML configuration
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -133,7 +145,6 @@ fn main() -> Result<()> {
     // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
     info!("\nPreparing basis sets...");
 
-
     // // 4. Prepare Geometry
     info!("\nPreparing geometry...");
     let mut elements = Vec::new();
@@ -169,6 +180,15 @@ fn main() -> Result<()> {
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
     let mut scf = SimpleSCF::new();
+    // set scf parameters, according to args
+    if let Some(dm) = config.scf_params.density_mixing {
+
+    }
+    if let Some(mc) = config.scf_params.max_cycle {
+        scf.set_max_cycle(mc);
+    }
+
+
 
     scf.init_basis(&elements, basis_map);
     scf.init_geometry(&coords_vec, &elements);
