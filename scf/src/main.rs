@@ -122,6 +122,7 @@ fn main() -> Result<()> {
     let mut config: Config = serde_yaml::from_str(&config_file_content)
         .expect("Unable to parse configuration file");
 
+    config.scf_params = ScfParams::default();
     info!("Configuration loaded:\n{:?}", config);
 
     // 2. Override parameters from command line if provided
@@ -180,14 +181,6 @@ fn main() -> Result<()> {
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
     let mut scf = SimpleSCF::new();
-    // set scf parameters, according to args
-    if let Some(dm) = config.scf_params.density_mixing {
-
-    }
-    if let Some(mc) = config.scf_params.max_cycle {
-        scf.set_max_cycle(mc);
-    }
-
 
 
     scf.init_basis(&elements, basis_map);
