@@ -20,12 +20,12 @@ pub struct SimpleSCF<B: AOBasis> {
     pub(crate) elems: Vec<Element>,
     pub(crate) coeffs: DMatrix<f64>,
     pub(crate) integral_matrix: DMatrix<f64>,
-    density_mixing: f64,
+    pub density_mixing: f64,
     density_matrix: DMatrix<f64>,
     pub(crate) fock_matrix: DMatrix<f64>,
     pub(crate) overlap_matrix: DMatrix<f64>,
     pub e_level: DVector<f64>,
-    max_cycle: usize,
+    pub max_cycle: usize,
 }
 
 /// Given a matrix where each column is an eigenvector,

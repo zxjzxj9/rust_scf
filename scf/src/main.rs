@@ -124,24 +124,29 @@ fn main() -> Result<()> {
 
     config.scf_params = ScfParams::default();
     info!("Configuration loaded:\n{:?}", config);
+    let mut scf = SimpleSCF::new();
 
     // 2. Override parameters from command line if provided
     if let Some(dm) = args.density_mixing {
         info!("Overriding density_mixing with: {}", dm);
         config.scf_params.density_mixing = Some(dm);
+        scf.density_mixing = dm;
     }
     if let Some(mc) = args.max_cycle {
         info!("Overriding max_cycle with: {}", mc);
         config.scf_params.max_cycle = Some(mc);
+        scf.max_cycle = mc;
     }
-    if let Some(diis_size) = args.diis_subspace_size {
-        info!("Overriding diis_subspace_size with: {}", diis_size);
-        config.scf_params.diis_subspace_size = Some(diis_size);
-    }
-    if let Some(conv_thresh) = args.convergence_threshold {
-        info!("Overriding convergence_threshold with: {}", conv_thresh);
-        config.scf_params.convergence_threshold = Some(conv_thresh);
-    }
+    // if let Some(diis_size) = args.diis_subspace_size {
+    //     info!("Overriding diis_subspace_size with: {}", diis_size);
+    //     config.scf_params.diis_subspace_size = Some(diis_size);
+    //     scf.diis_subspace_size = diis_size;
+    // }
+    // if let Some(conv_thresh) = args.convergence_threshold {
+    //     info!("Overriding convergence_threshold with: {}", conv_thresh);
+    //     config.scf_params.convergence_threshold = Some(conv_thresh);
+    //     scf.convergence_threshold = conv_thresh;
+    // }
 
     // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
     info!("\nPreparing basis sets...");
@@ -180,8 +185,6 @@ fn main() -> Result<()> {
 
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
-    let mut scf = SimpleSCF::new();
-
 
     scf.init_basis(&elements, basis_map);
     scf.init_geometry(&coords_vec, &elements);
