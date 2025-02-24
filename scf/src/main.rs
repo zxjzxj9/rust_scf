@@ -137,6 +137,7 @@ fn main() -> Result<()> {
         config.scf_params.max_cycle = Some(mc);
         scf.max_cycle = mc;
     }
+
     // if let Some(diis_size) = args.diis_subspace_size {
     //     info!("Overriding diis_subspace_size with: {}", diis_size);
     //     config.scf_params.diis_subspace_size = Some(diis_size);
@@ -181,7 +182,6 @@ fn main() -> Result<()> {
         let basis_ref: &Basis631G = Box::leak(Box::new(basis));
         basis_map.insert(symbol, basis_ref);
     }
-
 
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
