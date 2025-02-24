@@ -1,15 +1,14 @@
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scf::SCF;
+    use crate::simple::SimpleSCF;
+    use basis::basis::{AOBasis, Basis};
     use basis::cgto::Basis631G;
     use nalgebra::Vector3;
     use periodic_table_on_an_enum::Element;
     use std::collections::HashMap;
     use std::sync::Arc;
-    use basis::basis::{AOBasis, Basis};
-    use crate::scf::SCF;
-    use crate::simple::SimpleSCF;
 
     fn fetch_basis(atomic_symbol: &str) -> Basis631G {
         let url = format!(
@@ -35,7 +34,8 @@ mod tests {
         fn get_basis(&self) -> Vec<Arc<Self::BasisType>> {
             vec![Arc::new(MockBasis {
                 center: self.center,
-            })]        }
+            })]
+        }
 
         fn set_center(&mut self, center: Vector3<f64>) {
             self.center = center;
@@ -45,7 +45,6 @@ mod tests {
             Some(self.center)
         }
     }
-
 
     #[derive(Clone)]
     struct MockBasis {
@@ -146,7 +145,11 @@ mod tests {
 
         for i in 0..scf.num_basis {
             for j in 0..scf.num_basis {
-                let expected = if i == j { expected_diagonal } else { expected_off_diagonal };
+                let expected = if i == j {
+                    expected_diagonal
+                } else {
+                    expected_off_diagonal
+                };
                 assert!((scf.fock_matrix[(i, j)] - expected).abs() < 1e-6);
             }
         }

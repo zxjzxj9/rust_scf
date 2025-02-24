@@ -4,7 +4,7 @@ extern crate nalgebra as na;
 
 use crate::scf::SCF;
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, SymmetricEigen, Vector3, Norm};
+use na::{DMatrix, DVector, Norm, SymmetricEigen, Vector3};
 use nalgebra::{Const, Dyn};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
@@ -128,7 +128,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             }
             self.num_basis += ao_locked.basis_size();
         }
-        info!("  Rebuilt MO basis with {} basis functions.", self.num_basis);
+        info!(
+            "  Rebuilt MO basis with {} basis functions.",
+            self.num_basis
+        );
         info!("-----------------------------------------------------\n");
     }
 
@@ -193,7 +196,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             .map(|e| e.get_atomic_number() as usize)
             .sum();
         // Ensure even number of electrons for closed-shell
-        assert!(total_electrons % 2 == 0, "Total number of electrons must be even");
+        assert!(
+            total_electrons % 2 == 0,
+            "Total number of electrons must be even"
+        );
         let n_occ = total_electrons / 2;
 
         let occupied_coeffs = self.coeffs.columns(0, n_occ);
@@ -204,7 +210,10 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             self.density_matrix = self.density_mixing * new_density
                 + (1.0 - self.density_mixing) * self.density_matrix.clone();
         }
-        info!("  Density Matrix updated with mixing factor {:.2}.", self.density_mixing);
+        info!(
+            "  Density Matrix updated with mixing factor {:.2}.",
+            self.density_mixing
+        );
     }
 
     fn init_fock_matrix(&mut self) {
@@ -257,12 +266,16 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
         for _ in 0..self.max_cycle {
             cycle += 1;
-            info!("\n------------------ SCF Cycle: {} ------------------", cycle);
+            info!(
+                "\n------------------ SCF Cycle: {} ------------------",
+                cycle
+            );
 
             info!("  Step 1: Flattening Density Matrix...");
-            let density_flattened =
-                self.density_matrix.clone()
-                    .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
+            let density_flattened = self
+                .density_matrix
+                .clone()
+                .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
             info!("  Density Matrix flattened.");
 
             info!("  Step 2: Building G Matrix from Density Matrix and Integrals...");
@@ -303,7 +316,8 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
             self.update_density_matrix();
 
-            if cycle > 1 { // Start convergence check from the second cycle
+            if cycle > 1 {
+                // Start convergence check from the second cycle
                 info!("  Step 6: Checking for Convergence...");
                 let energy_change = (current_e_level.clone() - previous_e_level.clone()).norm();
                 info!("    Energy change: {:.8} au", energy_change);

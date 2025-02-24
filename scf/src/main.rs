@@ -1,24 +1,23 @@
 use basis::basis::{AOBasis, Basis};
-use periodic_table_on_an_enum::Element;
-use nalgebra::Vector3;
-use std::collections::{HashMap, HashSet};
-use serde::{Deserialize, Serialize};
+use basis::cgto::Basis631G;
 use clap::Parser;
-use std::{fs, io};
+use color_eyre::eyre::Result;
+use nalgebra::Vector3;
+use periodic_table_on_an_enum::Element;
+use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::Write;
 use std::process::{id, Command};
 use std::rc::Rc;
-use basis::cgto::Basis631G;
-use color_eyre::eyre::Result;
+use std::{fs, io};
 
 mod scf;
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
-use tracing::{event, span, info, Level};
+use tracing::{event, info, span, Level};
 use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
-
 
 // Define a configuration struct to hold YAML data
 #[derive(Debug, Deserialize, Serialize)]
@@ -104,23 +103,20 @@ fn main() -> Result<()> {
             let log = File::create(path).expect("Could not create file");
             let file_layer = layer().with_writer(log);
             // install writer to log, using tracing
-            Registry::default()
-                .with(file_layer)
-                .init()
-        },
+            Registry::default().with(file_layer).init()
+        }
         None => {
             info!("Output will be printed to stdout");
-        },
+        }
     };
-
 
     // 1. Read YAML configuration file
     info!("Reading configuration from: {}", args.config_file);
-    let config_file_content = fs::read_to_string(&args.config_file)
-        .expect("Unable to read configuration file");
+    let config_file_content =
+        fs::read_to_string(&args.config_file).expect("Unable to read configuration file");
 
-    let mut config: Config = serde_yaml::from_str(&config_file_content)
-        .expect("Unable to parse configuration file");
+    let mut config: Config =
+        serde_yaml::from_str(&config_file_content).expect("Unable to parse configuration file");
 
     config.scf_params = ScfParams::default();
     info!("Configuration loaded:\n{:?}", config);
@@ -157,7 +153,7 @@ fn main() -> Result<()> {
     let mut elements = Vec::new();
     let mut coords_vec = Vec::new();
     for atom_config in &config.geometry {
-        let element =  Element::from_symbol(&atom_config.element)
+        let element = Element::from_symbol(&atom_config.element)
             .expect(&format!("Invalid element symbol: {}", atom_config.element));
         let coords = Vector3::new(
             atom_config.coords[0],
