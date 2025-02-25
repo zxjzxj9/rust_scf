@@ -5,18 +5,17 @@
    Date: 2024/12/31
 */
 
+use crate::basis::{AOBasis, Basis, BasisFormat};
+use crate::gto::GTO;
+use itertools::iproduct;
+use nalgebra::Vector3;
+use periodic_table_on_an_enum;
+use rayon::prelude::*;
+use serde::{Deserialize, Serialize};
+use serde_pickle;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use itertools::iproduct;
-use nalgebra::Vector3;
-use serde::{Deserialize, Serialize};
-use serde_pickle;
-use crate::gto::GTO;
-use periodic_table_on_an_enum;
-use rayon::prelude::*;
-use crate::basis::{AOBasis, Basis, BasisFormat};
-
 
 // need to consider how to reuse GTO integral, since s, p share the same exponents
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -42,7 +41,6 @@ pub struct Basis631G {
 }
 
 impl Basis631G {
-
     // Example of nwchem format:
     // #----------------------------------------------------------------------
     // # Basis Set Exchange
@@ -79,36 +77,44 @@ impl Basis631G {
     // Mg    SP
     // 0.4210610000E-01       0.1000000000E+01       0.1000000000E+01
     // END
-    fn parse_primitive_block(lines: &[&str], Z: u32,
-                             center: Vector3<f64>, basis_type: &str) -> Vec<ContractedGTO> {
+    fn parse_primitive_block(
+        lines: &[&str],
+        Z: u32,
+        center: Vector3<f64>,
+        basis_type: &str,
+    ) -> Vec<ContractedGTO> {
         let mut res: Vec<ContractedGTO> = Vec::new();
 
         match basis_type {
-             "S" => {
-                res.push(
-                    ContractedGTO {
+            "S" => res.push(ContractedGTO {
+                primitives: Vec::new(),
+                coefficients: Vec::new(),
+                shell_type: "1s".to_string(),
+                Z: Z,
+                n: 1,
+                l: 0,
+                m: 0,
+                s: 0,
+            }),
+            "SP" => {
+                let shells = vec![
+                    ("1s", 0, 0, 0),
+                    ("2px", 1, -1, 0),
+                    ("2py", 1, 1, 0),
+                    ("2pz", 1, 0, 0),
+                ];
+                for (shell_type, l, m, s) in shells {
+                    res.push(ContractedGTO {
                         primitives: Vec::new(),
                         coefficients: Vec::new(),
-                        shell_type: "1s".to_string(),
-                        Z: Z, n: 1, l: 0, m: 0, s: 0,
-                    }
-                )
-            }
-             "SP" => {
-                 let shells = vec![
-                     ("1s", 0, 0, 0),
-                     ("2px", 1, -1, 0),
-                     ("2py", 1, 1, 0),
-                     ("2pz", 1, 0, 0),
-                 ];
-                 for (shell_type, l, m, s) in shells {
-                     res.push(ContractedGTO {
-                         primitives: Vec::new(),
-                         coefficients: Vec::new(),
-                         shell_type: shell_type.to_string(),
-                         Z: Z, n: 2, l, m, s,
-                     });
-                 }
+                        shell_type: shell_type.to_string(),
+                        Z: Z,
+                        n: 2,
+                        l,
+                        m,
+                        s,
+                    });
+                }
             }
             _ => {
                 panic!("Unsupported basis type: {}", basis_type);
@@ -132,7 +138,6 @@ impl Basis631G {
             );
             res[0].primitives.push(s_gto);
             res[0].coefficients.push(s_coeff);
-
 
             // If this is an SP shell, also create P-type GTOs
             if basis_type == "SP" {
@@ -179,12 +184,16 @@ impl Basis631G {
                 // Process previous block if it exists
                 if !current_block.is_empty() {
                     // initialize the element information
-                    let element = periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
+                    let element =
+                        periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
                     basis.name = element.get_symbol().to_string();
                     basis.atomic_number = element.get_atomic_number() as u32;
-                    let parsed =
-                        Self::parse_primitive_block(&current_block, basis.atomic_number,
-                                                    center, current_shell_type.unwrap());
+                    let parsed = Self::parse_primitive_block(
+                        &current_block,
+                        basis.atomic_number,
+                        center,
+                        current_shell_type.unwrap(),
+                    );
                     basis.basis_set.extend(parsed);
                     // Add to basis_set with appropriate shell type...
                     // You'll need to create ContractedGTO objects here
@@ -192,7 +201,6 @@ impl Basis631G {
 
                 current_block.clear();
                 current_shell_type = Some(tokens[1]);
-
             } else if !tokens.is_empty() && current_shell_type.is_some() {
                 current_block.push(line);
             }
@@ -200,9 +208,12 @@ impl Basis631G {
 
         // Process the last block
         if !current_block.is_empty() {
-            let parsed =
-                Self::parse_primitive_block(&current_block, basis.atomic_number,
-                                            center, current_shell_type.unwrap());
+            let parsed = Self::parse_primitive_block(
+                &current_block,
+                basis.atomic_number,
+                center,
+                current_shell_type.unwrap(),
+            );
             // Add to basis_set...
             basis.basis_set.extend(parsed);
         }
@@ -227,11 +238,9 @@ impl Basis631G {
             basis_set: Vec::new(),
         }
     }
-
-
 }
 
-impl AOBasis for Basis631G{
+impl AOBasis for Basis631G {
     type BasisType = ContractedGTO;
     fn set_center(&mut self, center: Vector3<f64>) {
         for cgto in self.basis_set.iter_mut() {
@@ -248,13 +257,17 @@ impl AOBasis for Basis631G{
     }
 
     fn get_center(&self) -> Option<Vector3<f64>> {
-        if let Some(first_center) = self.basis_set.first()
+        if let Some(first_center) = self
+            .basis_set
+            .first()
             .and_then(|cgto| cgto.primitives.first())
-            .map(|gto| gto.center) {
-            if self.basis_set.iter()
-                .all(|cgto|
-                    cgto.primitives.iter().all
-                    (|gto| gto.center == first_center)) {
+            .map(|gto| gto.center)
+        {
+            if self
+                .basis_set
+                .iter()
+                .all(|cgto| cgto.primitives.iter().all(|gto| gto.center == first_center))
+            {
                 return Some(first_center);
             }
         }
@@ -269,7 +282,10 @@ impl AOBasis for Basis631G{
     fn get_basis(&self) -> Vec<Arc<Self::BasisType>> {
         // self.basis_set.as_ref()
         // make Arc from self.basis_set
-        self.basis_set.iter().map(|cgto| Arc::new(cgto.clone())).collect()
+        self.basis_set
+            .iter()
+            .map(|cgto| Arc::new(cgto.clone()))
+            .collect()
     }
 }
 
@@ -288,7 +304,8 @@ impl Basis631G {
 
     // Save to file in pickle format
     pub fn save_to_file(&self, filename: &str) -> std::io::Result<()> {
-        let serialized = self.to_pickle()
+        let serialized = self
+            .to_pickle()
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         let mut file = File::create(filename)?;
         file.write_all(&serialized)
@@ -300,14 +317,14 @@ impl Basis631G {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
 
-        Self::from_pickle(&buffer)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        Self::from_pickle(&buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 }
 
 impl Basis for ContractedGTO {
     fn evaluate(&self, r: &Vector3<f64>) -> f64 {
-        self.coefficients.par_iter()
+        self.coefficients
+            .par_iter()
             .zip(self.primitives.par_iter())
             .map(|(c, gto)| c * gto.evaluate(r))
             .sum()
@@ -316,11 +333,11 @@ impl Basis for ContractedGTO {
     fn Sab(a: &Self, b: &Self) -> f64 {
         let na = a.primitives.len();
         let nb = b.primitives.len();
-        iproduct!(
-            0..na, 0..nb
-        ).par_bridge()
-            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
-                GTO::Sab(&a.primitives[i], &b.primitives[j]))
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                a.coefficients[i] * b.coefficients[j] * GTO::Sab(&a.primitives[i], &b.primitives[j])
+            })
             .sum()
     }
 
@@ -329,11 +346,11 @@ impl Basis for ContractedGTO {
 
         let na = a.primitives.len();
         let nb = b.primitives.len();
-        iproduct!(
-            0..na, 0..nb
-        ).par_bridge()
-            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
-                GTO::Tab(&a.primitives[i], &b.primitives[j]))
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                a.coefficients[i] * b.coefficients[j] * GTO::Tab(&a.primitives[i], &b.primitives[j])
+            })
             .sum()
     }
 
@@ -342,11 +359,13 @@ impl Basis for ContractedGTO {
 
         let na = a.primitives.len();
         let nb = b.primitives.len();
-        iproduct!(
-            0..na, 0..nb
-        ).par_bridge()
-            .map(|(i, j)| a.coefficients[i] * b.coefficients[j] *
-                GTO::Vab(&a.primitives[i], &b.primitives[j], R, Z))
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                a.coefficients[i]
+                    * b.coefficients[j]
+                    * GTO::Vab(&a.primitives[i], &b.primitives[j], R, Z)
+            })
             .sum()
     }
 
@@ -356,22 +375,28 @@ impl Basis for ContractedGTO {
         let nc = c.primitives.len();
         let nd = d.primitives.len();
 
-        iproduct!(
-            0..na, 0..nb, 0..nc, 0..nd
-        ).par_bridge()
-            .map(|(i, j, k, l)|
-                a.coefficients[i] * b.coefficients[j] *
-                    c.coefficients[k] * d.coefficients[l] *
-                GTO::JKabcd(&a.primitives[i], &b.primitives[j],
-                            &c.primitives[k], &d.primitives[l]))
+        iproduct!(0..na, 0..nb, 0..nc, 0..nd)
+            .par_bridge()
+            .map(|(i, j, k, l)| {
+                a.coefficients[i]
+                    * b.coefficients[j]
+                    * c.coefficients[k]
+                    * d.coefficients[l]
+                    * GTO::JKabcd(
+                        &a.primitives[i],
+                        &b.primitives[j],
+                        &c.primitives[k],
+                        &d.primitives[l],
+                    )
+            })
             .sum()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use reqwest::get;
     use super::*;
+    use reqwest::get;
 
     #[test]
     fn test_parse_nwchem() {
@@ -382,8 +407,11 @@ mod tests {
         for cgto in basis.basis_set.iter() {
             // println!("{:?}", cgto);
             let v1 = ContractedGTO::Sab(cgto, cgto);
-            assert!(( v1 - 1.0).abs() < 1e-3,
-                    "Sab check failed, expected 1.0, got {}", v1);
+            assert!(
+                (v1 - 1.0).abs() < 1e-3,
+                "Sab check failed, expected 1.0, got {}",
+                v1
+            );
         }
     }
 }

@@ -2,9 +2,9 @@
 use libm::{erf, sqrt};
 use nalgebra::Vector3;
 use num_complex::Complex;
-use std::f64::consts::PI;
 use rand::Rng;
 use rayon::prelude::*;
+use std::f64::consts::PI;
 
 // Simpson's rule integration
 pub(crate) fn simpson_integration<F>(f: F, a: f64, b: f64, n: usize) -> f64
@@ -68,20 +68,29 @@ where
     let z_weights: Vec<f64> = (0..=nz).map(|k| simpson_weight(k, nz)).collect();
 
     // Parallel integration using Rayon
-    let sum: f64 = (0..=nx).into_par_iter().map(|i| {
-        let x = x_coords[i];
-        let wx = x_weights[i];
-        (0..=ny).into_par_iter().map(|j| {
-            let y = y_coords[j];
-            let wy = y_weights[j];
-            (0..=nz).into_par_iter().map(|k| {
-                let z = z_coords[k];
-                let wz = z_weights[k];
-                let w = wx * wy * wz;
-                w * f(x, y, z)
-            }).sum::<f64>()
-        }).sum::<f64>()
-    }).sum();
+    let sum: f64 = (0..=nx)
+        .into_par_iter()
+        .map(|i| {
+            let x = x_coords[i];
+            let wx = x_weights[i];
+            (0..=ny)
+                .into_par_iter()
+                .map(|j| {
+                    let y = y_coords[j];
+                    let wy = y_weights[j];
+                    (0..=nz)
+                        .into_par_iter()
+                        .map(|k| {
+                            let z = z_coords[k];
+                            let wz = z_weights[k];
+                            let w = wx * wy * wz;
+                            w * f(x, y, z)
+                        })
+                        .sum::<f64>()
+                })
+                .sum::<f64>()
+        })
+        .sum();
 
     // Multiply by the step sizes and the factor 1/27
     // Simpson's rule in 3D: (hx*hy*hz/27)* sum_of_weights
@@ -311,7 +320,6 @@ where
     sum * volume_element
 }
 
-
 pub(crate) fn two_electron_integral_monte_carlo<F>(psi: F, L: f64, samples: usize) -> (f64, f64)
 where
     F: Fn(Vector3<f64>, Vector3<f64>) -> f64 + Sync,
@@ -322,34 +330,37 @@ where
     let seed: u64 = rng.gen();
 
     // Parallel iteration
-    let results: Vec<f64> = (0..samples).into_par_iter().map(|n| {
-        let mut thread_rng = rand::thread_rng();
+    let results: Vec<f64> = (0..samples)
+        .into_par_iter()
+        .map(|n| {
+            let mut thread_rng = rand::thread_rng();
 
-        // Random point r1
-        let x1 = thread_rng.gen_range(-L..L);
-        let y1 = thread_rng.gen_range(-L..L);
-        let z1 = thread_rng.gen_range(-L..L);
-        let r1 = Vector3::new(x1, y1, z1);
+            // Random point r1
+            let x1 = thread_rng.gen_range(-L..L);
+            let y1 = thread_rng.gen_range(-L..L);
+            let z1 = thread_rng.gen_range(-L..L);
+            let r1 = Vector3::new(x1, y1, z1);
 
-        // Random point r2
-        let x2 = thread_rng.gen_range(-L..L);
-        let y2 = thread_rng.gen_range(-L..L);
-        let z2 = thread_rng.gen_range(-L..L);
-        let r2 = Vector3::new(x2, y2, z2);
+            // Random point r2
+            let x2 = thread_rng.gen_range(-L..L);
+            let y2 = thread_rng.gen_range(-L..L);
+            let z2 = thread_rng.gen_range(-L..L);
+            let r2 = Vector3::new(x2, y2, z2);
 
-        let diff = r1 - r2;
-        let dist = diff.norm();
-        if dist > 1e-12 {
-            let val =  psi(r1, r2) / dist;
-            val
-        } else {
-            // If they're essentially the same point, integrand is singular.
-            // For a 3D integral of Coulomb potential, the measure of exact overlap is negligible,
-            // but to be safe, we can skip or approximate.
-            // We'll just skip by returning 0.0, since it's extremely rare in random sampling.
-            0.0
-        }
-    }).collect();
+            let diff = r1 - r2;
+            let dist = diff.norm();
+            if dist > 1e-12 {
+                let val = psi(r1, r2) / dist;
+                val
+            } else {
+                // If they're essentially the same point, integrand is singular.
+                // For a 3D integral of Coulomb potential, the measure of exact overlap is negligible,
+                // but to be safe, we can skip or approximate.
+                // We'll just skip by returning 0.0, since it's extremely rare in random sampling.
+                0.0
+            }
+        })
+        .collect();
 
     let sum: f64 = results.par_iter().sum();
     let mean = sum / (samples as f64);
@@ -367,11 +378,10 @@ where
     (integral, std_err)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
     use super::*;
+    use rand::Rng;
 
     // Basic test: check behavior for a few values
     #[test]
@@ -397,7 +407,7 @@ mod tests {
     fn test_integration_unit_sphere() {
         // Domain: cube [-1,1]^3
         let a = Vector3::new(-1.0, -1.0, -1.0);
-        let b = Vector3::new( 1.0,  1.0,  1.0);
+        let b = Vector3::new(1.0, 1.0, 1.0);
 
         // Singularity at the origin
         let R = Vector3::new(0.0, 0.0, 0.0);

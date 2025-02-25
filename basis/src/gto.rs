@@ -1,13 +1,13 @@
 #![allow(non_snake_case)]
 extern crate nalgebra as na;
 
+use crate::basis::Basis;
+use crate::helper::boys_function;
 use itertools::iproduct;
 use na::Vector3;
 use rayon::prelude::*;
-use std::f64::consts::PI;
 use serde::{Deserialize, Serialize};
-use crate::helper::boys_function;
-use crate::basis::Basis;
+use std::f64::consts::PI;
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub struct GTO1d {
@@ -219,8 +219,15 @@ impl GTO {
     ///
     /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
     pub fn hermite_coulomb(
-        t: i32, u: i32, v: i32, n: i32, p: f64,
-        PCx: f64, PCy: f64, PCz: f64, RPC: f64,
+        t: i32,
+        u: i32,
+        v: i32,
+        n: i32,
+        p: f64,
+        PCx: f64,
+        PCy: f64,
+        PCz: f64,
+        RPC: f64,
     ) -> f64 {
         let T = p * RPC * RPC;
         let mut val = 0.0;
@@ -249,8 +256,6 @@ impl GTO {
 
         val
     }
-
-
 }
 
 impl Basis for GTO {
@@ -265,15 +270,15 @@ impl Basis for GTO {
     }
 
     fn Tab(a: &GTO, b: &GTO) -> f64 {
-            GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
+        GTO1d::Tab(&a.gto1d[0], &b.gto1d[0])
             * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
             * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
             + GTO1d::Tab(&a.gto1d[1], &b.gto1d[1])
-            * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
-            * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
+                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+                * GTO1d::Sab(&a.gto1d[2], &b.gto1d[2])
             + GTO1d::Tab(&a.gto1d[2], &b.gto1d[2])
-            * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
-            * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
+                * GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
+                * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])
     }
     fn Vab(a: &GTO, b: &GTO, R: Vector3<f64>, Z: u32) -> f64 {
         let c = GTO::merge(a, b);
@@ -284,23 +289,42 @@ impl Basis for GTO {
         let val = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
             .par_bridge()
             .map(|(i, j, k)| {
-                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
-                                       a.center.x - b.center.x, a.alpha, b.alpha);
+                let eab_x = GTO1d::Eab(
+                    a.l_xyz.x,
+                    b.l_xyz.x,
+                    i,
+                    a.center.x - b.center.x,
+                    a.alpha,
+                    b.alpha,
+                );
 
-                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
-                                       a.center.y - b.center.y, a.alpha, b.alpha);
+                let eab_y = GTO1d::Eab(
+                    a.l_xyz.y,
+                    b.l_xyz.y,
+                    j,
+                    a.center.y - b.center.y,
+                    a.alpha,
+                    b.alpha,
+                );
 
-                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
-                                       a.center.z - b.center.z, a.alpha, b.alpha);
+                let eab_z = GTO1d::Eab(
+                    a.l_xyz.z,
+                    b.l_xyz.z,
+                    k,
+                    a.center.z - b.center.z,
+                    a.alpha,
+                    b.alpha,
+                );
 
                 let hermite_val =
                     GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
 
                 eab_x * eab_y * eab_z * hermite_val
-            }).sum::<f64>();
+            })
+            .sum::<f64>();
 
         // add minus sign to the result, since it is a nuclear attraction term
-        -1.0 * a.norm * b.norm * val * 2.0 * PI * (Z as f64)/ c.alpha
+        -1.0 * a.norm * b.norm * val * 2.0 * PI * (Z as f64) / c.alpha
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
@@ -309,41 +333,82 @@ impl Basis for GTO {
         let dr = e.center - f.center;
         let alpha = e.alpha * f.alpha / (e.alpha + f.alpha);
 
-        let  val = iproduct!(0..=e.l_xyz.x, 0..=e.l_xyz.y, 0..=e.l_xyz.z,
-                0..=f.l_xyz.x, 0..=f.l_xyz.y, 0..=f.l_xyz.z)
-            .par_bridge()
-            .map(|(i, j, k, l, m, n)| {
-                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i,
-                                       a.center.x - b.center.x, a.alpha, b.alpha);
+        let val = iproduct!(
+            0..=e.l_xyz.x,
+            0..=e.l_xyz.y,
+            0..=e.l_xyz.z,
+            0..=f.l_xyz.x,
+            0..=f.l_xyz.y,
+            0..=f.l_xyz.z
+        )
+        .par_bridge()
+        .map(|(i, j, k, l, m, n)| {
+            let eab_x = GTO1d::Eab(
+                a.l_xyz.x,
+                b.l_xyz.x,
+                i,
+                a.center.x - b.center.x,
+                a.alpha,
+                b.alpha,
+            );
 
-                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j,
-                                       a.center.y - b.center.y, a.alpha, b.alpha);
+            let eab_y = GTO1d::Eab(
+                a.l_xyz.y,
+                b.l_xyz.y,
+                j,
+                a.center.y - b.center.y,
+                a.alpha,
+                b.alpha,
+            );
 
-                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k,
-                                       a.center.z - b.center.z, a.alpha, b.alpha);
+            let eab_z = GTO1d::Eab(
+                a.l_xyz.z,
+                b.l_xyz.z,
+                k,
+                a.center.z - b.center.z,
+                a.alpha,
+                b.alpha,
+            );
 
-                let ecd_x = GTO1d::Eab(c.l_xyz.x, d.l_xyz.x, l,
-                                       c.center.x - d.center.x, c.alpha, d.alpha);
+            let ecd_x = GTO1d::Eab(
+                c.l_xyz.x,
+                d.l_xyz.x,
+                l,
+                c.center.x - d.center.x,
+                c.alpha,
+                d.alpha,
+            );
 
-                let ecd_y = GTO1d::Eab(c.l_xyz.y, d.l_xyz.y, m,
-                                       c.center.y - d.center.y, c.alpha, d.alpha);
+            let ecd_y = GTO1d::Eab(
+                c.l_xyz.y,
+                d.l_xyz.y,
+                m,
+                c.center.y - d.center.y,
+                c.alpha,
+                d.alpha,
+            );
 
-                let ecd_z = GTO1d::Eab(c.l_xyz.z, d.l_xyz.z, n,
-                                       c.center.z - d.center.z, c.alpha, d.alpha);
+            let ecd_z = GTO1d::Eab(
+                c.l_xyz.z,
+                d.l_xyz.z,
+                n,
+                c.center.z - d.center.z,
+                c.alpha,
+                d.alpha,
+            );
 
-                let hermite_val =
-                    GTO::hermite_coulomb(i + l, j + m, k + n, 0,
-                                         alpha, dr.x, dr.y, dr.z, dr.norm());
+            let hermite_val =
+                GTO::hermite_coulomb(i + l, j + m, k + n, 0, alpha, dr.x, dr.y, dr.z, dr.norm());
 
-                // if l + m + n is odd, then sgn is -1, otherwise sgn is 1
-                let sgn = if (l + m + n) % 2 == 0 { 1.0 } else { -1.0 };
-                eab_x * eab_y * eab_z * ecd_x * ecd_y * ecd_z * sgn * hermite_val
-            }).sum::<f64>();
+            // if l + m + n is odd, then sgn is -1, otherwise sgn is 1
+            let sgn = if (l + m + n) % 2 == 0 { 1.0 } else { -1.0 };
+            eab_x * eab_y * eab_z * ecd_x * ecd_y * ecd_z * sgn * hermite_val
+        })
+        .sum::<f64>();
 
-        a.norm * b.norm * c.norm * d.norm * val
-            * 2.0 * PI.powf(2.5) / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
+        a.norm * b.norm * c.norm * d.norm * val * 2.0 * PI.powf(2.5)
+            / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
     }
 }
-
 
 // https://chemistry.montana.edu/callis/courses/chmy564/460water.pdf

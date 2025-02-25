@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
 
-
     // #[test]
     // fn test_gto1d_normalization() {
     //     let gto = GTO1d::new(1.0, 2, 1.0);
@@ -22,13 +21,13 @@ mod tests {
     //     assert!(diff < 1e-5, "Integral is not close to 1: got {}", integral);
     // }
 
-    use std::f64::consts::PI;
+    use crate::basis::Basis;
+    use crate::gto::{GTO1d, GTO};
+    use crate::helper::*;
     use nalgebra::Vector3;
     use rand::Rng;
     use rand_distr::Normal;
-    use crate::gto::{GTO1d, GTO};
-    use crate::helper::*;
-    use crate::basis::Basis;
+    use std::f64::consts::PI;
 
     #[test]
     fn test_gto1d_overlap() {
@@ -266,60 +265,108 @@ mod tests {
     #[test]
     fn test_gto_kinetic_with_params() {
         test_gto_kinetic(
-            1.0, 1, Vector3::new(0.0, 0.0, 0.0),
-            1.0, 1, Vector3::new(0.0, 0.0, 1.0),
+            1.0,
+            1,
+            Vector3::new(0.0, 0.0, 0.0),
+            1.0,
+            1,
+            Vector3::new(0.0, 0.0, 1.0),
         );
         test_gto_kinetic(
-            0.8, 2, Vector3::new(-1.0, 0.5, 2.0),
-            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            2,
+            Vector3::new(-1.0, 0.5, 2.0),
+            1.2,
+            1,
+            Vector3::new(0.0, 0.0, 0.0),
         );
         test_gto_kinetic(
-            2.0, 0, Vector3::new(0.0, 0.0, 0.0),
-            0.5, 2, Vector3::new(1.0, -1.0, 1.0),
+            2.0,
+            0,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.5,
+            2,
+            Vector3::new(1.0, -1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 0, Vector3::new(0.0, 0.0, 0.0),
+            1.2,
+            0,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            0,
+            Vector3::new(0.0, 0.0, 0.0),
         );
         test_gto_kinetic(
-            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            0,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            1,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 0, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            1,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            0,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            1,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            1,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 0, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            2,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            0,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 0, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            0,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            2,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 1, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            2,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            1,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 1, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            1,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            2,
+            Vector3::new(1.0, 1.0, 1.0),
         );
         test_gto_kinetic(
-            1.2, 2, Vector3::new(0.0, 0.0, 0.0),
-            0.8, 2, Vector3::new(1.0, 1.0, 1.0),
+            1.2,
+            2,
+            Vector3::new(0.0, 0.0, 0.0),
+            0.8,
+            2,
+            Vector3::new(1.0, 1.0, 1.0),
         );
     }
 
     #[test]
     fn test_vab_symmetric() {
         // Create two identical s-type GTOs: alpha = 1.0, center at origin
-        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
-        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+        let a = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(0.0, 1.0, 1.0));
 
         // Nuclear center placed at (0.05,0,0) - mid-point as an example
         let R = Vector3::new(0.05, 0.0, 0.0);
@@ -335,8 +382,8 @@ mod tests {
     fn test_vab_identical_primitive_s_orbitals() {
         // Consider two identical s-orbitals at the origin with alpha=1.0
         // and a nucleus at the origin.
-        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
-        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+        let a = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(0.0, 1.0, 1.0));
 
         let R = Vector3::new(0.0, 0.0, 0.0);
 
@@ -346,7 +393,10 @@ mod tests {
         // For a basic check, we just ensure the value is finite and > 0
         // In reality, you'd insert a known benchmark value here.
         assert!(val.is_finite());
-        assert!(val < 0.0, "Integral should be positive for identical s-orbitals at the same center");
+        assert!(
+            val < 0.0,
+            "Integral should be positive for identical s-orbitals at the same center"
+        );
     }
 
     #[test]
@@ -356,15 +406,21 @@ mod tests {
         // NOTE: This depends on how your integral is defined. If R is a fixed point in space,
         // translation invariance might not apply. This is just a conceptual test.
 
-        let a = GTO::new(1.0, Vector3::new(0,0,0), Vector3::new(1.0, 1.0, 0.0));
-        let b = GTO::new(0.8, Vector3::new(0,0,0), Vector3::new(0.0, 1.0, 1.0));
+        let a = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(0.0, 1.0, 1.0));
 
         let R = Vector3::new(1.2, -0.5, 2.0);
         let val_original = GTO::Vab(&a, &b, R, 1);
 
-        let shift = Vector3::new(0.1,0.2,-0.3);
-        let a_shifted = GTO { center: a.center + shift, ..a };
-        let b_shifted = GTO { center: b.center + shift, ..b };
+        let shift = Vector3::new(0.1, 0.2, -0.3);
+        let a_shifted = GTO {
+            center: a.center + shift,
+            ..a
+        };
+        let b_shifted = GTO {
+            center: b.center + shift,
+            ..b
+        };
         let R_shifted = R + shift;
 
         let val_shifted = GTO::Vab(&a_shifted, &b_shifted, R_shifted, 1);
@@ -373,7 +429,11 @@ mod tests {
         // then we can't assume invariance. If R is relative, we can.
         // For now, let's just check something like symmetry or numeric stability.
         let diff = (val_original - val_shifted).abs();
-        assert!(diff < 1e-12, "Value changed upon uniform translation! diff={}", diff);
+        assert!(
+            diff < 1e-12,
+            "Value changed upon uniform translation! diff={}",
+            diff
+        );
     }
 
     fn test_vab_against_numerical_with_params(
@@ -399,11 +459,11 @@ mod tests {
         let lower = Vector3::new(-20.0, -20.0, -20.0);
         let upper = Vector3::new(20.0, 20.0, 20.0);
         // let val_numerical = simpson_integration_3d(integrand, lower, upper, 200, 200, 200);
-        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-6);
+        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R, 200, 200, 200, 1e-6);
 
         let diff = (val_analytical - val_numerical).abs();
 
-        if  val_numerical.abs() < 1e-3 {
+        if val_numerical.abs() < 1e-3 {
             assert!(
                 (val_numerical - val_analytical).abs() < 1e-3,
                 "Kinetic energy integral is not close: got {}, expected {}, \
@@ -448,11 +508,11 @@ mod tests {
 
         let lower = Vector3::new(-20.0, -20.0, -20.0);
         let upper = Vector3::new(20.0, 20.0, 20.0);
-        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R,200, 200, 200, 1e-6);
+        let val_numerical = integrate_spherical_3d(integrand, lower, upper, R, 200, 200, 200, 1e-6);
 
         let diff = (val_analytical - val_numerical).abs();
 
-        if  val_numerical.abs() < 1e-2 {
+        if val_numerical.abs() < 1e-2 {
             assert!(
                 (val_numerical - val_analytical).abs() < 1e-2,
                 "Kinetic energy integral is not close: got {}, expected {}, \
@@ -492,7 +552,8 @@ mod tests {
             0.8,
             Vector3::new(0, 0, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 0.0, 0.0));
+            Vector3::new(0.0, 0.0, 0.0),
+        );
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -501,7 +562,8 @@ mod tests {
             0.8,
             Vector3::new(0, 1, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 0.0, 1.0));
+            Vector3::new(0.0, 0.0, 1.0),
+        );
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -510,7 +572,8 @@ mod tests {
             0.8,
             Vector3::new(0, 1, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 0.0, 0.0));
+            Vector3::new(0.0, 0.0, 0.0),
+        );
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -519,7 +582,8 @@ mod tests {
             0.8,
             Vector3::new(1, 1, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 0.0, 0.0));
+            Vector3::new(0.0, 0.0, 0.0),
+        );
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -528,7 +592,8 @@ mod tests {
             0.8,
             Vector3::new(1, 2, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 0.0, 0.0));
+            Vector3::new(0.0, 0.0, 0.0),
+        );
 
         test_vab_against_numerical_with_params(
             1.0,
@@ -537,7 +602,8 @@ mod tests {
             0.8,
             Vector3::new(1, 2, 0),
             Vector3::new(0.0, 1.0, 1.0),
-            Vector3::new(0.0, 1.0, 0.0));
+            Vector3::new(0.0, 1.0, 0.0),
+        );
 
         for i in 0..3 {
             test_vab_against_numerical_with_random_gto();
@@ -565,7 +631,7 @@ mod tests {
         let c = radom_gto();
         let d = radom_gto();
 
-        let psi  = |r1: Vector3<f64>, r2: Vector3<f64>| {
+        let psi = |r1: Vector3<f64>, r2: Vector3<f64>| {
             let val1 = a.evaluate(&r1) * b.evaluate(&r1);
             let val2 = c.evaluate(&r2) * d.evaluate(&r2);
             val1 * val2
@@ -574,7 +640,10 @@ mod tests {
         let L = 3.0;
         let (integral_numerical, std_err) = two_electron_integral_monte_carlo(psi, L, 10_000_000);
         let integral_analytical = GTO::JKabcd(&a, &b, &c, &d);
-        println!("numerical: {}, analytical: {}, std_err: {}", integral_numerical, integral_analytical, std_err);
+        println!(
+            "numerical: {}, analytical: {}, std_err: {}",
+            integral_numerical, integral_analytical, std_err
+        );
         assert!(
             (integral_numerical - integral_analytical).abs() < 3.0 * std_err,
             "JKabcd is not close: got {}, expected {}",
