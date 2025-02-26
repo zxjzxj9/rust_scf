@@ -49,7 +49,7 @@ where
         }
 
         // Check for convergence
-        if  g.norm_l2() < tolerance {
+        if g.norm_l2() < tolerance {
             if verbose {
                 println!("Converged after {} iterations.", iter);
             }
@@ -121,7 +121,7 @@ fn compute_search_direction(
 
     for i in 0..m {
         let beta = rho_history[i] * y_history[i].dot(&r);
-        r = &r + s_history[i].clone()* (alphas[i] - beta);
+        r = &r + s_history[i].clone() * (alphas[i] - beta);
     }
 
     -r
@@ -134,7 +134,7 @@ fn line_search<F, G>(
     x: &Array1<f64>,
     p: &Array1<f64>,
     g: &Array1<f64>,
-    tolerance: f64
+    tolerance: f64,
 ) -> Result<f64, &'static str>
 where
     F: Fn(&Array1<f64>) -> f64,
@@ -150,7 +150,6 @@ where
     if initial_slope > 0.0 {
         return Err("Initial slope is positive, indicating that the search direction is not a descent direction. This can be caused by an incorrect gradient or a non-convex objective function.");
     }
-
 
     loop {
         let x_new = x + alpha * p;

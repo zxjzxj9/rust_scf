@@ -19,11 +19,11 @@ enum LbfgsFlag {
 
 // Struct to hold common parameters (equivalent to COMMON /LB3/)
 struct LbfgsState {
-    mp: usize,       // Print unit for monitoring information
-    lp: usize,       // Print unit for error messages
-    gtol: f64,       // Controls accuracy of line search
-    stpmin: f64,     // Lower bound for step in line search
-    stpmax: f64,     // Upper bound for step in line search
+    mp: usize,   // Print unit for monitoring information
+    lp: usize,   // Print unit for error messages
+    gtol: f64,   // Controls accuracy of line search
+    stpmin: f64, // Lower bound for step in line search
+    stpmax: f64, // Upper bound for step in line search
 }
 
 impl Default for LbfgsState {
@@ -133,18 +133,8 @@ fn lbfgs(
     // Initial output
     if iprint[0] >= 0 {
         lb1(
-            &iprint,
-            iter,
-            nfun,
-            gnorm,
-            n,
-            m,
-            &x,
-            f,
-            &g,
-            ZERO, // stp not defined yet
-            finish,
-            state,
+            &iprint, iter, nfun, gnorm, n, m, &x, f, &g, ZERO, // stp not defined yet
+            finish, state,
         );
     }
 
@@ -159,10 +149,20 @@ fn lbfgs(
         } else {
             // Update DIAG or request user to provide it
             if !diagco {
-                let ys = ddot(n, &w.to_vec()[iypt + (point * n)..], 1, 
-                              &w.to_vec()[ispt..], 1);
-                let yy = ddot(n, &w.to_vec()[iypt + (point * n)..], 1,
-                              &w.to_vec()[iypt + (point * n)..], 1);
+                let ys = ddot(
+                    n,
+                    &w.to_vec()[iypt + (point * n)..],
+                    1,
+                    &w.to_vec()[ispt..],
+                    1,
+                );
+                let yy = ddot(
+                    n,
+                    &w.to_vec()[iypt + (point * n)..],
+                    1,
+                    &w.to_vec()[iypt + (point * n)..],
+                    1,
+                );
                 for i in 0..n {
                     diag[i] = ys / yy;
                 }
@@ -236,18 +236,7 @@ fn lbfgs(
                     // Output
                     if iprint[0] >= 0 {
                         lb1(
-                            &iprint,
-                            iter,
-                            nfun,
-                            new_gnorm,
-                            n,
-                            m,
-                            &x,
-                            f,
-                            &g,
-                            stp,
-                            finish,
-                            state,
+                            &iprint, iter, nfun, new_gnorm, n, m, &x, f, &g, stp, finish, state,
                         );
                     }
 
@@ -267,13 +256,7 @@ fn lbfgs(
 }
 
 /// Placeholder for the two-loop recursion to compute -H * g
-fn compute_hg(
-    n: usize,
-    m: usize,
-    w: &mut [f64],
-    iypt: usize,
-    ispt: usize,
-) -> Array1<f64> {
+fn compute_hg(n: usize, m: usize, w: &mut [f64], iypt: usize, ispt: usize) -> Array1<f64> {
     // Implement the two-loop recursion here
     // This is a placeholder and needs a proper implementation
     Array1::zeros(n)
@@ -342,10 +325,7 @@ fn lb1(
         };
 
         if should_print {
-            println!(
-                "{:4}  {:4}  {:e}  {:e}  {:e}",
-                iter, nfun, f, gnorm, stp
-            );
+            println!("{:4}  {:4}  {:e}  {:e}  {:e}", iter, nfun, f, gnorm, stp);
             if iprint[1] >= 2 {
                 println!(" FINAL POINT X= ");
                 for xi in x.iter() {
@@ -362,9 +342,7 @@ fn lb1(
         }
 
         if finish {
-            println!(
-                " THE MINIMIZATION TERMINATED WITHOUT DETECTING ERRORS.\n IFLAG = 0"
-            );
+            println!(" THE MINIMIZATION TERMINATED WITHOUT DETECTING ERRORS.\n IFLAG = 0");
         }
     }
 }
@@ -432,13 +410,11 @@ fn mcsrch(
 /// # Arguments
 ///
 /// *Various arguments as per the Fortran subroutine.*
-fn mcstep(
-    // Parameters as per the Fortran subroutine
+fn mcstep(// Parameters as per the Fortran subroutine
 ) {
     // Implement the MCSTEP logic here
     // This is a placeholder
 }
-
 
 fn main() {
     // Example usage of the LBFGS function
@@ -477,19 +453,7 @@ fn main() {
 
     // Call LBFGS
     match lbfgs(
-        n,
-        m,
-        x,
-        f,
-        g,
-        diagco,
-        diag,
-        iprint,
-        eps,
-        xtol,
-        w,
-        flag,
-        &mut state,
+        n, m, x, f, g, diagco, diag, iprint, eps, xtol, w, flag, &mut state,
     ) {
         Ok((x_opt, f_opt, g_opt)) => {
             println!("Optimization succeeded.");
