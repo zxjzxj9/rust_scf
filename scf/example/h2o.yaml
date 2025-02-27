@@ -1,17 +1,15 @@
 geometry:
   - element: O
-    coords: [0.0, 0.0, 0.0]
+    coords: [0.000000,  0.000000,  0.000000]
   - element: H
-    coords: [0.0, 0.0, 0.96]
+    coords: [0.757000,  0.586000,  0.000000]
   - element: H
-    coords: [0.92, 0.0, -0.24]
-
+    coords: [-0.757000, 0.586000,  0.000000]
 basis_sets:
-  H: "6-31G"
-  O: "6-31G"
-
+  O: "6-31g"
+  H: "6-31g"
 scf_params:
-  density_mixing: 0.3
-  max_cycle: 50
-  diis_subspace_size: 6
+  density_mixing: 0.5
+  max_cycle: 100
+  diis_subspace_size: 8
   convergence_threshold: 1e-6

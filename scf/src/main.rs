@@ -191,7 +191,12 @@ fn main() -> Result<()> {
     scf.scf_cycle();
 
     info!("\nSCF calculation finished.");
-    info!("Final Energy Levels:\n{:?}", scf.e_level);
+    // make it print the final energy levels, print it prettier
+    info!("\nFinal Energy Levels:");
+    // info!("{:?}", scf.e_level);
+    for (i, energy) in scf.e_level.iter().enumerate() {
+        info!("  Level {}: {:.8} au", i + 1, energy);
+    }
 
     Ok(())
 }

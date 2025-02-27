@@ -332,6 +332,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 info!("  Convergence check not performed for the first cycle.");
             }
             previous_e_level = current_e_level.clone();
+            self.e_level = current_e_level.clone();
         }
         if cycle == self.max_cycle {
             info!("\n------------------- SCF Not Converged -------------------");
