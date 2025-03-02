@@ -16,14 +16,14 @@ pub trait SCF {
     fn scf_cycle(&mut self);
 }
 
-struct DIIS {
+pub(crate) struct DIIS {
     error_vectors: Vec<DVector<f64>>,
     fock_matrices: Vec<DMatrix<f64>>,
     max_subspace_size: usize,
 }
 
 impl DIIS {
-    fn new(max_subspace_size: usize) -> Self {
+    pub fn new(max_subspace_size: usize) -> Self {
         DIIS {
             error_vectors: Vec::new(),
             fock_matrices: Vec::new(),
@@ -31,7 +31,7 @@ impl DIIS {
         }
     }
 
-    fn update(&mut self, error_vector: DVector<f64>, fock_matrix: DMatrix<f64>) {
+    pub(crate) fn update(&mut self, error_vector: DVector<f64>, fock_matrix: DMatrix<f64>) {
         if self.error_vectors.len() >= self.max_subspace_size {
             self.error_vectors.remove(0);
             self.fock_matrices.remove(0);
@@ -40,7 +40,7 @@ impl DIIS {
         self.fock_matrices.push(fock_matrix);
     }
 
-    fn extrapolate(&self) -> DMatrix<f64> {
+    pub(crate) fn extrapolate(&self) -> DMatrix<f64> {
         let n = self.error_vectors.len();
         if n == 0 {
             panic!("DIIS: No stored error vectors available for extrapolation.");
