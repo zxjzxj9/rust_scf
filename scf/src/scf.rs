@@ -16,8 +16,8 @@ pub trait SCF {
     fn scf_cycle(&mut self);
 }
 
-pub(crate) struct DIIS {
-    error_vectors: Vec<DVector<f64>>,
+pub struct DIIS {
+    error_matrices: Vec<DMatrix<f64>>,
     fock_matrices: Vec<DMatrix<f64>>,
     max_subspace_size: usize,
 }
@@ -25,60 +25,95 @@ pub(crate) struct DIIS {
 impl DIIS {
     pub fn new(max_subspace_size: usize) -> Self {
         DIIS {
-            error_vectors: Vec::new(),
+            error_matrices: Vec::new(),
             fock_matrices: Vec::new(),
             max_subspace_size,
         }
     }
 
-    pub(crate) fn update(&mut self, error_vector: DVector<f64>, fock_matrix: DMatrix<f64>) {
-        if self.error_vectors.len() >= self.max_subspace_size {
-            self.error_vectors.remove(0);
+    // Calculate DIIS error matrix: FDS - SDF (transformed commutator)
+    pub fn calculate_error_matrix(
+        &self,
+        fock: &DMatrix<f64>,
+        density: &DMatrix<f64>,
+        overlap: &DMatrix<f64>
+    ) -> DMatrix<f64> {
+        // Calculate FDS
+        let fds = fock * density * overlap;
+        // Calculate SDF
+        let sdf = overlap * density * fock;
+        // Error matrix is the commutator: FDS - SDF
+        fds - sdf
+    }
+
+    pub fn update(
+        &mut self,
+        fock_matrix: DMatrix<f64>,
+        density_matrix: &DMatrix<f64>,
+        overlap_matrix: &DMatrix<f64>
+    ) {
+        // Calculate the error matrix
+        let error = self.calculate_error_matrix(
+            &fock_matrix,
+            density_matrix,
+            overlap_matrix
+        );
+
+        if self.error_matrices.len() >= self.max_subspace_size {
+            self.error_matrices.remove(0);
             self.fock_matrices.remove(0);
         }
-        self.error_vectors.push(error_vector);
+
+        self.error_matrices.push(error);
         self.fock_matrices.push(fock_matrix);
     }
 
-    pub(crate) fn extrapolate(&self) -> DMatrix<f64> {
-        let n = self.error_vectors.len();
+    pub fn extrapolate(&self) -> Option<DMatrix<f64>> {
+        let n = self.error_matrices.len();
         if n == 0 {
-            panic!("DIIS: No stored error vectors available for extrapolation.");
+            return None;
         }
 
-        // Build the extended DIIS matrix of size (n+1) x (n+1)
-        let mut B = DMatrix::zeros(n + 1, n + 1);
+        // Build the B matrix for DIIS equations
+        let mut b = DMatrix::zeros(n + 1, n + 1);
         for i in 0..n {
             for j in 0..n {
-                // Dot product of error vectors
-                B[(i, j)] = self.error_vectors[i].dot(&self.error_vectors[j]);
-            }
-            // Set the off-diagonals for the constraint
-            B[(i, n)] = -1.0;
-            B[(n, i)] = -1.0;
-        }
-        B[(n, n)] = 0.0;
+                // Flatten matrices to vectors for dot product
+                let e_i_flat: Vec<f64> = self.error_matrices[i].iter().cloned().collect();
+                let e_j_flat: Vec<f64> = self.error_matrices[j].iter().cloned().collect();
 
-        // Build the right-hand side vector with the constraint
+                // Calculate dot product
+                b[(i, j)] = e_i_flat.iter().zip(&e_j_flat)
+                    .map(|(a, b)| a * b)
+                    .sum();
+            }
+            // Set constraint rows/columns
+            b[(i, n)] = -1.0;
+            b[(n, i)] = -1.0;
+        }
+        b[(n, n)] = 0.0;
+
+        // Right-hand side vector
         let mut rhs = DVector::zeros(n + 1);
         rhs[n] = -1.0;
 
-        // Solve the linear system B * x = rhs for the coefficients
-        let x = B.lu().solve(&rhs)
-            .expect("DIIS extrapolation failed: could not solve the DIIS equations.");
+        // Solve the DIIS equations
+        let lu_result = b.lu();
+        let coeffs = match lu_result.solve(&rhs) {
+            Some(x) => x,
+            None => return None,
+        };
 
-        // The desired DIIS coefficients are the first n entries
-        let coeffs = x.rows(0, n);
-
-        // Extrapolate the Fock matrix as a weighted sum of stored Fock matrices
+        // Extrapolate the Fock matrix
         let mut fock_extrapolated = DMatrix::zeros(
             self.fock_matrices[0].nrows(),
             self.fock_matrices[0].ncols()
         );
+
         for i in 0..n {
             fock_extrapolated += &self.fock_matrices[i] * coeffs[i];
         }
 
-        fock_extrapolated
+        Some(fock_extrapolated)
     }
 }

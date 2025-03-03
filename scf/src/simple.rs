@@ -2,7 +2,7 @@
 
 extern crate nalgebra as na;
 
-use crate::scf::SCF;
+use crate::scf::{DIIS, SCF};
 use basis::basis::{AOBasis, Basis};
 use na::{DMatrix, DVector, Norm, SymmetricEigen, Vector3};
 use nalgebra::{Const, Dyn};
@@ -261,6 +261,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         info!("#####################################################");
 
         let mut previous_e_level = DVector::zeros(self.num_basis); // Initialize previous energy level
+        let mut diis = DIIS::new(5); // Initialize DIIS object
         const CONVERGENCE_THRESHOLD: f64 = 1e-6; // Define convergence threshold
         let mut cycle = 0;
 
@@ -285,7 +286,17 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             info!("  G Matrix built.");
 
             info!("  Step 3: Building Hamiltonian (Fock + G) Matrix...");
-            let hamiltonian = self.fock_matrix.clone() + g_matrix;
+            let mut hamiltonian = self.fock_matrix.clone() + g_matrix;
+            // if true && cycle > 1 {
+            //     info!("  Applying DIIS acceleration...");
+            //     diis.update(hamiltonian.clone(), &self.density_matrix, &self.overlap_matrix);
+            //     if let Some(diis_fock) = diis.extrapolate() {
+            //         info!("  DIIS extrapolation successful.");
+            //         hamiltonian = diis_fock;
+            //     } else {
+            //         info!("  DIIS extrapolation failed, using regular Fock matrix.");
+            //     }
+            // }
             info!("  Hamiltonian Matrix built.");
 
             info!("  Step 4: Diagonalizing Hamiltonian Matrix...");
