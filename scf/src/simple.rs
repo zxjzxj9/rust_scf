@@ -301,6 +301,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
             info!("  Step 4: Diagonalizing Hamiltonian Matrix...");
             let l = self.overlap_matrix.clone().cholesky().unwrap();
+
             let l_inv = l.inverse();
             let f_prime = l_inv.clone() * &hamiltonian * l_inv.transpose();
             let eig = f_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
