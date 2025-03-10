@@ -18,6 +18,10 @@ pub trait Basis {
     fn Tab(a: &Self, b: &Self) -> f64;
 
     fn Vab(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> f64;
+
+    // Add this method to calculate derivative of nuclear attraction integral
+    fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64>;
+
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
 }
 

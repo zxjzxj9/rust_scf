@@ -369,6 +369,10 @@ impl Basis for ContractedGTO {
             .sum()
     }
 
+    fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
+        todo!()
+    }
+
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64 {
         let na = a.primitives.len();
         let nb = b.primitives.len();

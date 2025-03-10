@@ -327,6 +327,10 @@ impl Basis for GTO {
         -1.0 * a.norm * b.norm * val * 2.0 * PI * (Z as f64) / c.alpha
     }
 
+    fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
+        todo!()
+    }
+
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
         let e = GTO::merge(a, b);
         let f = GTO::merge(c, d);
