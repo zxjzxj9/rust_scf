@@ -251,6 +251,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 }
             }
         }
+        
         info!("  Integral Matrix (Two-electron integrals) built.");
         info!("-----------------------------------------------------\n");
     }
