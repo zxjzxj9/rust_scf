@@ -1,9 +1,11 @@
 extern crate nalgebra as na;
 use basis::basis::AOBasis;
 use na::Vector3;
+use nalgebra::{DMatrix, DVector};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
-use nalgebra::{DMatrix, DVector};
+use std::vec;
+use tracing::info;
 
 pub trait SCF {
     type BasisType: AOBasis;
@@ -13,7 +15,8 @@ pub trait SCF {
     fn init_density_matrix(&mut self);
     fn update_density_matrix(&mut self);
     fn init_fock_matrix(&mut self);
-    fn scf_cycle(&mut self);
+    fn scf_cycle(&mut self); // Add this method to calculate Hellman-Feynman forces
+    fn calculate_forces(&self) -> Vec<Vector3<f64>>;
 }
 
 pub struct DIIS {
@@ -36,7 +39,7 @@ impl DIIS {
         &self,
         fock: &DMatrix<f64>,
         density: &DMatrix<f64>,
-        overlap: &DMatrix<f64>
+        overlap: &DMatrix<f64>,
     ) -> DMatrix<f64> {
         // Calculate FDS
         let fds = fock * density * overlap;
@@ -50,14 +53,10 @@ impl DIIS {
         &mut self,
         fock_matrix: DMatrix<f64>,
         density_matrix: &DMatrix<f64>,
-        overlap_matrix: &DMatrix<f64>
+        overlap_matrix: &DMatrix<f64>,
     ) {
         // Calculate the error matrix
-        let error = self.calculate_error_matrix(
-            &fock_matrix,
-            density_matrix,
-            overlap_matrix
-        );
+        let error = self.calculate_error_matrix(&fock_matrix, density_matrix, overlap_matrix);
 
         if self.error_matrices.len() >= self.max_subspace_size {
             self.error_matrices.remove(0);
@@ -83,9 +82,7 @@ impl DIIS {
                 let e_j_flat: Vec<f64> = self.error_matrices[j].iter().cloned().collect();
 
                 // Calculate dot product
-                b[(i, j)] = e_i_flat.iter().zip(&e_j_flat)
-                    .map(|(a, b)| a * b)
-                    .sum();
+                b[(i, j)] = e_i_flat.iter().zip(&e_j_flat).map(|(a, b)| a * b).sum();
             }
             // Set constraint rows/columns
             b[(i, n)] = -1.0;
@@ -105,10 +102,8 @@ impl DIIS {
         };
 
         // Extrapolate the Fock matrix
-        let mut fock_extrapolated = DMatrix::zeros(
-            self.fock_matrices[0].nrows(),
-            self.fock_matrices[0].ncols()
-        );
+        let mut fock_extrapolated =
+            DMatrix::zeros(self.fock_matrices[0].nrows(), self.fock_matrices[0].ncols());
 
         for i in 0..n {
             fock_extrapolated += &self.fock_matrices[i] * coeffs[i];

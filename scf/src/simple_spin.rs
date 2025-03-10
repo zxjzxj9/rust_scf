@@ -187,52 +187,81 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("  Diagonalizing Fock matrices to get initial coefficients...");
 
         // Calculate number of alpha and beta electrons based on multiplicity
-        let total_electrons: usize = self.elems.iter()
+        let total_electrons: usize = self
+            .elems
+            .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
 
         let unpaired_electrons = self.multiplicity - 1;
-        assert!(total_electrons >= unpaired_electrons,
-                "Invalid multiplicity: not enough electrons");
-        assert!((total_electrons - unpaired_electrons) % 2 == 0,
-                "Invalid electron count for given multiplicity");
+        assert!(
+            total_electrons >= unpaired_electrons,
+            "Invalid multiplicity: not enough electrons"
+        );
+        assert!(
+            (total_electrons - unpaired_electrons) % 2 == 0,
+            "Invalid electron count for given multiplicity"
+        );
 
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
 
-        info!("  Total electrons: {}, Alpha: {}, Beta: {}", total_electrons, n_alpha, n_beta);
+        info!(
+            "  Total electrons: {}, Alpha: {}, Beta: {}",
+            total_electrons, n_alpha, n_beta
+        );
 
         // Diagonalize initial Fock matrices (same for alpha and beta at this point)
         let l = self.overlap_matrix.clone().cholesky().unwrap();
         let l_inv = l.inverse();
 
         // For alpha electrons
-        let f_alpha_prime = l_inv.clone() * self.fock_matrix_alpha.clone() * l_inv.clone().transpose();
-        let eig_alpha = f_alpha_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
+        let f_alpha_prime =
+            l_inv.clone() * self.fock_matrix_alpha.clone() * l_inv.clone().transpose();
+        let eig_alpha = f_alpha_prime
+            .clone()
+            .try_symmetric_eigen(1e-6, 1000)
+            .unwrap();
 
         // Sort alpha eigenvalues and eigenvectors
         let eigenvalues_alpha = eig_alpha.eigenvalues.clone();
         let eigenvectors_alpha = eig_alpha.eigenvectors.clone();
         let mut indices_alpha: Vec<usize> = (0..eigenvalues_alpha.len()).collect();
-        indices_alpha.sort_by(|&a, &b| eigenvalues_alpha[a].partial_cmp(&eigenvalues_alpha[b]).unwrap());
+        indices_alpha.sort_by(|&a, &b| {
+            eigenvalues_alpha[a]
+                .partial_cmp(&eigenvalues_alpha[b])
+                .unwrap()
+        });
 
-        let sorted_eigenvalues_alpha = DVector::from_fn(eigenvalues_alpha.len(), |i, _| eigenvalues_alpha[indices_alpha[i]]);
+        let sorted_eigenvalues_alpha = DVector::from_fn(eigenvalues_alpha.len(), |i, _| {
+            eigenvalues_alpha[indices_alpha[i]]
+        });
         let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
         let eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
         self.coeffs_alpha = eigvecs_alpha;
         self.e_level_alpha = sorted_eigenvalues_alpha;
 
         // For beta electrons
-        let f_beta_prime = l_inv.clone() * self.fock_matrix_beta.clone() * l_inv.clone().transpose();
-        let eig_beta = f_beta_prime.clone().try_symmetric_eigen(1e-6, 1000).unwrap();
+        let f_beta_prime =
+            l_inv.clone() * self.fock_matrix_beta.clone() * l_inv.clone().transpose();
+        let eig_beta = f_beta_prime
+            .clone()
+            .try_symmetric_eigen(1e-6, 1000)
+            .unwrap();
 
         // Sort beta eigenvalues and eigenvectors
         let eigenvalues_beta = eig_beta.eigenvalues.clone();
         let eigenvectors_beta = eig_beta.eigenvectors.clone();
         let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
-        indices_beta.sort_by(|&a, &b| eigenvalues_beta[a].partial_cmp(&eigenvalues_beta[b]).unwrap());
+        indices_beta.sort_by(|&a, &b| {
+            eigenvalues_beta[a]
+                .partial_cmp(&eigenvalues_beta[b])
+                .unwrap()
+        });
 
-        let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| eigenvalues_beta[indices_beta[i]]);
+        let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
+            eigenvalues_beta[indices_beta[i]]
+        });
         let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
         let eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
         self.coeffs_beta = eigvecs_beta;
@@ -257,7 +286,9 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("  Updating Density Matrices...");
 
         // Calculate number of alpha and beta electrons based on multiplicity
-        let total_electrons: usize = self.elems.iter()
+        let total_electrons: usize = self
+            .elems
+            .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
 
@@ -345,7 +376,10 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 
         for _ in 0..self.max_cycle {
             cycle += 1;
-            info!("\n------------------ SCF Cycle: {} ------------------", cycle);
+            info!(
+                "\n------------------ SCF Cycle: {} ------------------",
+                cycle
+            );
 
             // Step 1: Flatten density matrices
             info!("  Step 1: Flattening Density Matrices...");
@@ -359,18 +393,21 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 .clone()
                 .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
 
-            let total_density_flattened = density_alpha_flattened.clone() + density_beta_flattened.clone();
+            let total_density_flattened =
+                density_alpha_flattened.clone() + density_beta_flattened.clone();
 
             // Step 2: Build G matrices
             info!("  Step 2: Building G Matrices from Density Matrices and Integrals...");
 
             // Coulomb terms (same for both spins)
             let j_matrix_flattened = &self.integral_matrix * &total_density_flattened;
-            let j_matrix = j_matrix_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
+            let j_matrix =
+                j_matrix_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
 
             // Exchange terms (different for alpha and beta)
             let k_alpha_flattened = &self.integral_matrix * &density_alpha_flattened;
-            let k_alpha = k_alpha_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
+            let k_alpha =
+                k_alpha_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
 
             let k_beta_flattened = &self.integral_matrix * &density_beta_flattened;
             let k_beta = k_beta_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
@@ -402,12 +439,20 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             if cycle > 1 {
                 info!("  Step 4: Applying DIIS acceleration...");
 
-                diis_alpha.update(fock_alpha.clone(), &self.density_matrix_alpha, &self.overlap_matrix);
+                diis_alpha.update(
+                    fock_alpha.clone(),
+                    &self.density_matrix_alpha,
+                    &self.overlap_matrix,
+                );
                 if let Some(diis_fock_alpha) = diis_alpha.extrapolate() {
                     fock_alpha = diis_fock_alpha;
                 }
 
-                diis_beta.update(fock_beta.clone(), &self.density_matrix_beta, &self.overlap_matrix);
+                diis_beta.update(
+                    fock_beta.clone(),
+                    &self.density_matrix_beta,
+                    &self.overlap_matrix,
+                );
                 if let Some(diis_fock_beta) = diis_beta.extrapolate() {
                     fock_beta = diis_fock_beta;
                 }
@@ -427,9 +472,15 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             let eigenvalues_alpha = eig_alpha.eigenvalues.clone();
             let eigenvectors_alpha = eig_alpha.eigenvectors.clone();
             let mut indices_alpha: Vec<usize> = (0..eigenvalues_alpha.len()).collect();
-            indices_alpha.sort_by(|&a, &b| eigenvalues_alpha[a].partial_cmp(&eigenvalues_alpha[b]).unwrap());
+            indices_alpha.sort_by(|&a, &b| {
+                eigenvalues_alpha[a]
+                    .partial_cmp(&eigenvalues_alpha[b])
+                    .unwrap()
+            });
 
-            let sorted_eigenvalues_alpha = DVector::from_fn(eigenvalues_alpha.len(), |i, _| eigenvalues_alpha[indices_alpha[i]]);
+            let sorted_eigenvalues_alpha = DVector::from_fn(eigenvalues_alpha.len(), |i, _| {
+                eigenvalues_alpha[indices_alpha[i]]
+            });
             let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
             let eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
             self.coeffs_alpha = eigvecs_alpha;
@@ -442,9 +493,15 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             let eigenvalues_beta = eig_beta.eigenvalues.clone();
             let eigenvectors_beta = eig_beta.eigenvectors.clone();
             let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
-            indices_beta.sort_by(|&a, &b| eigenvalues_beta[a].partial_cmp(&eigenvalues_beta[b]).unwrap());
+            indices_beta.sort_by(|&a, &b| {
+                eigenvalues_beta[a]
+                    .partial_cmp(&eigenvalues_beta[b])
+                    .unwrap()
+            });
 
-            let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| eigenvalues_beta[indices_beta[i]]);
+            let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
+                eigenvalues_beta[indices_beta[i]]
+            });
             let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
             let eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
             self.coeffs_beta = eigvecs_beta;
@@ -467,8 +524,10 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             // Check convergence
             if cycle > 1 {
                 info!("  Step 7: Checking for Convergence...");
-                let energy_change_alpha = (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
-                let energy_change_beta = (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
+                let energy_change_alpha =
+                    (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
+                let energy_change_beta =
+                    (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
                 let total_energy_change = energy_change_alpha + energy_change_beta;
 
                 info!("    Alpha energy change: {:.8} au", energy_change_alpha);
@@ -514,7 +573,9 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 impl<B: AOBasis + Clone> SpinSCF<B> {
     fn calculate_total_energy(&self) -> f64 {
         // Calculate number of alpha and beta electrons
-        let total_electrons: usize = self.elems.iter()
+        let total_electrons: usize = self
+            .elems
+            .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
 
@@ -544,8 +605,8 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         // One-electron contribution
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
-                one_electron_energy += h_core[(i, j)] *
-                    (self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)]);
+                one_electron_energy += h_core[(i, j)]
+                    * (self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)]);
             }
         }
 
@@ -574,12 +635,12 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                         let p_beta_kl = self.density_matrix_beta[(k, l)];
 
                         // Coulomb contribution
-                        two_electron_energy += 0.5 * coulomb *
-                            ((p_alpha_ij + p_beta_ij) * (p_alpha_kl + p_beta_kl));
+                        two_electron_energy +=
+                            0.5 * coulomb * ((p_alpha_ij + p_beta_ij) * (p_alpha_kl + p_beta_kl));
 
                         // Exchange contribution
-                        two_electron_energy -= 0.5 * exchange *
-                            (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl);
+                        two_electron_energy -=
+                            0.5 * exchange * (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl);
                     }
                 }
             }
@@ -588,7 +649,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         // Nuclear repulsion energy
         let mut nuclear_repulsion = 0.0;
         for i in 0..self.num_atoms {
-            for j in (i+1)..self.num_atoms {
+            for j in (i + 1)..self.num_atoms {
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = (self.coords[i] - self.coords[j]).norm();
@@ -597,5 +658,70 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
 
         one_electron_energy + two_electron_energy + nuclear_repulsion
+    }
+
+    fn calculate_forces(&self) -> Vec<Vector3<f64>> {
+        info!("#####################################################");
+        info!("----------- Calculating Hellman-Feynman Forces -------");
+        info!("#####################################################");
+
+        let mut forces = vec![Vector3::zeros(); self.num_atoms];
+
+        // Step 1: Calculate nuclear-nuclear repulsion forces
+        for i in 0..self.num_atoms {
+            for j in 0..self.num_atoms {
+                if i == j {
+                    continue;
+                }
+
+                let z_i = self.elems[i].get_atomic_number() as f64;
+                let z_j = self.elems[j].get_atomic_number() as f64;
+                let r_ij = self.coords[i] - self.coords[j];
+                let r_ij_norm = r_ij.norm();
+
+                // Nuclear-nuclear repulsion force
+                forces[i] += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
+            }
+        }
+
+        // Step 2: Calculate electron-nuclear attraction forces
+        // For spin-polarized calculation, use total density (alpha + beta)
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    // Get combined density matrix elements
+                    let p_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+
+                    // Calculate derivative of nuclear attraction integrals
+                    let dv_dr = B::BasisType::dVab_dR(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+
+                    // Add contribution to force
+                    forces[atom_idx] -= p_ij * dv_dr;
+                }
+            }
+        }
+
+        // Step 3: Calculate forces from two-electron integrals
+        // This is a simplified approach - for accurate calculations,
+        // derivatives of two-electron integrals are needed
+
+        info!("  Forces calculated on atoms:");
+        for (i, force) in forces.iter().enumerate() {
+            info!(
+                "    Atom {}: [{:.6}, {:.6}, {:.6}] au",
+                i + 1,
+                force.x,
+                force.y,
+                force.z
+            );
+        }
+        info!("-----------------------------------------------------\n");
+
+        forces
     }
 }
