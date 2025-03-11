@@ -328,7 +328,39 @@ impl Basis for GTO {
     }
 
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
-        todo!()
+        let c = GTO::merge(a, b);
+        let dr = c.center - R;
+        let dr_norm = dr.norm();
+
+        // Precompute center differences to avoid recalculating them in every iteration.
+        let dx_center = a.center.x - b.center.x;
+        let dy_center = a.center.y - b.center.y;
+        let dz_center = a.center.z - b.center.z;
+
+        // Combine the three parallel loops into one.
+        // Each iteration calculates the contribution to each derivative component.
+        let (dx, dy, dz) = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
+            .par_bridge()
+            .map(|(i, j, k)| {
+                // Compute the E coefficients once.
+                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i, dx_center, a.alpha, b.alpha);
+                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
+                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
+                let common = eab_x * eab_y * eab_z;
+
+                // Compute each derivative’s Hermite integral.
+                let dxi = common * GTO::hermite_coulomb(i + 1, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dyi = common * GTO::hermite_coulomb(i, j + 1, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dzi = common * GTO::hermite_coulomb(i, j, k + 1, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                (dxi, dyi, dzi)
+            })
+            // Use reduce to sum up the contributions from all iterations.
+            .reduce(|| (0.0, 0.0, 0.0), |(dx1, dy1, dz1), (dx2, dy2, dz2)| {
+                (dx1 + dx2, dy1 + dy2, dz1 + dz2)
+            });
+
+        // Apply the remaining multiplicative factors (as in Vab).
+        Vector3::new(dx, dy, dz) * (a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha)
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {

@@ -370,7 +370,17 @@ impl Basis for ContractedGTO {
     }
 
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
-        todo!()
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                // Calculate gradient for each primitive pair and scale by coefficients
+                let gradient = GTO::dVab_dR(&a.primitives[i], &b.primitives[j], R, Z);
+                gradient * (a.coefficients[i] * b.coefficients[j])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |a, b| a + b) // Sum all gradients
     }
 
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64 {
