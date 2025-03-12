@@ -15,7 +15,8 @@ pub trait SCF {
     fn init_density_matrix(&mut self);
     fn update_density_matrix(&mut self);
     fn init_fock_matrix(&mut self);
-    fn scf_cycle(&mut self); // Add this method to calculate Hellman-Feynman forces
+    fn scf_cycle(&mut self);
+    fn calculate_total_energy(&self) -> f64; // Add this method to calculate Hellman-Feynman forces
     fn calculate_forces(&self) -> Vec<Vector3<f64>>;
 }
 

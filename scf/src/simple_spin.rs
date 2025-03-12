@@ -569,74 +569,6 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         }
     }
 
-
-    fn calculate_forces(&self) -> Vec<Vector3<f64>> {
-        info!("#####################################################");
-        info!("----------- Calculating Hellman-Feynman Forces -------");
-        info!("#####################################################");
-
-        let mut forces = vec![Vector3::zeros(); self.num_atoms];
-
-        // Step 1: Calculate nuclear-nuclear repulsion forces
-        for i in 0..self.num_atoms {
-            for j in 0..self.num_atoms {
-                if i == j {
-                    continue;
-                }
-
-                let z_i = self.elems[i].get_atomic_number() as f64;
-                let z_j = self.elems[j].get_atomic_number() as f64;
-                let r_ij = self.coords[i] - self.coords[j];
-                let r_ij_norm = r_ij.norm();
-
-                // Nuclear-nuclear repulsion force
-                forces[i] += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
-            }
-        }
-
-        // Step 2: Calculate electron-nuclear attraction forces
-        // For spin-polarized calculation, use total density (alpha + beta)
-        for atom_idx in 0..self.num_atoms {
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
-                    // Get combined density matrix elements
-                    let p_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
-
-                    // Calculate derivative of nuclear attraction integrals
-                    let dv_dr = B::BasisType::dVab_dR(
-                        &self.mo_basis[i],
-                        &self.mo_basis[j],
-                        self.coords[atom_idx],
-                        self.elems[atom_idx].get_atomic_number() as u32,
-                    );
-
-                    // Add contribution to force
-                    forces[atom_idx] -= p_ij * dv_dr;
-                }
-            }
-        }
-
-        // Step 3: Calculate forces from two-electron integrals
-        // This is a simplified approach - for accurate calculations,
-        // derivatives of two-electron integrals are needed
-
-        info!("  Forces calculated on atoms:");
-        for (i, force) in forces.iter().enumerate() {
-            info!(
-                "    Atom {}: [{:.6}, {:.6}, {:.6}] au",
-                i + 1,
-                force.x,
-                force.y,
-                force.z
-            );
-        }
-        info!("-----------------------------------------------------\n");
-
-        forces
-    }
-}
-
-impl<B: AOBasis + Clone> SpinSCF<B> {
     fn calculate_total_energy(&self) -> f64 {
         // Calculate number of alpha and beta electrons
         let total_electrons: usize = self
@@ -724,5 +656,70 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
 
         one_electron_energy + two_electron_energy + nuclear_repulsion
+    }
+
+    fn calculate_forces(&self) -> Vec<Vector3<f64>> {
+        info!("#####################################################");
+        info!("----------- Calculating Hellman-Feynman Forces -------");
+        info!("#####################################################");
+
+        let mut forces = vec![Vector3::zeros(); self.num_atoms];
+
+        // Step 1: Calculate nuclear-nuclear repulsion forces
+        for i in 0..self.num_atoms {
+            for j in 0..self.num_atoms {
+                if i == j {
+                    continue;
+                }
+
+                let z_i = self.elems[i].get_atomic_number() as f64;
+                let z_j = self.elems[j].get_atomic_number() as f64;
+                let r_ij = self.coords[i] - self.coords[j];
+                let r_ij_norm = r_ij.norm();
+
+                // Nuclear-nuclear repulsion force
+                forces[i] += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
+            }
+        }
+
+        // Step 2: Calculate electron-nuclear attraction forces
+        // For spin-polarized calculation, use total density (alpha + beta)
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    // Get combined density matrix elements
+                    let p_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+
+                    // Calculate derivative of nuclear attraction integrals
+                    let dv_dr = B::BasisType::dVab_dR(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+
+                    // Add contribution to force
+                    forces[atom_idx] -= p_ij * dv_dr;
+                }
+            }
+        }
+
+        // Step 3: Calculate forces from two-electron integrals
+        // This is a simplified approach - for accurate calculations,
+        // derivatives of two-electron integrals are needed
+
+        info!("  Forces calculated on atoms:");
+        for (i, force) in forces.iter().enumerate() {
+            info!(
+                "    Atom {}: [{:.6}, {:.6}, {:.6}] au",
+                i + 1,
+                force.x,
+                force.y,
+                force.z
+            );
+        }
+        info!("-----------------------------------------------------\n");
+
+        forces
     }
 }

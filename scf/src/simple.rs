@@ -357,6 +357,86 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         }
     }
 
+    // Add this method to calculate the total energy
+    fn calculate_total_energy(&self) -> f64 {
+        // Calculate one-electron energy contribution
+        let mut one_electron_energy = 0.0;
+
+        // Core hamiltonian
+        let mut h_core = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                h_core[(i, j)] = B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
+                for k in 0..self.num_atoms {
+                    h_core[(i, j)] += B::BasisType::Vab(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[k],
+                        self.elems[k].get_atomic_number() as u32,
+                    );
+                }
+            }
+        }
+
+        // One-electron contribution
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                one_electron_energy += h_core[(i, j)] * self.density_matrix[(i, j)];
+            }
+        }
+
+        // Two-electron contribution
+        let mut two_electron_energy = 0.0;
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        let coulomb = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            &self.mo_basis[k],
+                            &self.mo_basis[l],
+                        );
+                        let exchange = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[k],
+                            &self.mo_basis[j],
+                            &self.mo_basis[l],
+                        );
+
+                        let p_ij = self.density_matrix[(i, j)];
+                        let p_kl = self.density_matrix[(k, l)];
+
+                        // Coulomb contribution
+                        two_electron_energy += 0.5 * coulomb * p_ij * p_kl;
+
+                        // Exchange contribution
+                        two_electron_energy -= 0.25 * exchange * p_ij * p_kl;
+                    }
+                }
+            }
+        }
+
+        // Nuclear repulsion energy
+        let mut nuclear_repulsion = 0.0;
+        for i in 0..self.num_atoms {
+            for j in (i + 1)..self.num_atoms {
+                let z_i = self.elems[i].get_atomic_number() as f64;
+                let z_j = self.elems[j].get_atomic_number() as f64;
+                let r_ij = (self.coords[i] - self.coords[j]).norm();
+                nuclear_repulsion += z_i * z_j / r_ij;
+            }
+        }
+
+        // Log the energy components
+        info!("  Energy components:");
+        info!("    One-electron: {:.10} au", one_electron_energy);
+        info!("    Two-electron: {:.10} au", two_electron_energy);
+        info!("    Nuclear repulsion: {:.10} au", nuclear_repulsion);
+
+        one_electron_energy + two_electron_energy + nuclear_repulsion
+    }
+
     // Add this method to calculate Hellman-Feynman forces
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
         info!("#####################################################");
