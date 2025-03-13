@@ -28,6 +28,7 @@ mod tests {
     use rand::Rng;
     use rand_distr::Normal;
     use std::f64::consts::PI;
+    use crate::cgto::ContractedGTO;
 
     #[test]
     fn test_gto1d_overlap() {
@@ -657,5 +658,276 @@ mod tests {
         for i in 0..10 {
             test_jkabcd_against_numerical_with_random_gtos();
         }
+    }
+
+    #[test]
+    fn test_gto_dvab_dr() {
+        // Create two GTOs
+        let a = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(1.0, 1.0, 0.0));
+        let b = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(0.0, 1.0, 1.0));
+
+        // Nuclear position
+        let R = Vector3::new(0.5, 0.5, 0.5);
+        let Z = 1u32; // Nuclear charge
+
+        // Calculate analytical gradient
+        let gradient_analytical = GTO::dVab_dR(&a, &b, R, Z);
+
+        // Calculate numerical gradient using finite difference
+        let h = 1e-4; // Step size
+        let mut gradient_numerical = Vector3::new(0.0, 0.0, 0.0);
+
+        // x component
+        let R_plus_x = Vector3::new(R.x + h, R.y, R.z);
+        let R_minus_x = Vector3::new(R.x - h, R.y, R.z);
+        gradient_numerical.x = (GTO::Vab(&a, &b, R_plus_x, Z) - GTO::Vab(&a, &b, R_minus_x, Z)) / (2.0 * h);
+
+        // y component
+        let R_plus_y = Vector3::new(R.x, R.y + h, R.z);
+        let R_minus_y = Vector3::new(R.x, R.y - h, R.z);
+        gradient_numerical.y = (GTO::Vab(&a, &b, R_plus_y, Z) - GTO::Vab(&a, &b, R_minus_y, Z)) / (2.0 * h);
+
+        // z component
+        let R_plus_z = Vector3::new(R.x, R.y, R.z + h);
+        let R_minus_z = Vector3::new(R.x, R.y, R.z - h);
+        gradient_numerical.z = (GTO::Vab(&a, &b, R_plus_z, Z) - GTO::Vab(&a, &b, R_minus_z, Z)) / (2.0 * h);
+
+        // Compare components
+        assert!(
+            (gradient_analytical.x - gradient_numerical.x).abs() < 1e-6,
+            "x component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.x, gradient_numerical.x
+        );
+        assert!(
+            (gradient_analytical.y - gradient_numerical.y).abs() < 1e-6,
+            "y component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.y, gradient_numerical.y
+        );
+        assert!(
+            (gradient_analytical.z - gradient_numerical.z).abs() < 1e-6,
+            "z component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.z, gradient_numerical.z
+        );
+    }
+
+    fn test_gto_dvab_dr_random() {
+        let mut rng = rand::thread_rng();
+
+        // Create random GTOs
+        let a = radom_gto();
+        let b = radom_gto();
+
+        // Random nuclear position
+        let dist = Normal::new(0.0, 1.0).unwrap();
+        let R = Vector3::<f64>::from_distribution(&dist, &mut rng);
+        let Z = 1u32;
+
+        // Analytical gradient
+        let gradient_analytical = GTO::dVab_dR(&a, &b, R, Z);
+
+        // Numerical gradient
+        let h = 1e-5;
+        let mut gradient_numerical = Vector3::new(0.0, 0.0, 0.0);
+
+        // x component
+        let R_plus_x = Vector3::new(R.x + h, R.y, R.z);
+        let R_minus_x = Vector3::new(R.x - h, R.y, R.z);
+        gradient_numerical.x = (GTO::Vab(&a, &b, R_plus_x, Z) - GTO::Vab(&a, &b, R_minus_x, Z)) / (2.0 * h);
+
+        // y component
+        let R_plus_y = Vector3::new(R.x, R.y + h, R.z);
+        let R_minus_y = Vector3::new(R.x, R.y - h, R.z);
+        gradient_numerical.y = (GTO::Vab(&a, &b, R_plus_y, Z) - GTO::Vab(&a, &b, R_minus_y, Z)) / (2.0 * h);
+
+        // z component
+        let R_plus_z = Vector3::new(R.x, R.y, R.z + h);
+        let R_minus_z = Vector3::new(R.x, R.y, R.z - h);
+        gradient_numerical.z = (GTO::Vab(&a, &b, R_plus_z, Z) - GTO::Vab(&a, &b, R_minus_z, Z)) / (2.0 * h);
+
+        // Tolerance depends on the value's magnitude
+        let tol = 1e-5 * gradient_analytical.norm().max(gradient_numerical.norm()) + 1e-8;
+
+        // Compare gradients
+        assert!(
+            (gradient_analytical - gradient_numerical).norm() < tol,
+            "Gradient mismatch: analytical = {:?}, numerical = {:?}, difference = {:?}",
+            gradient_analytical, gradient_numerical, gradient_analytical - gradient_numerical
+        );
+    }
+
+    #[test]
+    fn test_gto_dvab_dr_multiple_random() {
+        for _ in 0..5 {
+            test_gto_dvab_dr_random();
+        }
+    }
+
+    #[test]
+    fn test_cgto_dvab_dr() {
+        // Create contracted GTOs
+        let mut cgto_a = ContractedGTO {
+            primitives: Vec::new(),
+            coefficients: Vec::new(),
+            shell_type: "s".to_string(),
+            Z: 1,
+            n: 1,
+            l: 0,
+            m: 0,
+            s: 0,
+        };
+
+        let mut cgto_b = ContractedGTO {
+            primitives: Vec::new(),
+            coefficients: Vec::new(),
+            shell_type: "s".to_string(),
+            Z: 1,
+            n: 1,
+            l: 0,
+            m: 0,
+            s: 0,
+        };
+
+        // Add primitives to CGTOs
+        let center_a = Vector3::new(1.0, 1.0, 0.0);
+        let center_b = Vector3::new(0.0, 1.0, 1.0);
+
+        cgto_a.primitives.push(GTO::new(1.0, Vector3::new(0, 0, 0), center_a));
+        cgto_a.primitives.push(GTO::new(0.5, Vector3::new(0, 0, 0), center_a));
+        cgto_a.coefficients.push(0.7);
+        cgto_a.coefficients.push(0.3);
+
+        cgto_b.primitives.push(GTO::new(0.8, Vector3::new(0, 0, 0), center_b));
+        cgto_b.primitives.push(GTO::new(0.4, Vector3::new(0, 0, 0), center_b));
+        cgto_b.coefficients.push(0.6);
+        cgto_b.coefficients.push(0.4);
+
+        // Nuclear position
+        let R = Vector3::new(0.5, 0.5, 0.5);
+        let Z = 1u32;
+
+        // Calculate analytical gradient
+        let gradient_analytical = ContractedGTO::dVab_dR(&cgto_a, &cgto_b, R, Z);
+
+        // Calculate numerical gradient
+        let h = 1e-4;
+        let mut gradient_numerical = Vector3::new(0.0, 0.0, 0.0);
+
+        // x component
+        let R_plus_x = Vector3::new(R.x + h, R.y, R.z);
+        let R_minus_x = Vector3::new(R.x - h, R.y, R.z);
+        gradient_numerical.x = (ContractedGTO::Vab(&cgto_a, &cgto_b, R_plus_x, Z) -
+            ContractedGTO::Vab(&cgto_a, &cgto_b, R_minus_x, Z)) / (2.0 * h);
+
+        // y component
+        let R_plus_y = Vector3::new(R.x, R.y + h, R.z);
+        let R_minus_y = Vector3::new(R.x, R.y - h, R.z);
+        gradient_numerical.y = (ContractedGTO::Vab(&cgto_a, &cgto_b, R_plus_y, Z) -
+            ContractedGTO::Vab(&cgto_a, &cgto_b, R_minus_y, Z)) / (2.0 * h);
+
+        // z component
+        let R_plus_z = Vector3::new(R.x, R.y, R.z + h);
+        let R_minus_z = Vector3::new(R.x, R.y, R.z - h);
+        gradient_numerical.z = (ContractedGTO::Vab(&cgto_a, &cgto_b, R_plus_z, Z) -
+            ContractedGTO::Vab(&cgto_a, &cgto_b, R_minus_z, Z)) / (2.0 * h);
+
+        // Compare components
+        assert!(
+            (gradient_analytical.x - gradient_numerical.x).abs() < 1e-3,
+            "x component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.x, gradient_numerical.x
+        );
+        assert!(
+            (gradient_analytical.y - gradient_numerical.y).abs() < 1e-3,
+            "y component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.y, gradient_numerical.y
+        );
+        assert!(
+            (gradient_analytical.z - gradient_numerical.z).abs() < 1e-3,
+            "z component mismatch: analytical = {}, numerical = {}",
+            gradient_analytical.z, gradient_numerical.z
+        );
+    }
+
+    fn random_cgto() -> ContractedGTO {
+        let mut rng = rand::thread_rng();
+        let dist = Normal::new(0.0, 1.0).unwrap();
+
+        // Random center
+        let center = Vector3::<f64>::from_distribution(&dist, &mut rng);
+
+        // Create CGTO with 2-3 primitives
+        let num_primitives = rng.gen_range(2..=3);
+        let mut cgto = ContractedGTO {
+            primitives: Vec::with_capacity(num_primitives),
+            coefficients: Vec::with_capacity(num_primitives),
+            shell_type: "s".to_string(),
+            Z: 1,
+            n: 1,
+            l: 0,
+            m: 0,
+            s: 0,
+        };
+
+        // Add primitives
+        for _ in 0..num_primitives {
+            let alpha = 0.5 + 1.5 * rand::random::<f64>();
+            let l = rng.gen_range(0..=1);
+            let m = rng.gen_range(0..=1);
+            let n = rng.gen_range(0..=1);
+            cgto.primitives.push(GTO::new(alpha, Vector3::new(l, m, n), center));
+            cgto.coefficients.push(rand::random::<f64>());
+        }
+
+        // Normalize coefficients
+        let sum: f64 = cgto.coefficients.iter().sum();
+        for c in &mut cgto.coefficients {
+            *c /= sum;
+        }
+
+        cgto
+    }
+
+    #[test]
+    fn test_cgto_dvab_dr_random() {
+        // Create random CGTOs
+        let a = random_cgto();
+        let b = random_cgto();
+
+        let mut rng = rand::thread_rng();
+        let dist = Normal::new(0.0, 1.0).unwrap();
+        let R = Vector3::<f64>::from_distribution(&dist, &mut rng);
+        let Z = 1u32;
+
+        // Analytical gradient
+        let gradient_analytical = ContractedGTO::dVab_dR(&a, &b, R, Z);
+
+        // Numerical gradient
+        let h = 1e-5;
+        let mut gradient_numerical = Vector3::new(0.0, 0.0, 0.0);
+
+        // x component
+        let R_plus_x = Vector3::new(R.x + h, R.y, R.z);
+        let R_minus_x = Vector3::new(R.x - h, R.y, R.z);
+        gradient_numerical.x = (ContractedGTO::Vab(&a, &b, R_plus_x, Z) - ContractedGTO::Vab(&a, &b, R_minus_x, Z)) / (2.0 * h);
+
+        // y component
+        let R_plus_y = Vector3::new(R.x, R.y + h, R.z);
+        let R_minus_y = Vector3::new(R.x, R.y - h, R.z);
+        gradient_numerical.y = (ContractedGTO::Vab(&a, &b, R_plus_y, Z) - ContractedGTO::Vab(&a, &b, R_minus_y, Z)) / (2.0 * h);
+
+        // z component
+        let R_plus_z = Vector3::new(R.x, R.y, R.z + h);
+        let R_minus_z = Vector3::new(R.x, R.y, R.z - h);
+        gradient_numerical.z = (ContractedGTO::Vab(&a, &b, R_plus_z, Z) - ContractedGTO::Vab(&a, &b, R_minus_z, Z)) / (2.0 * h);
+
+        // Tolerance depends on gradient magnitude
+        let tol = 1e-3 * gradient_analytical.norm().max(gradient_numerical.norm()) + 1e-8;
+
+        // Compare gradients
+        assert!(
+            (gradient_analytical - gradient_numerical).norm() < tol,
+            "Gradient mismatch: analytical = {:?}, numerical = {:?}, difference = {:?}",
+            gradient_analytical, gradient_numerical, gradient_analytical - gradient_numerical
+        );
     }
 }
