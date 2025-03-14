@@ -285,36 +285,16 @@ impl Basis for GTO {
         // println!("a: {:?}, b: {:?}, c: {:?}", a.l_xyz, b.l_xyz, c.l_xyz);
         // let mut val = 0.0;
         let dr = c.center - R;
+        let dx_center = a.center.x - b.center.x;
+        let dy_center = a.center.y - b.center.y;
+        let dz_center = a.center.z - b.center.z;
 
         let val = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
             .par_bridge()
             .map(|(i, j, k)| {
-                let eab_x = GTO1d::Eab(
-                    a.l_xyz.x,
-                    b.l_xyz.x,
-                    i,
-                    a.center.x - b.center.x,
-                    a.alpha,
-                    b.alpha,
-                );
-
-                let eab_y = GTO1d::Eab(
-                    a.l_xyz.y,
-                    b.l_xyz.y,
-                    j,
-                    a.center.y - b.center.y,
-                    a.alpha,
-                    b.alpha,
-                );
-
-                let eab_z = GTO1d::Eab(
-                    a.l_xyz.z,
-                    b.l_xyz.z,
-                    k,
-                    a.center.z - b.center.z,
-                    a.alpha,
-                    b.alpha,
-                );
+                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i, dx_center, a.alpha, b.alpha);
+                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
+                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
 
                 let hermite_val =
                     GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
