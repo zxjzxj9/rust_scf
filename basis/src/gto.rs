@@ -152,15 +152,6 @@ impl GTO1d {
         -0.5 * norm * (term1 + term2 + term3)
     }
 
-    // // potential integral
-    // pub(crate) fn Vab(a: &GTO1d, b: &GTO1d, R: f64) -> f64 {
-    //     todo!("Implement Vab")
-    // }
-    //
-    // // Coulomb integral and Exchange integral
-    // pub(crate) fn JKab(a: &GTO1d, b: &GTO1d, c: &GTO1d, d: &GTO1d) -> f64 {
-    //     todo!("Implement Iab")
-    // }
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -329,9 +320,9 @@ impl Basis for GTO {
                 let common = eab_x * eab_y * eab_z;
 
                 // Compute each derivative’s Hermite integral.
-                let dxi = common * GTO::hermite_coulomb(i + 1, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
-                let dyi = common * GTO::hermite_coulomb(i, j + 1, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
-                let dzi = common * GTO::hermite_coulomb(i, j, k + 1, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dxi = -common * GTO::hermite_coulomb(i + 1, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dyi = -common * GTO::hermite_coulomb(i, j + 1, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dzi = -common * GTO::hermite_coulomb(i, j, k + 1, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
                 (dxi, dyi, dzi)
             })
             // Use reduce to sum up the contributions from all iterations.
