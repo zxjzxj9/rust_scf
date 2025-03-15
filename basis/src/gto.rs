@@ -210,15 +210,9 @@ impl GTO {
     ///
     /// This function implements the recursion defined in Helgaker, Jørgensen, and Taylor for Coulomb integrals.
     pub fn hermite_coulomb(
-        t: i32,
-        u: i32,
-        v: i32,
-        n: i32,
-        p: f64,
-        PCx: f64,
-        PCy: f64,
-        PCz: f64,
-        RPC: f64,
+        t: i32, u: i32, v: i32,
+        n: i32, p: f64,
+        PCx: f64, PCy: f64, PCz: f64, RPC: f64,
     ) -> f64 {
         let T = p * RPC * RPC;
         let mut val = 0.0;
@@ -247,6 +241,7 @@ impl GTO {
 
         val
     }
+
 }
 
 impl Basis for GTO {
@@ -318,11 +313,12 @@ impl Basis for GTO {
                 let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
                 let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
                 let common = eab_x * eab_y * eab_z;
+                let df_dr = common * GTO::hermite_coulomb(i, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
 
                 // Compute each derivative’s Hermite integral.
-                let dxi = -common * GTO::hermite_coulomb(i + 1, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
-                let dyi = -common * GTO::hermite_coulomb(i, j + 1, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
-                let dzi = -common * GTO::hermite_coulomb(i, j, k + 1, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dxi = dr.x * df_dr;
+                let dyi = dr.y * df_dr;
+                let dzi = dr.z * df_dr;
                 (dxi, dyi, dzi)
             })
             // Use reduce to sum up the contributions from all iterations.
