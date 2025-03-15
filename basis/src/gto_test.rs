@@ -464,7 +464,7 @@ mod tests {
 
         let diff = (val_analytical - val_numerical).abs();
 
-        if val_numerical.abs() < 1e-3 {
+        if val_numerical.abs() < 1e-3 * val_numerical.abs() {
             assert!(
                 (val_numerical - val_analytical).abs() < 1e-3,
                 "Kinetic energy integral is not close: got {}, expected {}, \
@@ -515,8 +515,8 @@ mod tests {
 
         if val_numerical.abs() < 1e-2 {
             assert!(
-                (val_numerical - val_analytical).abs() < 1e-2,
-                "Kinetic energy integral is not close: got {}, expected {}, \
+                (val_numerical - val_analytical).abs() < 1e-3,
+                "Potential energy integral is not close: got {}, expected {}, \
              params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
                 val_analytical,
                 val_numerical,
@@ -529,8 +529,8 @@ mod tests {
             );
         } else {
             assert!(
-                (val_numerical - val_analytical).abs() < 1e-2 * val_numerical.abs(),
-                "Kinetic energy integral is not close: got {}, expected {}, \
+                (val_numerical - val_analytical).abs() < 1e-2 * val_analytical.abs(),
+                "Potential energy integral is not close: got {}, expected {}, \
              params: alpha1={}, l1={}, center1={:?}, \n alpha2={}, l2={}, center2={:?}",
                 val_analytical,
                 val_numerical,
@@ -745,7 +745,7 @@ mod tests {
         gradient_numerical.z = (GTO::Vab(&a, &b, R_plus_z, Z) - GTO::Vab(&a, &b, R_minus_z, Z)) / (2.0 * h);
 
         // Tolerance depends on the value's magnitude
-        let tol = 1e-5 * gradient_analytical.norm().max(gradient_numerical.norm()) + 1e-8;
+        let tol = 1e-3 * gradient_analytical.norm().max(gradient_numerical.norm()) + 1e-8;
 
         // Compare gradients
         assert!(

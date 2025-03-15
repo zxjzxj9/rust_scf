@@ -163,6 +163,14 @@ pub struct GTO {
     pub gto1d: [GTO1d; 3],
 }
 
+
+#[derive(PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+pub enum Direction {
+    X,
+    Y,
+    Z,
+}
+
 impl GTO {
     pub(crate) fn new(alpha: f64, l_xyz: Vector3<i32>, center: Vector3<f64>) -> Self {
         let gto1d = [
@@ -242,6 +250,75 @@ impl GTO {
         val
     }
 
+    pub fn dhermite_coulomb(
+        dir: Direction,
+        t: i32,
+        u: i32,
+        v: i32,
+        n: i32,
+        p: f64,
+        PCx: f64,
+        PCy: f64,
+        PCz: f64,
+        RPC: f64,
+    ) -> f64 {
+        let mut val = 0.0;
+
+        // Base case: when t, u, and v are all zero.
+        if t == 0 && u == 0 && v == 0 {
+            // Using chain rule on the Boys function:
+            // ∂/∂(PCdir) [(-2p)^n * boys_function(n, T)] = PC_dir * hermite_coulomb(0,0,0,n+1, ...)
+            return match dir {
+                Direction::X => PCx * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
+                Direction::Y => PCy * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
+                Direction::Z => PCz * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
+                _ => panic!("Invalid direction: use 'x', 'y', or 'z'"),
+            };
+        }
+
+        // Branch for when only the z-component is nonzero (t == 0, u == 0).
+        if t == 0 && u == 0 {
+            if v > 1 {
+                val += (v as f64 - 1.0)
+                    * GTO::dhermite_coulomb(dir, t, u, v - 2, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            // Differentiate the product: PCz * hermite_coulomb(t, u, v - 1, ...)
+            if dir == Direction::Z {
+                // d(PCz)/d(PCz) = 1.
+                val += GTO::hermite_coulomb(t, u, v - 1, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            // Plus PCz times the derivative of the recursive call.
+            val += PCz * GTO::dhermite_coulomb(dir, t, u, v - 1, n + 1, p, PCx, PCy, PCz, RPC);
+
+            return val;
+        }
+
+        // Branch for when the y-direction is present (t == 0).
+        if t == 0 {
+            if u > 1 {
+                val += (u as f64 - 1.0)
+                    * GTO::dhermite_coulomb(dir, t, u - 2, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            if dir == Direction::Y {
+                val += GTO::hermite_coulomb(t, u - 1, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            val += PCy * GTO::dhermite_coulomb(dir, t, u - 1, v, n + 1, p, PCx, PCy, PCz, RPC);
+            return val;
+        }
+
+        // Branch for when the x-direction is present.
+        {
+            if t > 1 {
+                val += (t as f64 - 1.0)
+                    * GTO::dhermite_coulomb(dir, t - 2, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            if dir == Direction::X {
+                val += GTO::hermite_coulomb(t - 1, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+            }
+            val += PCx * GTO::dhermite_coulomb(dir, t - 1, u, v, n + 1, p, PCx, PCy, PCz, RPC);
+            return val;
+        }
+    }
 }
 
 impl Basis for GTO {
@@ -271,16 +348,14 @@ impl Basis for GTO {
         // println!("a: {:?}, b: {:?}, c: {:?}", a.l_xyz, b.l_xyz, c.l_xyz);
         // let mut val = 0.0;
         let dr = c.center - R;
-        let dx_center = a.center.x - b.center.x;
-        let dy_center = a.center.y - b.center.y;
-        let dz_center = a.center.z - b.center.z;
+        let dab = a.center - b.center;
 
         let val = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
             .par_bridge()
             .map(|(i, j, k)| {
-                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i, dx_center, a.alpha, b.alpha);
-                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
-                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
+                let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i, dab.x, a.alpha, b.alpha);
+                let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dab.y, a.alpha, b.alpha);
+                let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dab.z, a.alpha, b.alpha);
 
                 let hermite_val =
                     GTO::hermite_coulomb(i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr.norm());
@@ -313,12 +388,11 @@ impl Basis for GTO {
                 let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
                 let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
                 let common = eab_x * eab_y * eab_z;
-                let df_dr = common * GTO::hermite_coulomb(i, j, k, 1, c.alpha, dr.x, dr.y, dr.z, dr_norm);
 
                 // Compute each derivative’s Hermite integral.
-                let dxi = dr.x * df_dr;
-                let dyi = dr.y * df_dr;
-                let dzi = dr.z * df_dr;
+                let dxi = common * GTO::dhermite_coulomb(Direction::X, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dyi = common * GTO::dhermite_coulomb(Direction::Y, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
+                let dzi = common * GTO::dhermite_coulomb(Direction::Z, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
                 (dxi, dyi, dzi)
             })
             // Use reduce to sum up the contributions from all iterations.
