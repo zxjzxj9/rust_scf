@@ -355,6 +355,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         } else {
             info!("-----------------------------------------------------\n");
         }
+
+        self.calculate_total_energy();
+        self.calculate_forces();
     }
 
     // Add this method to calculate the total energy
