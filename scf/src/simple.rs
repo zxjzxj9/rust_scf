@@ -432,6 +432,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         }
 
         // Log the energy components
+        info!("  Total Energy: {:.10} au", one_electron_energy + two_electron_energy + nuclear_repulsion);
         info!("  Energy components:");
         info!("    One-electron: {:.10} au", one_electron_energy);
         info!("    Two-electron: {:.10} au", two_electron_energy);
