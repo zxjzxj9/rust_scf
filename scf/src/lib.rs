@@ -113,7 +113,38 @@ impl<S: SCF> GeometryOptimizer for SteepestDescentOptimizer<S> {
     }
 
     fn optimize(&mut self) -> (Vec<Vector3<f64>>, f64) {
-        todo!()
+        // Log initial state
+        tracing::info!("#####################################################");
+        tracing::info!("---------- Starting Geometry Optimization ----------");
+        tracing::info!("#####################################################");
+
+        self.log_progress(0);
+
+        // Main optimization loop
+        for iteration in 1..=self.max_iterations {
+            // Update coordinates (moves atoms according to forces)
+            self.update_coordinates();
+
+            // Log progress
+            self.log_progress(iteration);
+
+            // Check for convergence
+            if self.is_converged() {
+                tracing::info!("Optimization converged after {} iterations", iteration);
+                tracing::info!("-----------------------------------------------------\n");
+                break;
+            }
+
+            // Check if we've reached max iterations
+            if iteration == self.max_iterations {
+                tracing::info!("Optimization reached maximum number of iterations ({}) without converging",
+                          self.max_iterations);
+                tracing::info!("-----------------------------------------------------\n");
+            }
+        }
+
+        // Return optimized coordinates and final energy
+        (self.coords.clone(), self.energy)
     }
 
     fn set_max_iterations(&mut self, max_iter: usize) {
