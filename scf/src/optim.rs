@@ -36,8 +36,8 @@ pub trait GeometryOptimizer {
     /// Calculate RMS and maximum force
     fn calculate_force_metrics(&self) -> (f64, f64) {
         let forces = self.get_forces();
-        let mut max_force = 0.0;
-        let mut sum_squared = 0.0;
+        let mut max_force:f64 = 0.0;
+        let mut sum_squared:f64 = 0.0;
 
         for force in forces {
             let norm = force.norm();
