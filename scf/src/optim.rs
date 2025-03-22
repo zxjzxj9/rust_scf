@@ -62,11 +62,11 @@ pub struct SteepestDescentOptimizer<S: SCF> {
     convergence_threshold: f64,
 }
 
-impl<S: SCF> GeometryOptimizer for SteepestDescentOptimizer<S> {
+impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
     type SCFType = S;
     fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self {
         SteepestDescentOptimizer {
-            scf: (*scf).clone(),  // Assuming SCF is Clone
+            scf: scf.clone(),
             coords: Vec::new(),
             elements: Vec::new(),
             forces: Vec::new(),
