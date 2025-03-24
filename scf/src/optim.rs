@@ -72,6 +72,10 @@ pub struct CGOptimizer<S: SCF> {
     step_size: f64,
     max_iterations: usize,
     convergence_threshold: f64,
+    // State needed for conjugate gradient algorithm
+    previous_forces: Vec<Vector3<f64>>,
+    directions: Vec<Vector3<f64>>,
+    iteration: usize,
 }
 
 impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
@@ -219,31 +223,6 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
 impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
     type SCFType = S;
 
-    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self {
-        CGOptimizer {
-            scf: scf.clone(),
-            coords: Vec::new(),
-            elements: Vec::new(),
-            forces: Vec::new(),
-            energy: 0.0,
-            previous_energy: 0.0,
-            step_size: 0.1,
-            max_iterations,
-            convergence_threshold,
-        }
-    }
-
-    fn init(&mut self, coords: Vec<Vector3<f64>>, elements: Vec<Element>) {
-        self.coords = coords;
-        self.elements = elements;
-        // Initialize SCF with geometry
-        self.scf.init_geometry(&self.coords, &self.elements);
-        // Run initial SCF to get energy and forces
-        self.scf.scf_cycle();
-        self.energy = self.scf.calculate_total_energy();
-        self.forces = self.scf.calculate_forces();
-    }
-
     fn set_max_iterations(&mut self, max_iter: usize) {
         self.max_iterations = max_iter;
     }
@@ -307,6 +286,88 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         }
     }
 
+    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self {
+        CGOptimizer {
+            scf: scf.clone(),
+            coords: Vec::new(),
+            elements: Vec::new(),
+            forces: Vec::new(),
+            energy: 0.0,
+            previous_energy: 0.0,
+            step_size: 0.1,
+            max_iterations,
+            convergence_threshold,
+            previous_forces: Vec::new(),
+            directions: Vec::new(),
+            iteration: 0,
+        }
+    }
+
+    fn init(&mut self, coords: Vec<Vector3<f64>>, elements: Vec<Element>) {
+        self.coords = coords;
+        self.elements = elements;
+        // Initialize SCF with geometry
+        self.scf.init_geometry(&self.coords, &self.elements);
+        // Run initial SCF to get energy and forces
+        self.scf.scf_cycle();
+        self.energy = self.scf.calculate_total_energy();
+        self.forces = self.scf.calculate_forces();
+
+        // Initialize CG-specific state
+        self.previous_forces = self.forces.clone();
+        self.directions = self.forces.clone(); // First direction is just the forces
+        self.iteration = 0;
+    }
+
+    // Other methods remain unchanged...
+
+    fn update_coordinates(&mut self) {
+        self.iteration += 1;
+
+        // Move atoms according to current direction
+        for (i, direction) in self.directions.iter().enumerate() {
+            self.coords[i] += self.step_size * direction;
+        }
+
+        // Update SCF with new geometry and recalculate
+        self.previous_energy = self.energy;
+        self.scf.init_geometry(&self.coords, &self.elements);
+        self.scf.scf_cycle();
+        self.energy = self.scf.calculate_total_energy();
+        self.forces = self.scf.calculate_forces();
+
+        // Calculate beta using Polak-Ribière formula for next iteration
+        if !self.is_converged() && self.iteration < self.max_iterations {
+            let mut numerator = 0.0;
+            let mut denominator = 0.0;
+
+            for i in 0..self.forces.len() {
+                let current_force = self.forces[i];
+                let prev_force = self.previous_forces[i];
+
+                // F_current · (F_current - F_prev)
+                numerator += current_force.dot(&(current_force - prev_force));
+
+                // F_prev · F_prev
+                denominator += prev_force.dot(&prev_force);
+            }
+
+            // Avoid division by zero and ensure beta is non-negative
+            let beta = if denominator.abs() < 1e-10 {
+                0.0
+            } else {
+                (numerator / denominator).max(0.0)
+            };
+
+            // Update directions for next iteration: d = F + beta * d_prev
+            for i in 0..self.directions.len() {
+                self.directions[i] = self.forces[i] + beta * self.directions[i];
+            }
+
+            self.previous_forces = self.forces.clone();
+        }
+    }
+
     fn optimize(&mut self) -> (Vec<Vector3<f64>>, f64) {
         // Log initial state
         tracing::info!("#####################################################");
@@ -314,24 +375,12 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         tracing::info!("#####################################################");
 
         self.log_progress(0);
-
-        // For CG, we need previous directions and forces
-        let mut previous_forces = self.forces.clone();
-        let mut directions = self.forces.clone(); // First direction is just the forces
+        self.iteration = 0; // Reset iteration counter
 
         // Main optimization loop
         for iteration in 1..=self.max_iterations {
-            // Move atoms according to current direction
-            for (i, direction) in directions.iter().enumerate() {
-                self.coords[i] += self.step_size * direction;
-            }
-
-            // Update SCF with new geometry and recalculate
-            self.previous_energy = self.energy;
-            self.scf.init_geometry(&self.coords, &self.elements);
-            self.scf.scf_cycle();
-            self.energy = self.scf.calculate_total_energy();
-            self.forces = self.scf.calculate_forces();
+            // Use update_coordinates instead of direct implementation
+            self.update_coordinates();
 
             // Log progress
             self.log_progress(iteration);
@@ -343,47 +392,15 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
                 break;
             }
 
-            // Calculate beta using Polak-Ribière formula for next iteration
-            if iteration < self.max_iterations {
-                let mut numerator = 0.0;
-                let mut denominator = 0.0;
-
-                for i in 0..self.forces.len() {
-                    let current_force = self.forces[i];
-                    let prev_force = previous_forces[i];
-
-                    // F_current · (F_current - F_prev)
-                    numerator += current_force.dot(&(current_force - prev_force));
-
-                    // F_prev · F_prev
-                    denominator += prev_force.dot(&prev_force);
-                }
-
-                // Avoid division by zero and ensure beta is non-negative (Fletcher-Reeves+ modification)
-                let beta = if denominator.abs() < 1e-10 { 0.0 } else { (numerator / denominator).max(0.0) };
-
-                // Update directions for next iteration: d = F + beta * d_prev
-                for i in 0..directions.len() {
-                    directions[i] = self.forces[i] + beta * directions[i];
-                }
-
-                previous_forces = self.forces.clone();
-            }
-
             // Check if we've reached max iterations
             if iteration == self.max_iterations {
                 tracing::info!("Optimization reached maximum number of iterations ({}) without converging",
-                          self.max_iterations);
+                           self.max_iterations);
                 tracing::info!("-----------------------------------------------------\n");
             }
         }
 
         // Return optimized coordinates and final energy
         (self.coords.clone(), self.energy)
-    }
-
-    fn update_coordinates(&mut self) {
-        // This method is handled directly in optimize() for CG
-        // since we need to maintain state across iterations
     }
 }
