@@ -13,6 +13,8 @@ use std::rc::Rc;
 use std::{fs, io};
 
 mod scf;
+use crate::optim::{GeometryOptimizer, CGOptimizer};
+mod optim;  // Make sure this is included with your other mod declarations
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
