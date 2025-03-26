@@ -29,6 +29,27 @@ struct Config {
     scf_params: ScfParams,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+struct OptimizationParams {
+    enabled: Option<bool>,
+    algorithm: Option<String>,  // "cg" or "sd" for steepest descent
+    max_iterations: Option<usize>,
+    convergence_threshold: Option<f64>,
+    step_size: Option<f64>,
+}
+
+impl Default for OptimizationParams {
+    fn default() -> Self {
+        OptimizationParams {
+            enabled: Some(false),
+            algorithm: Some("cg".to_string()),
+            max_iterations: Some(50),
+            convergence_threshold: Some(1e-4),
+            step_size: Some(0.1),
+        }
+    }
+}
+
 fn fetch_basis(atomic_symbol: &str) -> Basis631G {
     let url = format!(
         "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
