@@ -38,6 +38,7 @@ struct OptimizationParams {
     step_size: Option<f64>,
 }
 
+
 impl Default for OptimizationParams {
     fn default() -> Self {
         OptimizationParams {
@@ -112,6 +113,26 @@ struct Args {
     /// Override output file: (default stdout)
     #[arg(short, long, default_value = "output.txt")]
     output: Option<String>,
+
+    /// Enable geometry optimization
+    #[arg(long)]
+    optimize: bool,
+
+    /// Optimization algorithm (cg or sd)
+    #[arg(long, default_value = "cg")]
+    opt_algorithm: Option<String>,
+
+    /// Maximum optimization iterations
+    #[arg(long)]
+    opt_max_iterations: Option<usize>,
+
+    /// Optimization convergence threshold
+    #[arg(long)]
+    opt_convergence: Option<f64>,
+
+    /// Step size for optimization
+    #[arg(long)]
+    opt_step_size: Option<f64>,
 }
 
 fn main() -> Result<()> {
