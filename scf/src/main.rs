@@ -242,5 +242,62 @@ fn main() -> Result<()> {
         info!("  Level {}: {:.8} au", i + 1, energy);
     }
 
+    // Add after SCF calculation
+    if args.optimize || config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false) {
+        info!("\nStarting geometry optimization...");
+
+        // Get optimization parameters
+        let opt_params = config.optimization.unwrap_or_default();
+        let algorithm = args.opt_algorithm
+            .clone()
+            .or_else(|| opt_params.algorithm.clone())
+            .unwrap_or_else(|| "cg".to_string());
+        let max_iterations = args.opt_max_iterations
+            .or(opt_params.max_iterations)
+            .unwrap_or(50);
+        let convergence = args.opt_convergence
+            .or(opt_params.convergence_threshold)
+            .unwrap_or(1e-4);
+        let step_size = args.opt_step_size
+            .or(opt_params.step_size)
+            .unwrap_or(0.1);
+
+        info!("Optimization parameters:");
+        info!("  Algorithm: {}", algorithm);
+        info!("  Max iterations: {}", max_iterations);
+        info!("  Convergence threshold: {:.6e}", convergence);
+        info!("  Step size: {:.4}", step_size);
+
+        // Create optimizer
+        if algorithm.to_lowercase() == "cg" {
+            // Create CG optimizer
+            let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
+            optimizer.set_step_size(step_size);
+
+            // Initialize with current geometry
+            optimizer.init(coords_vec.clone(), elements.clone());
+
+            // Run optimization
+            let (optimized_coords, final_energy) = optimizer.optimize();
+
+            // Print optimized geometry
+            info!("\nOptimized geometry:");
+            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
+                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+                i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
+            }
+            info!("Final energy: {:.10} au", final_energy);
+
+            // Save optimized geometry if needed
+            // ...
+        } else if algorithm.to_lowercase() == "sd" {
+            // Similar code for steepest descent optimizer
+            info!("Using Steepest Descent optimizer");
+            // ...
+        } else {
+            info!("Unknown optimization algorithm: {}", algorithm);
+        }
+    }
+
     Ok(())
 }
