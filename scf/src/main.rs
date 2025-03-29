@@ -27,6 +27,7 @@ struct Config {
     geometry: Vec<Atom>,
     basis_sets: HashMap<String, String>, // Element symbol -> basis set name (string for now)
     scf_params: ScfParams,
+    optimization: Option<OptimizationParams>, // Add this field
 }
 
 #[derive(Debug, Deserialize, Serialize)]
