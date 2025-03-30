@@ -290,11 +290,28 @@ fn main() -> Result<()> {
             info!("Final energy: {:.10} au", final_energy);
 
             // Save optimized geometry if needed
-            // ...
+            if let Some(output_file) = args.output {
+                let mut file = File::create(output_file)?;
+                writeln!(file, "Optimized geometry:")?;
+                for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
+                    writeln!(file, "  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+                    i + 1, elem.get_symbol(), coord.x, coord.y, coord.z)?;
+                }
+                writeln!(file, "Final energy: {:.10} au", final_energy)?;
+            }
         } else if algorithm.to_lowercase() == "sd" {
             // Similar code for steepest descent optimizer
             info!("Using Steepest Descent optimizer");
-            // ...
+            let mut optimizer = GeometryOptimizer::new(&mut scf, max_iterations, convergence);
+            optimizer.set_step_size(step_size);
+            optimizer.init(coords_vec.clone(), elements.clone());
+            let (optimized_coords, final_energy) = optimizer.optimize();
+            info!("\nOptimized geometry:");
+            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
+                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+                i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
+            }
+            info!("Final energy: {:.10} au", final_energy);
         } else {
             info!("Unknown optimization algorithm: {}", algorithm);
         }
