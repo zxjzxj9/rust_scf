@@ -13,7 +13,7 @@ use std::rc::Rc;
 use std::{fs, io};
 
 mod scf;
-use crate::optim::{GeometryOptimizer, CGOptimizer};
+use crate::optim::{GeometryOptimizer, CGOptimizer, SteepestDescentOptimizer};
 mod optim;  // Make sure this is included with your other mod declarations
 mod simple;
 use crate::scf::SCF;
@@ -302,7 +302,7 @@ fn main() -> Result<()> {
         } else if algorithm.to_lowercase() == "sd" {
             // Similar code for steepest descent optimizer
             info!("Using Steepest Descent optimizer");
-            let mut optimizer = GeometryOptimizer::new(&mut scf, max_iterations, convergence);
+            let mut optimizer: SteepestDescentOptimizer<SimpleSCF<Basis631G>> = GeometryOptimizer::new(&mut scf, max_iterations, convergence);
             optimizer.set_step_size(step_size);
             optimizer.init(coords_vec.clone(), elements.clone());
             let (optimized_coords, final_energy) = optimizer.optimize();
