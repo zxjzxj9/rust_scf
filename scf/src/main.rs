@@ -179,17 +179,6 @@ fn main() -> Result<()> {
         scf.max_cycle = mc;
     }
 
-    // if let Some(diis_size) = args.diis_subspace_size {
-    //     info!("Overriding diis_subspace_size with: {}", diis_size);
-    //     config.scf_params.diis_subspace_size = Some(diis_size);
-    //     scf.diis_subspace_size = diis_size;
-    // }
-    // if let Some(conv_thresh) = args.convergence_threshold {
-    //     info!("Overriding convergence_threshold with: {}", conv_thresh);
-    //     config.scf_params.convergence_threshold = Some(conv_thresh);
-    //     scf.convergence_threshold = conv_thresh;
-    // }
-
     // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
     info!("\nPreparing basis sets...");
 
