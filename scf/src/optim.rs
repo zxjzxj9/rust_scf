@@ -1,6 +1,24 @@
+use std::str::FromStr;
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
 use crate::scf::SCF;
+
+enum OptimizationAlgorithm {
+    ConjugateGradient,
+    SteepestDescent,
+}
+
+impl FromStr for OptimizationAlgorithm {
+    type Err = color_eyre::eyre::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "cg" => Ok(Self::ConjugateGradient),
+            "sd" => Ok(Self::SteepestDescent),
+            _ => Err(color_eyre::eyre::eyre!("Unknown algorithm: {}", s)),
+        }
+    }
+}
 
 pub trait GeometryOptimizer {
     type SCFType: SCF;
