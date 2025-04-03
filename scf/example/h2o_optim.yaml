@@ -1,0 +1,28 @@
+# H2O geometry optimization configuration
+
+# Molecular geometry
+geometry:
+  - element: O
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.8, 0.6]
+  - element: H
+    coords: [0.0, -0.8, 0.6]
+
+basis_sets:
+  O: "6-31g"
+  H: "6-31g"
+
+# SCF calculation parameters
+scf_params:
+  density_mixing: 0.5
+  max_cycle: 100
+  convergence_threshold: 1.0e-6
+
+# Geometry optimization parameters
+optimization:
+  enabled: true
+  algorithm: cg
+  max_iterations: 50
+  convergence_threshold: 1.0e-5
+  step_size: 0.1

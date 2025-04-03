@@ -5,9 +5,11 @@ geometry:
     coords: [0.757000,  0.586000,  0.000000]
   - element: H
     coords: [-0.757000, 0.586000,  0.000000]
+
 basis_sets:
   O: "6-31g"
   H: "6-31g"
+
 scf_params:
   density_mixing: 0.5
   max_cycle: 100
