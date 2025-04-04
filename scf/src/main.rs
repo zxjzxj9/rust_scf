@@ -1,44 +1,40 @@
 use basis::basis::{AOBasis, Basis};
 use basis::cgto::Basis631G;
 use clap::Parser;
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::process::{id, Command};
-use std::rc::Rc;
-use std::{fs, io};
+use std::{fs, path::Path};
 
 mod scf;
-use crate::optim::{GeometryOptimizer, CGOptimizer, SteepestDescentOptimizer};
-mod optim;  // Make sure this is included with your other mod declarations
+use crate::optim::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
+mod optim;
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
-use tracing::{event, info, span, Level};
+use tracing::{info, Level};
 use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
-// Define a configuration struct to hold YAML data
 #[derive(Debug, Deserialize, Serialize)]
 struct Config {
     geometry: Vec<Atom>,
-    basis_sets: HashMap<String, String>, // Element symbol -> basis set name (string for now)
+    basis_sets: HashMap<String, String>,
     scf_params: ScfParams,
-    optimization: Option<OptimizationParams>, // Add this field
+    optimization: Option<OptimizationParams>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 struct OptimizationParams {
     enabled: Option<bool>,
-    algorithm: Option<String>,  // "cg" or "sd" for steepest descent
+    algorithm: Option<String>,
     max_iterations: Option<usize>,
     convergence_threshold: Option<f64>,
     step_size: Option<f64>,
 }
-
 
 impl Default for OptimizationParams {
     fn default() -> Self {
@@ -52,13 +48,17 @@ impl Default for OptimizationParams {
     }
 }
 
-fn fetch_basis(atomic_symbol: &str) -> Basis631G {
+fn fetch_basis(atomic_symbol: &str) -> Result<Basis631G> {
     let url = format!(
         "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
         atomic_symbol
     );
-    let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
-    Basis631G::parse_nwchem(&basis_str)
+    let response = reqwest::blocking::get(&url)
+        .wrap_err_with(|| format!("Failed to fetch basis set for {}", atomic_symbol))?;
+    let basis_str = response
+        .text()
+        .wrap_err("Failed to get response text from basis set API")?;
+    Ok(Basis631G::parse_nwchem(&basis_str))
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -75,7 +75,6 @@ struct ScfParams {
     convergence_threshold: Option<f64>,
 }
 
-// set default values for ScfParams
 impl Default for ScfParams {
     fn default() -> Self {
         ScfParams {
@@ -112,7 +111,7 @@ struct Args {
     convergence_threshold: Option<f64>,
 
     /// Override output file: (default stdout)
-    #[arg(short, long, default_value = "output.txt")]
+    #[arg(short, long)]
     output: Option<String>,
 
     /// Enable geometry optimization
@@ -136,59 +135,97 @@ struct Args {
     opt_step_size: Option<f64>,
 }
 
-fn main() -> Result<()> {
-    color_eyre::install()?;
-
-    let args = Args::parse();
-
-    // Choose the writer based on the presence of the output file path.
-    match args.output {
-        Some(ref path) => {
+fn setup_output(output_path: Option<&String>) {
+    match output_path {
+        Some(path) => {
             info!("Output will be written to: {}", path);
-            let log = File::create(path).expect("Could not create file");
-            let file_layer = layer().with_writer(log);
-            // install writer to log, using tracing
-            Registry::default().with(file_layer).init()
+            if let Ok(log) = File::create(path) {
+                let file_layer = layer().with_writer(log);
+                Registry::default().with(file_layer).init();
+            } else {
+                eprintln!("Could not create output file: {}", path);
+            }
         }
         None => {
             info!("Output will be printed to stdout");
         }
-    };
+    }
+}
+
+fn print_optimized_geometry<W: Write>(
+    writer: &mut W,
+    coords: &[Vector3<f64>],
+    elements: &[Element],
+    energy: f64,
+) -> Result<()> {
+    writeln!(writer, "Optimized geometry:")?;
+    for (i, (coord, elem)) in coords.iter().zip(elements.iter()).enumerate() {
+        writeln!(
+            writer,
+            "  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+            i + 1,
+            elem.get_symbol(),
+            coord.x,
+            coord.y,
+            coord.z
+        )?;
+    }
+    writeln!(writer, "Final energy: {:.10} au", energy)?;
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    color_eyre::install()?;
+    let args = Args::parse();
+    setup_output(args.output.as_ref());
 
     // 1. Read YAML configuration file
     info!("Reading configuration from: {}", args.config_file);
-    let config_file_content =
-        fs::read_to_string(&args.config_file).expect("Unable to read configuration file");
+    let config_file_content = fs::read_to_string(&args.config_file)
+        .wrap_err_with(|| format!("Unable to read configuration file: {}", args.config_file))?;
 
-    let mut config: Config =
-        serde_yaml::from_str(&config_file_content).expect("Unable to parse configuration file");
+    let mut config: Config = serde_yaml::from_str(&config_file_content)
+        .wrap_err("Failed to parse configuration file")?;
 
-    config.scf_params = ScfParams::default();
+    // Apply defaults to missing values but don't overwrite existing ones
+    let default_params = ScfParams::default();
+    if config.scf_params.density_mixing.is_none() {
+        config.scf_params.density_mixing = default_params.density_mixing;
+    }
+    if config.scf_params.max_cycle.is_none() {
+        config.scf_params.max_cycle = default_params.max_cycle;
+    }
+    if config.scf_params.diis_subspace_size.is_none() {
+        config.scf_params.diis_subspace_size = default_params.diis_subspace_size;
+    }
+    if config.scf_params.convergence_threshold.is_none() {
+        config.scf_params.convergence_threshold = default_params.convergence_threshold;
+    }
+
     info!("Configuration loaded:\n{:?}", config);
+
+    // Init SCF with params from config
     let mut scf = SimpleSCF::new();
+    scf.density_mixing = config.scf_params.density_mixing.unwrap_or(0.5);
+    scf.max_cycle = config.scf_params.max_cycle.unwrap_or(100);
 
     // 2. Override parameters from command line if provided
     if let Some(dm) = args.density_mixing {
         info!("Overriding density_mixing with: {}", dm);
-        config.scf_params.density_mixing = Some(dm);
         scf.density_mixing = dm;
     }
     if let Some(mc) = args.max_cycle {
         info!("Overriding max_cycle with: {}", mc);
-        config.scf_params.max_cycle = Some(mc);
         scf.max_cycle = mc;
     }
 
-    // 3. Prepare Basis Sets (This part needs to be adapted to your basis library)
-    info!("\nPreparing basis sets...");
-
-    // // 4. Prepare Geometry
+    // 3. Prepare Geometry
     info!("\nPreparing geometry...");
     let mut elements = Vec::new();
     let mut coords_vec = Vec::new();
     for atom_config in &config.geometry {
         let element = Element::from_symbol(&atom_config.element)
-            .expect(&format!("Invalid element symbol: {}", atom_config.element));
+            .ok_or_else(|| color_eyre::eyre::eyre!("Invalid element symbol: {}", atom_config.element))?;
         let coords = Vector3::new(
             atom_config.coords[0],
             atom_config.coords[1],
@@ -198,24 +235,23 @@ fn main() -> Result<()> {
         coords_vec.push(coords);
     }
 
-    // HashMap from symbol to a reference of the stored basis.
+    // 4. Prepare Basis Sets
+    info!("\nPreparing basis sets...");
     let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
-
     for elem in &elements {
         let symbol = elem.get_symbol();
         if basis_map.contains_key(symbol) {
             continue;
         }
 
-        let basis = fetch_basis(symbol);
-        // Allocate on the heap to ensure a stable memory address.
+        let basis = fetch_basis(symbol)?;
+        // Allocate on the heap to ensure a stable memory address
         let basis_ref: &Basis631G = Box::leak(Box::new(basis));
         basis_map.insert(symbol, basis_ref);
     }
 
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
-
     scf.init_basis(&elements, basis_map);
     scf.init_geometry(&coords_vec, &elements);
     scf.init_density_matrix();
@@ -225,22 +261,22 @@ fn main() -> Result<()> {
     scf.scf_cycle();
 
     info!("\nSCF calculation finished.");
-    // make it print the final energy levels, print it prettier
     info!("\nFinal Energy Levels:");
-    // info!("{:?}", scf.e_level);
     for (i, energy) in scf.e_level.iter().enumerate() {
         info!("  Level {}: {:.8} au", i + 1, energy);
     }
 
-    // Add after SCF calculation
-    if args.optimize || config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false) {
+    // 6. Run geometry optimization if requested
+    let should_optimize = args.optimize ||
+        config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false);
+
+    if should_optimize {
         info!("\nStarting geometry optimization...");
 
         // Get optimization parameters
         let opt_params = config.optimization.unwrap_or_default();
         let algorithm = args.opt_algorithm
-            .clone()
-            .or_else(|| opt_params.algorithm.clone())
+            .or_else(|| opt_params.algorithm)
             .unwrap_or_else(|| "cg".to_string());
         let max_iterations = args.opt_max_iterations
             .or(opt_params.max_iterations)
@@ -258,51 +294,41 @@ fn main() -> Result<()> {
         info!("  Convergence threshold: {:.6e}", convergence);
         info!("  Step size: {:.4}", step_size);
 
-        // Create optimizer
-        if algorithm.to_lowercase() == "cg" {
-            // Create CG optimizer
-            let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
-            optimizer.set_step_size(step_size);
+        // Run optimization with the selected algorithm
+        let (optimized_coords, final_energy) = match algorithm.to_lowercase().as_str() {
+            "cg" => {
+                let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
+                optimizer.set_step_size(step_size);
+                optimizer.init(coords_vec.clone(), elements.clone());
+                optimizer.optimize()
+            },
+            "sd" => {
+                let mut optimizer = SteepestDescentOptimizer::new(&mut scf, max_iterations, convergence);
+                optimizer.set_step_size(step_size);
+                optimizer.init(coords_vec.clone(), elements.clone());
+                optimizer.optimize()
+            },
+            _ => {
+                info!("Unknown optimization algorithm: {}, defaulting to CG", algorithm);
+                let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
+                optimizer.set_step_size(step_size);
+                optimizer.init(coords_vec.clone(), elements.clone());
+                optimizer.optimize()
+            }
+        };
 
-            // Initialize with current geometry
-            optimizer.init(coords_vec.clone(), elements.clone());
-
-            // Run optimization
-            let (optimized_coords, final_energy) = optimizer.optimize();
-
-            // Print optimized geometry
-            info!("\nOptimized geometry:");
-            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
-                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+        // Print optimized geometry
+        info!("\nOptimized geometry:");
+        for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
+            info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
                 i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
-            info!("Final energy: {:.10} au", final_energy);
+        }
+        info!("Final energy: {:.10} au", final_energy);
 
-            // Save optimized geometry if needed
-            if let Some(output_file) = args.output {
-                let mut file = File::create(output_file)?;
-                writeln!(file, "Optimized geometry:")?;
-                for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
-                    writeln!(file, "  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                    i + 1, elem.get_symbol(), coord.x, coord.y, coord.z)?;
-                }
-                writeln!(file, "Final energy: {:.10} au", final_energy)?;
-            }
-        } else if algorithm.to_lowercase() == "sd" {
-            // Similar code for steepest descent optimizer
-            info!("Using Steepest Descent optimizer");
-            let mut optimizer: SteepestDescentOptimizer<SimpleSCF<Basis631G>> = GeometryOptimizer::new(&mut scf, max_iterations, convergence);
-            optimizer.set_step_size(step_size);
-            optimizer.init(coords_vec.clone(), elements.clone());
-            let (optimized_coords, final_energy) = optimizer.optimize();
-            info!("\nOptimized geometry:");
-            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
-                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
-            info!("Final energy: {:.10} au", final_energy);
-        } else {
-            info!("Unknown optimization algorithm: {}", algorithm);
+        // Save optimized geometry if needed
+        if let Some(ref output_file) = args.output {
+            let mut file = File::create(output_file)?;
+            print_optimized_geometry(&mut file, &optimized_coords, &elements, final_energy)?;
         }
     }
 
