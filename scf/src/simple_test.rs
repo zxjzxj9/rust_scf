@@ -255,4 +255,130 @@ mod tests {
         scf.init_fock_matrix();
         scf.scf_cycle();
     }
+
+    #[test]
+    fn test_hellman_feynman_forces_mock() {
+        // Set up a simple H2 molecule with mock basis
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0)];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        // Calculate forces
+        let forces = scf.calculate_forces();
+
+        // Check that we got the right number of forces
+        assert_eq!(forces.len(), 2);
+
+        // For H2, forces should be equal and opposite (Newton's third law)
+        assert!((forces[0] + forces[1]).norm() < 1e-6);
+
+        // Check values match expected (based on our mock implementation)
+        let expected_force = Vector3::new(0.1, 0.1, 0.1);
+        assert!((forces[0] - expected_force).norm() < 1e-6);
+        assert!((forces[1] + expected_force).norm() < 1e-6);
+    }
+
+    #[test]
+    fn test_real_hellman_feynman_forces() {
+        // Set up H2 molecule with real basis
+        let mut scf = SimpleSCF::<Basis631G>::new();
+
+        let h2_coords = vec![
+            Vector3::new(0.0, 0.0, -0.5),
+            Vector3::new(0.0, 0.0, 0.5),
+        ];
+        let h2_elems = vec![Element::Hydrogen, Element::Hydrogen];
+
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        basis.insert("H", &h_basis);
+
+        scf.init_basis(&h2_elems, basis);
+        scf.init_geometry(&h2_coords, &h2_elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        // Calculate analytical forces
+        let analytical_forces = scf.calculate_forces();
+
+        // For symmetric H2, forces should be equal and opposite
+        assert!((analytical_forces[0] + analytical_forces[1]).norm() < 1e-5);
+
+        // Forces should be along the bond axis (z-axis in this case)
+        assert!(analytical_forces[0].x.abs() < 1e-5);
+        assert!(analytical_forces[0].y.abs() < 1e-5);
+        assert!(analytical_forces[1].x.abs() < 1e-5);
+        assert!(analytical_forces[1].y.abs() < 1e-5);
+
+        // Validate with numerical derivative
+        let numerical_force = calculate_numerical_force(&h2_elems, &h2_coords);
+
+        // Compare analytical and numerical forces (z-component)
+        println!("Analytical force: {:?}", analytical_forces[0]);
+        println!("Numerical force: {:?}", numerical_force);
+
+        // Allow reasonable tolerance since numerical derivatives are approximate
+        assert!((analytical_forces[0].z - numerical_force.z).abs() < 1e-3);
+    }
+
+    // Helper function for numerical force calculation via finite difference
+    fn calculate_numerical_force(elems: &[Element], coords: &[Vector3<f64>]) -> Vector3<f64> {
+        const DELTA: f64 = 1e-4;
+        let mut numerical_force = Vector3::zeros();
+
+        // Calculate initial energy
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        basis.insert("H", &h_basis);
+
+        scf.init_basis(elems, basis.clone());
+        scf.init_geometry(coords, elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+        let initial_energy = scf.calculate_total_energy();
+
+        // Calculate force components using finite difference
+        for dim in 0..3 {
+            // Displace first atom in positive direction
+            let mut pos_coords = coords.clone();
+            match dim {
+                0 => pos_coords[0].x += DELTA,
+                1 => pos_coords[0].y += DELTA,
+                2 => pos_coords[0].z += DELTA,
+                _ => unreachable!(),
+            }
+
+            // Recalculate with displacement
+            let mut scf_pos = SimpleSCF::<Basis631G>::new();
+            scf_pos.init_basis(elems, basis.clone());
+            scf_pos.init_geometry(&pos_coords, elems);
+            scf_pos.init_density_matrix();
+            scf_pos.init_fock_matrix();
+            scf_pos.scf_cycle();
+            let pos_energy = scf_pos.calculate_total_energy();
+
+            // Calculate numerical force (negative gradient)
+            let force_component = -(pos_energy - initial_energy) / DELTA;
+            match dim {
+                0 => numerical_force.x = force_component,
+                1 => numerical_force.y = force_component,
+                2 => numerical_force.z = force_component,
+                _ => unreachable!(),
+            }
+        }
+
+        numerical_force
+    }
 }
