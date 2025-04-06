@@ -332,7 +332,7 @@ mod tests {
     }
 
     // Helper function for numerical force calculation via finite difference
-    fn calculate_numerical_force(elems: &[Element], coords: &[Vector3<f64>]) -> Vector3<f64> {
+    fn calculate_numerical_force(elems: Vec<Element>, coords: Vec<Vector3<f64>>) -> Vector3<f64> {
         const DELTA: f64 = 1e-4;
         let mut numerical_force = Vector3::zeros();
 
