@@ -339,8 +339,11 @@ mod tests {
         // Calculate initial energy
         let mut scf = SimpleSCF::<Basis631G>::new();
         let mut basis = HashMap::new();
+
         let h_basis = fetch_basis("H");
+        let o_basis = fetch_basis("O");
         basis.insert("H", &h_basis);
+        basis.insert("O", &o_basis);
 
         scf.init_basis(elems, basis.clone());
         scf.init_geometry(coords, elems);
