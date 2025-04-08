@@ -292,18 +292,22 @@ mod tests {
         // Set up H2 molecule with real basis
         let mut scf = SimpleSCF::<Basis631G>::new();
 
-        let h2_coords = vec![
-            Vector3::new(0.0, 0.0, -0.5),
-            Vector3::new(0.0, 0.0, 0.5),
+        // H2O coordinates
+        let h2o_coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.809),
+            Vector3::new(1.443, 0.0, -0.453),
         ];
-        let h2_elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let h2o_elems = vec![Element::Hydrogen, Element::Hydrogen, Element::Oxygen];
 
         let mut basis = HashMap::new();
         let h_basis = fetch_basis("H");
+        let o_basis = fetch_basis("O");
         basis.insert("H", &h_basis);
+        basis.insert("O", &o_basis);
 
-        scf.init_basis(&h2_elems, basis);
-        scf.init_geometry(&h2_coords, &h2_elems);
+        scf.init_basis(&h2o_elems, basis);
+        scf.init_geometry(&h2o_coords, &h2o_elems);
         scf.init_density_matrix();
         scf.init_fock_matrix();
         scf.scf_cycle();
@@ -321,7 +325,7 @@ mod tests {
         assert!(analytical_forces[1].y.abs() < 1e-5);
 
         // Validate with numerical derivative
-        let numerical_force = calculate_numerical_force(&h2_elems, &h2_coords);
+        let numerical_force = calculate_numerical_force(&h2o_elems, &h2o_coords);
 
         // Compare analytical and numerical forces (z-component)
         println!("Analytical force: {:?}", analytical_forces[0]);
