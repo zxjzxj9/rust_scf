@@ -75,6 +75,10 @@ mod tests {
         fn JKabcd(_: &Self, _: &Self, _: &Self, _: &Self) -> f64 {
             0.01 // Two-electron integral
         }
+
+        fn dVab_dR(_: &Self, _: &Self, _: Vector3<f64>, _: u32) -> Vector3<f64> {
+            Vector3::new(0.1, 0.1, 0.1) // Mock derivative of nuclear attraction integral
+        }
     }
 
     // Helper function to create mock basis
