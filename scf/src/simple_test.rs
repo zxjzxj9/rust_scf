@@ -263,7 +263,7 @@ mod tests {
     #[test]
     fn test_hellman_feynman_forces_mock() {
         // Set up a simple H2 molecule with mock basis
-        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let mut scf = SimpleSCF::<Basis631G>::new();
         let elems = vec![Element::Hydrogen, Element::Hydrogen];
         let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0)];
         let mut basis = HashMap::new();
