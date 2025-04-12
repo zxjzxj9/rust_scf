@@ -76,7 +76,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
 impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     type BasisType = B;
 
-    fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &B>) {
+    fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &MockAOBasis>) {
         self.elems = elems.clone();
         self.num_atoms = elems.len();
         info!("\n#####################################################");
