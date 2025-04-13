@@ -261,15 +261,17 @@ mod tests {
     }
 
     #[test]
-    fn test_hellman_feynman_forces_mock() {
+    fn test_hellman_feynman_forces() {
         // Set up a simple H2 molecule with mock basis
         let mut scf = SimpleSCF::<Basis631G>::new();
         let elems = vec![Element::Hydrogen, Element::Hydrogen];
         let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0)];
         let mut basis = HashMap::new();
-        let mock_basis = create_mock_basis();
 
-        basis.insert("H", &mock_basis);
+        let h_basis = fetch_basis("H");
+        let o_basis = fetch_basis("O");
+        basis.insert("H", &h_basis);
+        basis.insert("O", &o_basis);
         scf.init_basis(&elems, basis);
         scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
