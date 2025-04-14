@@ -37,7 +37,7 @@ fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
         // Extract column j as a slice
         let col = eigvecs.column(j);
         // Find the index and value of the entry with maximum absolute value.
-        let (max_idx, &max_val) = col
+        let (_ , &max_val) = col
             .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
@@ -263,7 +263,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         info!("#####################################################");
 
         let mut previous_e_level = DVector::zeros(self.num_basis); // Initialize previous energy level
-        let mut diis = DIIS::new(5); // Initialize DIIS object
+        // let mut diis = DIIS::new(5); // Initialize DIIS object
         const CONVERGENCE_THRESHOLD: f64 = 1e-6; // Define convergence threshold
         let mut cycle = 0;
 
