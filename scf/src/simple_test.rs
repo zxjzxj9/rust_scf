@@ -261,39 +261,6 @@ mod tests {
     }
 
     #[test]
-    fn test_hellman_feynman_forces() {
-        // Set up a simple H2 molecule with mock basis
-        let mut scf = SimpleSCF::<Basis631G>::new();
-        let elems = vec![Element::Hydrogen, Element::Hydrogen];
-        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 1.0)];
-        let mut basis = HashMap::new();
-
-        let h_basis = fetch_basis("H");
-        let o_basis = fetch_basis("O");
-        basis.insert("H", &h_basis);
-        basis.insert("O", &o_basis);
-        scf.init_basis(&elems, basis);
-        scf.init_geometry(&coords, &elems);
-        scf.init_density_matrix();
-        scf.init_fock_matrix();
-        scf.scf_cycle();
-
-        // Calculate forces
-        let forces = scf.calculate_forces();
-
-        // Check that we got the right number of forces
-        assert_eq!(forces.len(), 2);
-
-        // For H2, forces should be equal and opposite (Newton's third law)
-        assert!((forces[0] + forces[1]).norm() < 1e-6);
-
-        // Check values match expected (based on our mock implementation)
-        let expected_force = Vector3::new(0.1, 0.1, 0.1);
-        assert!((forces[0] - expected_force).norm() < 1e-6);
-        assert!((forces[1] + expected_force).norm() < 1e-6);
-    }
-
-    #[test]
     fn test_real_hellman_feynman_forces() {
         // Set up H2 molecule with real basis
         let mut scf = SimpleSCF::<Basis631G>::new();
