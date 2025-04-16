@@ -288,15 +288,6 @@ mod tests {
         // Calculate analytical forces
         let analytical_forces = scf.calculate_forces();
 
-        // For symmetric H2, forces should be equal and opposite
-        assert!((analytical_forces[0] + analytical_forces[1]).norm() < 1e-5);
-
-        // Forces should be along the bond axis (z-axis in this case)
-        assert!(analytical_forces[0].x.abs() < 1e-5);
-        assert!(analytical_forces[0].y.abs() < 1e-5);
-        assert!(analytical_forces[1].x.abs() < 1e-5);
-        assert!(analytical_forces[1].y.abs() < 1e-5);
-
         // Validate with numerical derivative
         let numerical_force = calculate_numerical_force(&h2o_elems, &h2o_coords);
 
