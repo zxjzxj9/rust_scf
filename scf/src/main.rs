@@ -1,4 +1,3 @@
-use basis::basis::{AOBasis, Basis};
 use basis::cgto::Basis631G;
 use clap::Parser;
 use color_eyre::eyre::{Result, WrapErr};
@@ -8,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::Write;
-use std::{fs, path::Path};
+use std::fs;
 
 mod scf;
 use crate::optim::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
@@ -16,7 +15,7 @@ mod optim;
 mod simple;
 use crate::scf::SCF;
 use crate::simple::SimpleSCF;
-use tracing::{info, Level};
+use tracing::info;
 use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
 
 #[derive(Debug, Deserialize, Serialize)]
