@@ -330,11 +330,16 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
 
             self.update_density_matrix();
 
+            
             if cycle > 1 {
                 // Start convergence check from the second cycle
                 info!("  Step 6: Checking for Convergence...");
                 let energy_change = (current_e_level.clone() - previous_e_level.clone()).norm();
                 info!("    Energy change: {:.8} au", energy_change);
+                
+                previous_e_level = current_e_level.clone();
+                self.e_level = current_e_level.clone();
+                
                 if energy_change < CONVERGENCE_THRESHOLD {
                     info!("  SCF converged early at cycle {}.", cycle);
                     info!("-------------------- SCF Converged ---------------------\n");
@@ -345,8 +350,6 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             } else {
                 info!("  Convergence check not performed for the first cycle.");
             }
-            previous_e_level = current_e_level.clone();
-            self.e_level = current_e_level.clone();
         }
         if cycle == self.max_cycle {
             info!("\n------------------- SCF Not Converged -------------------");
