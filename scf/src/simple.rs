@@ -206,7 +206,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let n_occ = total_electrons / 2;
 
         let occupied_coeffs = self.coeffs.columns(0, n_occ);
-        if self.density_matrix.shape() == (0, 0) {
+        if self.density_matrix.is_empty() {
             self.density_matrix = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
         } else {
             let new_density = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
