@@ -199,10 +199,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             .map(|e| e.get_atomic_number() as usize)
             .sum();
         // Ensure even number of electrons for closed-shell
-        assert!(
-            total_electrons % 2 == 0,
-            "Total number of electrons must be even"
-        );
+        assert_eq!(total_electrons % 2, 0, "Total number of electrons must be even");
         let n_occ = total_electrons / 2;
 
         let occupied_coeffs = self.coeffs.columns(0, n_occ);
