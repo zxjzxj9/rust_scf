@@ -198,10 +198,8 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             total_electrons >= unpaired_electrons,
             "Invalid multiplicity: not enough electrons"
         );
-        assert!(
-            (total_electrons - unpaired_electrons) % 2 == 0,
-            "Invalid electron count for given multiplicity"
-        );
+        assert_eq!((total_electrons - unpaired_electrons) % 2, 0, 
+                   "Invalid electron count for given multiplicity");
 
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
