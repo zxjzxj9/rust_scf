@@ -4,8 +4,7 @@ use na::Vector3;
 use nalgebra::{DMatrix, DVector};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
-use std::vec;
-use tracing::info;
+
 
 pub trait SCF {
     type BasisType: AOBasis;
