@@ -8,4 +8,3 @@ ndarray = "0.15.4"
 ndarray-linalg = "0.16.0"
 basis = { path = "../basis" }
 serde = { version = "1.0.215", features = ["derive"] }
-serde_ymal = "1.0.134"

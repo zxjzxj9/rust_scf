@@ -183,7 +183,7 @@ fn main() -> Result<()> {
     let config_file_content = fs::read_to_string(&args.config_file)
         .wrap_err_with(|| format!("Unable to read configuration file: {}", args.config_file))?;
 
-    let mut config: Config = serde_yaml::from_str(&config_file_content)
+    let mut config: Config = serde_yml::from_str(&config_file_content)
         .wrap_err("Failed to parse configuration file")?;
 
     // Apply defaults to missing values but don't overwrite existing ones
