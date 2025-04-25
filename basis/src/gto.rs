@@ -272,7 +272,7 @@ impl GTO {
                 Direction::X => PCx * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
                 Direction::Y => PCy * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
                 Direction::Z => PCz * GTO::hermite_coulomb(0, 0, 0, n + 1, p, PCx, PCy, PCz, RPC),
-                _ => panic!("Invalid direction: use 'x', 'y', or 'z'"),
+                // _ => panic!("Invalid direction: use 'x', 'y', or 'z'"),
             };
         }
 
