@@ -13,18 +13,18 @@ use tracing::{info, span, Level};
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
-    pub(crate) num_atoms: usize,
-    pub(crate) num_basis: usize,
-    pub(crate) ao_basis: Vec<Arc<Mutex<B>>>,
+    pub num_atoms: usize,
+    pub num_basis: usize,
+    pub ao_basis: Vec<Arc<Mutex<B>>>,
     mo_basis: Vec<Arc<B::BasisType>>,
-    pub(crate) coords: Vec<Vector3<f64>>,
-    pub(crate) elems: Vec<Element>,
-    pub(crate) coeffs: DMatrix<f64>,
-    pub(crate) integral_matrix: DMatrix<f64>,
+    pub coords: Vec<Vector3<f64>>,
+    pub elems: Vec<Element>,
+    pub coeffs: DMatrix<f64>,
+    pub integral_matrix: DMatrix<f64>,
     pub density_mixing: f64,
     density_matrix: DMatrix<f64>,
-    pub(crate) fock_matrix: DMatrix<f64>,
-    pub(crate) overlap_matrix: DMatrix<f64>,
+    pub fock_matrix: DMatrix<f64>,
+    pub overlap_matrix: DMatrix<f64>,
     pub e_level: DVector<f64>,
     pub max_cycle: usize,
 }
