@@ -157,8 +157,10 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
         for i in 0..n {
             let a_old = self.forces[i] / self.masses[i];
             let a_new = new_forces[i] / self.masses[i];
+
+            let v_old = self.velocities[i];
             // v(t+dt) = v(t+dt/2) + (a_old+a_new)*dt/2 - xi*v*dt
-            self.velocities[i] += (a_old + a_new) * half_dt - self.velocities[i]  * self.xi * dt;
+            self.velocities[i] = v_old + (a_old + a_new) * half_dt - v_old * self.xi * dt;
         }
 
         // 8) Update thermostat position eta
