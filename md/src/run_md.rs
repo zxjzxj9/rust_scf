@@ -70,7 +70,7 @@ pub struct NoseHooverVerlet<F: ForceProvider> {
     pub velocities: Vec<Vector3<f64>>,
     pub masses: Vec<f64>,
     pub forces: Vec<Vector3<f64>>,
-    provider: F,
+    pub(crate) provider: F,
 
     // Thermostat variables
     xi: f64,       // friction coefficient
@@ -80,6 +80,7 @@ pub struct NoseHooverVerlet<F: ForceProvider> {
     dof: usize,    // degrees of freedom for kinetic energy
     k_B: f64,      // Boltzmann constant
 }
+
 
 impl<F: ForceProvider> NoseHooverVerlet<F> {
     /// Create a new Nose-Hoover integrator in NVT ensemble

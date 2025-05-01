@@ -4,6 +4,7 @@ mod lj_pot;
 use nalgebra::Vector3;
 use run_md::{Integrator, NoseHooverVerlet};
 use lj_pot::LennardJones;
+use crate::run_md::ForceProvider;
 
 fn main() {
     // fcc lattice parameters
@@ -51,7 +52,7 @@ fn main() {
     for step in 0..steps {
         integrator.step(dt);
         if step % 100 == 0 {
-            let e0 = integrator.force_provider().compute_forces(&integrator.positions)[0];
+            let e0 = integrator.provider.compute_forces(&integrator.positions)[0];
             println!("Step {}: pos[0]={:?}", step, integrator.positions[0]);
         }
     }
