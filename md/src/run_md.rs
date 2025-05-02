@@ -2,6 +2,42 @@ extern crate nalgebra as na;
 
 use na::Vector3;
 
+use rand::thread_rng;
+use rand_distr::{Distribution, Normal};
+
+/// Initialize velocities for `n_atoms` with masses `masses`
+/// at temperature `T` (with Boltzmann constant `k_B`),
+/// subtracting the center‑of‑mass velocity.
+///
+/// Returns a Vec<Vector3<f64>> of velocities.
+fn init_velocities(
+    masses: &[f64],
+    T: f64,
+    k_B: f64,
+) -> Vec<Vector3<f64>> {
+    let mut rng = thread_rng();
+    let n = masses.len();
+    let mut velocities = Vec::with_capacity(n);
+
+    // draw each component from N(0, sigma²)
+    for &m in masses {
+        let sigma = (k_B * T / m).sqrt();
+        let dist = Normal::new(0.0, sigma).unwrap();
+        let v = Vector3::new(
+            dist.sample(&mut rng),
+            dist.sample(&mut rng),
+            dist.sample(&mut rng),
+        );
+        velocities.push(v);
+    }
+
+    // remove center‑of‑mass drift
+    let v_cm = velocities.iter().sum::<Vector3<f64>>() / n as f64;
+    velocities.iter_mut().for_each(|v| *v -= v_cm);
+
+    velocities
+}
+
 /// Trait for providing forces given particle positions
 pub trait ForceProvider {
     /// Given a slice of positions, returns a Vec of forces of equal length
@@ -98,6 +134,9 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
     ) -> Self {
         let dof = positions.len() * 3;
         let forces = provider.compute_forces(&positions);
+
+
+
         NoseHooverVerlet { positions,
             velocities,
             masses,
