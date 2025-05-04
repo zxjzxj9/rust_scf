@@ -39,11 +39,16 @@ impl ForceProvider for LennardJones {
                 let inv_r6 = inv_r2 * inv_r2 * inv_r2;
                 let f_mag = 48.0 * self.epsilon * inv_r6 * (inv_r6 - 0.5) / r2;
                 let fij = rij * f_mag;
+                
+                // print fij for debug
+                // println!("fij: {:?}", fij.norm());
 
                 forces[i] += fij;
                 forces[j] -= fij;
             }
         }
+        // exit for debug
+        println!("#########");
 
         forces
     }
