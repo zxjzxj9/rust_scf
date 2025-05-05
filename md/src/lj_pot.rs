@@ -32,14 +32,16 @@ impl ForceProvider for LennardJones {
         for i in 0..n {
             for j in (i + 1)..n {
                 let rij = self.minimum_image(positions[i] - positions[j]);
-                let r2 = rij.dot(&rij);
+                // let r2 = rij.dot(&rij);
+                let r2 = rij.norm_squared();
+                
                 if r2 == 0.0 { continue; }
 
                 let inv_r2 = sigma2 / r2;
                 let inv_r6 = inv_r2 * inv_r2 * inv_r2;
                 let f_mag = 48.0 * self.epsilon * inv_r6 * (inv_r6 - 0.5) / r2;
                 let fij = rij * f_mag;
-                
+
                 // print fij for debug
                 // println!("fij: {:?}", fij.norm());
 
