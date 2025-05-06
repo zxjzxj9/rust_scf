@@ -50,7 +50,7 @@ impl ForceProvider for LennardJones {
             }
         }
         // exit for debug
-        println!("#########");
+        // println!("#########");
 
         forces
     }
