@@ -29,28 +29,35 @@ impl ForceProvider for LennardJones {
         let mut forces = vec![Vector3::zeros(); n];
         let sigma2 = self.sigma * self.sigma;
 
+        // cutoff at 2.5 sigma
+        let r_cut = 2.5 * self.sigma;
+        let r_cut2 = r_cut * r_cut;
+
+        // prevent singularity for r^2 < min_r2
+        let min_r2 = 0.01 * sigma2;
+
         for i in 0..n {
             for j in (i + 1)..n {
                 let rij = self.minimum_image(positions[i] - positions[j]);
-                // let r2 = rij.dot(&rij);
-                let r2 = rij.norm_squared();
-                
-                if r2 == 0.0 { continue; }
+                let mut r2 = rij.norm_squared();
+
+                // skip outside cutoff, clamp below min_r2
+                if r2 > r_cut2 {
+                    continue;
+                }
+                if r2 < min_r2 {
+                    r2 = min_r2;
+                }
 
                 let inv_r2 = sigma2 / r2;
                 let inv_r6 = inv_r2 * inv_r2 * inv_r2;
                 let f_mag = 48.0 * self.epsilon * inv_r6 * (inv_r6 - 0.5) / r2;
                 let fij = rij * f_mag;
 
-                // print fij for debug
-                // println!("fij: {:?}", fij.norm());
-
                 forces[i] += fij;
                 forces[j] -= fij;
             }
         }
-        // exit for debug
-        // println!("#########");
 
         forces
     }
