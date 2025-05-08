@@ -80,6 +80,8 @@ impl<F: ForceProvider> Integrator for VelocityVerlet<F> {
         // 1. Update positions
         for i in 0..n {
             let accel = self.forces[i] / self.masses[i];
+            // print max accelerate abs component
+            println!("max accel: {:?}", accel.abs());
             let disp = self.velocities[i] * dt + accel * (0.5 * dt * dt);
             self.positions[i] += disp;
         }
