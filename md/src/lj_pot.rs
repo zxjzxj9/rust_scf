@@ -8,6 +8,12 @@ pub struct LennardJones {
     pub box_lengths: Vector3<f64>,
 }
 
+fn lj_potential(&self, r2: f64) -> f64 {
+    let inv_r2 = self.sigma*self.sigma/r2;
+    let inv_r6 = inv_r2*inv_r2*inv_r2;
+    4.0*self.epsilon*(inv_r6*inv_r6 - inv_r6)
+}
+
 impl LennardJones {
     pub fn new(epsilon: f64, sigma: f64, box_lengths: Vector3<f64>) -> Self {
         LennardJones { epsilon, sigma, box_lengths }
