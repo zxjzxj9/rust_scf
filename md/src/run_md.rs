@@ -175,8 +175,8 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
             let accel = self.forces[i] / self.masses[i];
             let v = &self.velocities[i];
             // v(t+dt/2) = v(t) + (a - xi*v)*dt/2
-            self.velocities[i] = (v + accel * half_dt) * (1.0 - self.xi * half_dt);
-        }
+            // self.velocities[i] = (v + accel * half_dt) * (1.0 - self.xi * half_dt);
+            self.velocities[i] = self.velocities[i] * (1.0 - self.xi * half_dt) + a_new * half_dt;        }
 
         // 4) Full-update positions
         for i in 0..n {
