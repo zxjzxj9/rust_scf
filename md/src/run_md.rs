@@ -170,13 +170,12 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
         let xi_dot = (2.0 * kinetic - gkT) / self.Q;
         self.xi += xi_dot * half_dt;
 
-        // 3) Half-update velocities
+        // 3) Half-update velocities using current forces and xi
         for i in 0..n {
             let accel = self.forces[i] / self.masses[i];
-            let v = &self.velocities[i];
-            // v(t+dt/2) = v(t) + (a - xi*v)*dt/2
-            // self.velocities[i] = (v + accel * half_dt) * (1.0 - self.xi * half_dt);
-            self.velocities[i] = self.velocities[i] * (1.0 - self.xi * half_dt) + a_new * half_dt;        }
+            // Apply thermostat damping and acceleration in first half-step
+            self.velocities[i] = self.velocities[i] * (1.0 - self.xi * half_dt) + accel * half_dt;
+        }
 
         // 4) Full-update positions
         for i in 0..n {
@@ -186,7 +185,7 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
         // 5) Recompute forces
         let new_forces = self.provider.compute_forces(&self.positions);
 
-        // 6) Compute new kinetic energy
+        // 6) Compute new kinetic energy and update xi again
         kinetic = 0.0;
         for i in 0..n {
             let v = &self.velocities[i];
@@ -197,12 +196,9 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
 
         // 7) Second half-update velocities
         for i in 0..n {
-            let a_old = self.forces[i] / self.masses[i];
             let a_new = new_forces[i] / self.masses[i];
-
-            let v_old = self.velocities[i];
-            // v(t+dt) = v(t+dt/2) + (a_old+a_new)*dt/2 - xi*v*dt
-            self.velocities[i] = v_old + (a_old + a_new) * half_dt - v_old * self.xi * dt;
+            // Correct implementation: apply thermostat damping and new acceleration
+            self.velocities[i] = self.velocities[i] * (1.0 - self.xi * half_dt) + a_new * half_dt;
         }
 
         // 8) Update thermostat position eta
