@@ -13,12 +13,18 @@ fn main() {
     let basis = [
         Vector3::new(0.0, 0.0, 0.0),
         Vector3::new(0.5, 0.0, 0.0),
-        Vector3::new(0.0, 0.5, 0.0),
-        Vector3::new(0.0, 0.0, 0.5),
-        Vector3::new(0.5, 0.5, 0.0),
-        Vector3::new(0.5, 0.0, 0.5),
-        Vector3::new(0.0, 0.5, 0.5),
+        // Vector3::new(0.0, 0.5, 0.0),
+        // Vector3::new(0.0, 0.0, 0.5),
+        // Vector3::new(0.5, 0.5, 0.0),
+        // Vector3::new(0.5, 0.0, 0.5),
+        // Vector3::new(0.0, 0.5, 0.5),
     ];
+
+    let box_lengths = Vector3::new(
+        n_cells as f64 * a,
+        n_cells as f64 * a,
+        n_cells as f64 * a,
+    );
 
     // build positions
     let mut positions = Vec::new();
@@ -54,7 +60,16 @@ fn main() {
     let steps = 10_000;
     for step in 0..steps {
         integrator.step(dt);
-        if step % 100 == 0 {
+
+        // apply periodic boundary conditions
+        for pos in &mut integrator.positions {
+            for k in 0..3 {
+                let L = box_lengths[k];
+                pos[k] -= L * (pos[k] / L).floor();
+            }
+        }
+
+        if step % 1 == 0 {
             let e0 = integrator.provider.compute_forces(&integrator.positions)[0];
             println!("Step {}: pos[0]={:?}", step, integrator.positions[0]);
         }
