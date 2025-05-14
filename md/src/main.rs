@@ -9,7 +9,7 @@ use crate::run_md::ForceProvider;
 fn main() {
     // fcc lattice parameters
     let n_cells = 4;
-    let a = 1.0;
+    let a = 5.0;
     let basis = [
         Vector3::new(0.0, 0.0, 0.0),
         Vector3::new(0.5, 0.0, 0.0),
