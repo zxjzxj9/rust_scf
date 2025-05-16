@@ -51,7 +51,7 @@ fn main() {
         velocities,
         masses,
         lj,
-        /* Q */ 100.0,
+        /* Q */ 10.0,
         /* T */ 1.0,
         /* k_B */ 1.0,
     );
@@ -64,7 +64,7 @@ fn main() {
         // apply periodic boundary conditions
         for pos in &mut integrator.positions {
             for k in 0..3 {
-                let L = box_lengths[k];
+                let L = a;
                 pos[k] -= L * (pos[k] / L).floor();
             }
         }
