@@ -47,13 +47,13 @@ impl ForceProvider for LennardJones {
                 let rij = self.minimum_image(positions[i] - positions[j]);
                 let mut r2 = rij.norm_squared();
 
-                // // skip outside cutoff, clamp below min_r2
-                // if r2 > r_cut2 {
-                //     continue;
-                // }
-                // if r2 < min_r2 {
-                //     r2 = min_r2;
-                // }
+                // skip outside cutoff, clamp below min_r2
+                if r2 > r_cut2 {
+                    continue;
+                }
+                if r2 < min_r2 {
+                    r2 = min_r2;
+                }
 
                 let inv_r2 = sigma2 / r2;
                 let inv_r6 = inv_r2 * inv_r2 * inv_r2;
