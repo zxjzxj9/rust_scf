@@ -14,10 +14,10 @@ fn main() {
         Vector3::new(0.0, 0.0, 0.0),
         Vector3::new(0.5, 0.0, 0.0),
         Vector3::new(0.0, 0.5, 0.0),
-        // Vector3::new(0.0, 0.0, 0.5),
-        // Vector3::new(0.5, 0.5, 0.0),
-        // Vector3::new(0.5, 0.0, 0.5),
-        // Vector3::new(0.0, 0.5, 0.5),
+        Vector3::new(0.0, 0.0, 0.5),
+        Vector3::new(0.5, 0.5, 0.0),
+        Vector3::new(0.5, 0.0, 0.5),
+        Vector3::new(0.0, 0.5, 0.5),
     ];
 
     let box_lengths = Vector3::new(
