@@ -48,6 +48,7 @@ pub trait ForceProvider {
 pub trait Integrator {
     /// Advance the state by dt
     fn step(&mut self, dt: f64);
+    fn temperature(&self) -> f64;
 }
 
 /// Velocity Verlet integrator for molecular dynamics
@@ -99,6 +100,17 @@ impl<F: ForceProvider> Integrator for VelocityVerlet<F> {
 
         // 4. Store new forces for next step
         self.forces = new_forces;
+    }
+
+    fn temperature(&self) -> f64 {
+        let mut kinetic = 0.0;
+        for i in 0..self.positions.len() {
+            let v = &self.velocities[i];
+            kinetic += 0.5 * self.masses[i] * v.dot(&v);
+        }
+        let dof = self.positions.len() * 3;
+        let k_B = 1.0; // Boltzmann constant
+        (2.0 * kinetic) / (dof as f64 * k_B)
     }
 }
 
@@ -206,6 +218,17 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
 
         // 9) Store new forces
         self.forces = new_forces;
+    }
+
+    fn temperature(&self) -> f64 {
+        let mut kinetic = 0.0;
+        for i in 0..self.positions.len() {
+            let v = &self.velocities[i];
+            kinetic += 0.5 * self.masses[i] * v.dot(&v);
+        }
+        let dof = self.positions.len() * 3;
+        let k_B = 1.0; // Boltzmann constant
+        (2.0 * kinetic) / (dof as f64 * k_B)
     }
 }
 

@@ -71,7 +71,8 @@ fn main() {
 
         if step % 1 == 0 {
             let e0 = integrator.provider.compute_forces(&integrator.positions)[0];
-            println!("Step {}: pos[0]={:?}, force[0]={:?}", step, integrator.positions[0], e0);
+            println!("Step {}: temperature={:?}", step, integrator.temperature());
+            
         }
     }
 }
