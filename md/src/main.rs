@@ -40,7 +40,19 @@ fn main() {
     }
 
     let n_atoms = positions.len();
-    let velocities = vec![Vector3::zeros(); n_atoms];
+    let mut velocities = vec![Vector3::zeros(); n_atoms];
+    let temperature = 1.0;
+    
+    // thermalize velocities
+    let mut rng = rand::thread_rng();
+    for i in 0..n_atoms {
+        let v = Vector3::new(
+            rand::random::<f64>() * 2.0 - 1.0,
+            rand::random::<f64>() * 2.0 - 1.0,
+            rand::random::<f64>() * 2.0 - 1.0,
+        );
+        velocities[i] = v.normalize() * (temperature as f64).sqrt();
+    }
     let masses = vec![1.0; n_atoms];
     let box_lengths = Vector3::new(n_cells as f64 * a, n_cells as f64 * a, n_cells as f64 * a);
 
@@ -51,8 +63,8 @@ fn main() {
         velocities,
         masses,
         lj,
-        /* Q */ 10.0,
-        /* T */ 1.0,
+        /* Q */ 1.0,
+        temperature ,
         /* k_B */ 1.0,
     );
 
