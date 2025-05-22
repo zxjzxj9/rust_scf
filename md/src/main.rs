@@ -2,6 +2,8 @@ mod run_md;
 mod lj_pot;
 
 use nalgebra::Vector3;
+use rand::Rng;
+use rand_distr::StandardNormal;
 use run_md::{Integrator, NoseHooverVerlet};
 use lj_pot::LennardJones;
 use crate::run_md::ForceProvider;
@@ -43,16 +45,17 @@ fn main() {
     let mut velocities = vec![Vector3::zeros(); n_atoms];
     let temperature = 1.0;
     
-    // thermalize velocities
+    // thermalize velocities, using normal distribution
     let mut rng = rand::thread_rng();
     for i in 0..n_atoms {
         let v = Vector3::new(
-            rand::random::<f64>() * 2.0 - 1.0,
-            rand::random::<f64>() * 2.0 - 1.0,
-            rand::random::<f64>() * 2.0 - 1.0,
+            rng.sample(StandardNormal),
+            rng.sample(StandardNormal),
+            rng.sample(StandardNormal),
         );
-        velocities[i] = v.normalize() * (temperature as f64).sqrt();
+        velocities[i] = v * (temperature as f64).sqrt();
     }
+    
     let masses = vec![1.0; n_atoms];
     let box_lengths = Vector3::new(n_cells as f64 * a, n_cells as f64 * a, n_cells as f64 * a);
 
@@ -81,7 +84,7 @@ fn main() {
             }
         }
 
-        if step % 100 == 0 {
+        if step % 1 == 0 {
             let e0 = integrator.provider.compute_forces(&integrator.positions)[0];
             println!("Step {}: temperature={:?}", step, integrator.temperature());
             
