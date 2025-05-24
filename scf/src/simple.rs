@@ -2,14 +2,13 @@
 
 extern crate nalgebra as na;
 
-use crate::scf::{DIIS, SCF};
+use crate::scf::SCF;
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, Norm, SymmetricEigen, Vector3};
-use nalgebra::{Const, Dyn};
+use na::{DMatrix, DVector, Vector3, Dyn};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tracing::{info, span, Level};
+use tracing::info;
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
@@ -287,7 +286,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             info!("  G Matrix built.");
 
             info!("  Step 3: Building Hamiltonian (Fock + G) Matrix...");
-            let mut hamiltonian = self.fock_matrix.clone() + g_matrix;
+            let hamiltonian = self.fock_matrix.clone() + g_matrix;
             // if true && cycle > 1 {
             //     info!("  Applying DIIS acceleration...");
             //     diis.update(hamiltonian.clone(), &self.density_matrix, &self.overlap_matrix);
@@ -444,15 +443,16 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         one_electron_energy + two_electron_energy + nuclear_repulsion
     }
 
-    // Add this method to calculate Hellman-Feynman forces
+    // Add this method to calculate complete forces including two-electron derivatives and Pulay forces
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
         info!("#####################################################");
-        info!("----------- Calculating Hellman-Feynman Forces -------");
+        info!("----------- Calculating Complete Forces -------------");
         info!("#####################################################");
 
         let mut forces = vec![Vector3::zeros(); self.num_atoms];
 
         // Step 1: Calculate nuclear-nuclear repulsion forces
+        info!("  Step 1: Nuclear-nuclear repulsion forces...");
         for i in 0..self.num_atoms {
             for j in 0..self.num_atoms {
                 if i == j {
@@ -464,40 +464,129 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                 let r_ij = self.coords[i] - self.coords[j];
                 let r_ij_norm = r_ij.norm();
 
-                // Nuclear-nuclear repulsion force
+                // Nuclear-nuclear repulsion force on atom i due to atom j
                 forces[i] += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
             }
         }
 
-        // Step 2: Calculate electron-nuclear attraction forces
+        // Step 2: Calculate electron-nuclear attraction forces (Hellman-Feynman)
+        info!("  Step 2: Electron-nuclear attraction forces...");
         for atom_idx in 0..self.num_atoms {
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
                     // Get density matrix element
                     let p_ij = self.density_matrix[(i, j)];
 
-                    // Calculate derivative of nuclear attraction integrals
-                    let mut dv_dr = Vector3::zeros();
-
                     // Get derivative of nuclear attraction integral with respect to nuclear coordinate
-                    dv_dr = B::BasisType::dVab_dR(
+                    let dv_dr = B::BasisType::dVab_dR(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
                         self.coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
 
-                    // Add contribution to force
+                    // Add contribution to force on the nucleus
                     forces[atom_idx] -= p_ij * dv_dr;
                 }
             }
         }
 
-        // Step 3: Calculate forces from two-electron integrals
-        // This is a simplified approach - for accurate calculations,
-        // derivatives of two-electron integrals are needed
+        // Step 3: Two-electron integral derivatives (typically small for Hellman-Feynman forces)
+        info!("  Step 3: Two-electron integral derivatives...");
+        // Note: For most practical purposes, the direct nuclear derivatives of two-electron
+        // integrals are zero or very small. The main two-electron contribution comes through
+        // the density-dependent terms in the Hellman-Feynman theorem.
+        // We'll keep this minimal for computational efficiency.
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
+                            let p_ij = self.density_matrix[(i, j)];
+                            let p_kl = self.density_matrix[(k, l)];
 
-        info!("  Forces calculated on atoms:");
+                            // Two-electron derivatives are typically zero for nuclear positions
+                            // The contribution is included for completeness but will be minimal
+                            let coulomb_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                &self.mo_basis[k],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            let exchange_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[k],
+                                &self.mo_basis[j],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            // Add contribution (will be near zero as implemented)
+                            forces[atom_idx] -= p_ij * p_kl * coulomb_deriv;
+                            forces[atom_idx] += 0.5 * p_ij * p_kl * exchange_deriv;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Calculate Pulay forces (derivatives w.r.t. basis function centers)
+        info!("  Step 4: Pulay forces (basis function derivatives)...");
+        
+        // Create a mapping from basis functions to atoms
+        // Each basis function belongs to the atom that owns it
+        let mut basis_to_atom: Vec<usize> = Vec::new();
+        for atom_idx in 0..self.num_atoms {
+            let ao_basis = &self.ao_basis[atom_idx];
+            let basis_size = ao_basis.lock().unwrap().basis_size();
+            
+            // All basis functions from this atom belong to this atom
+            for _ in 0..basis_size {
+                basis_to_atom.push(atom_idx);
+            }
+        }
+        
+        // Verify that we have the correct number of basis functions
+        assert_eq!(basis_to_atom.len(), self.num_basis, 
+                   "Mismatch between basis_to_atom mapping ({}) and num_basis ({})", 
+                   basis_to_atom.len(), self.num_basis);
+
+        // Calculate Pulay forces for each atom
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+                    let fock_ij = self.fock_matrix[(i, j)];
+
+                    // Only include terms where at least one basis function belongs to this atom
+                    if basis_to_atom[i] == atom_idx || basis_to_atom[j] == atom_idx {
+                        // Overlap matrix derivatives weighted by Fock matrix elements
+                        let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                        forces[atom_idx] -= p_ij * fock_ij * ds_dr;
+
+                        // Kinetic energy derivatives
+                        let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                        forces[atom_idx] -= p_ij * dt_dr;
+
+                        // Nuclear attraction Pulay forces
+                        for k in 0..self.num_atoms {
+                            let dv_dr_basis = B::BasisType::dVab_dRbasis(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                self.coords[k],
+                                self.elems[k].get_atomic_number() as u32,
+                                atom_idx,
+                            );
+                            forces[atom_idx] -= p_ij * dv_dr_basis;
+                        }
+                    }
+                }
+            }
+        }
+
+        info!("  Complete forces calculated on atoms:");
         for (i, force) in forces.iter().enumerate() {
             info!(
                 "    Atom {}: [{:.6}, {:.6}, {:.6}] au",

@@ -23,6 +23,15 @@ pub trait Basis {
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64>;
 
     fn JKabcd(a: &Self, b: &Self, c: &Self, d: &Self) -> f64;
+    
+    // Add derivatives for two-electron integrals w.r.t. nuclear positions
+    fn dJKabcd_dR(a: &Self, b: &Self, c: &Self, d: &Self, R: Vector3<f64>) -> Vector3<f64>;
+    
+    // Add derivatives for overlap and kinetic integrals w.r.t. basis function centers (Pulay forces)
+    fn dSab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64>;
+    fn dTab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64>;
+    fn dVab_dRbasis(a: &Self, b: &Self, R: Vector3<f64>, Z: u32, atom_idx: usize) -> Vector3<f64>;
+    fn dJKabcd_dRbasis(a: &Self, b: &Self, c: &Self, d: &Self, atom_idx: usize) -> Vector3<f64>;
 }
 
 // define a trait for atomic orbital basis sets

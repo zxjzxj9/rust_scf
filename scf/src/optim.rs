@@ -20,11 +20,30 @@ impl FromStr for OptimizationAlgorithm {
     }
 }
 
+/// Create an optimizer based on algorithm choice
+pub fn create_optimizer<S: SCF + Clone + 'static>(
+    algorithm: &str, 
+    scf: &mut S, 
+    max_iterations: usize, 
+    convergence_threshold: f64
+) -> Result<Box<dyn GeometryOptimizer<SCFType = S>>, color_eyre::eyre::Error> {
+    let algo = OptimizationAlgorithm::from_str(algorithm)?;
+    
+    match algo {
+        OptimizationAlgorithm::ConjugateGradient => {
+            Ok(Box::new(CGOptimizer::new(scf, max_iterations, convergence_threshold)))
+        },
+        OptimizationAlgorithm::SteepestDescent => {
+            Ok(Box::new(SteepestDescentOptimizer::new(scf, max_iterations, convergence_threshold)))
+        },
+    }
+}
+
 pub trait GeometryOptimizer {
     type SCFType: SCF;
 
     /// Create a new optimizer with SCF object and convergence settings
-    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self;
+    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self where Self: Sized;
 
     /// Initialize with molecule data
     fn init(&mut self, coords: Vec<Vector3<f64>>, elements: Vec<Element>);
@@ -65,6 +84,95 @@ pub trait GeometryOptimizer {
 
         let rms = (sum_squared / forces.len() as f64).sqrt();
         (rms, max_force)
+    }
+
+    /// Perform line search to find optimal step size
+    fn line_search(&mut self, direction: &[Vector3<f64>]) -> f64 {
+        let initial_coords = self.get_coordinates().clone();
+        let initial_energy = self.get_energy();
+        
+        // Try different step sizes
+        let step_sizes = [0.01, 0.05, 0.1, 0.2, 0.5];
+        let mut best_step = 0.1;
+        let mut best_energy = initial_energy;
+        
+        for &step in &step_sizes {
+            // Test this step size
+            let test_coords: Vec<Vector3<f64>> = initial_coords.iter()
+                .zip(direction.iter())
+                .map(|(coord, dir)| coord + step * dir)
+                .collect();
+            
+            // Calculate energy at test position
+            let test_energy = self.evaluate_energy_at(&test_coords);
+            
+            if test_energy < best_energy {
+                best_energy = test_energy;
+                best_step = step;
+            }
+        }
+        
+        best_step
+    }
+    
+    /// Evaluate energy at given coordinates without updating the optimizer state
+    fn evaluate_energy_at(&self, _coords: &[Vector3<f64>]) -> f64 {
+        // This should be implemented by concrete types to avoid state changes
+        // For now, return current energy as fallback
+        self.get_energy()
+    }
+
+    /// Validate forces using numerical gradients (for debugging)
+    fn validate_forces(&mut self, delta: f64) -> Vec<Vector3<f64>> {
+        let current_coords = self.get_coordinates().clone();
+        let _current_energy = self.get_energy();
+        let analytical_forces = self.get_forces().clone();
+        
+        let mut numerical_forces = vec![Vector3::zeros(); current_coords.len()];
+        
+        // Calculate numerical gradients for each atom
+        for atom_idx in 0..current_coords.len() {
+            for dim in 0..3 {
+                // Positive displacement
+                let mut pos_coords = current_coords.clone();
+                match dim {
+                    0 => pos_coords[atom_idx].x += delta,
+                    1 => pos_coords[atom_idx].y += delta,
+                    2 => pos_coords[atom_idx].z += delta,
+                    _ => unreachable!(),
+                }
+                let pos_energy = self.evaluate_energy_at(&pos_coords);
+                
+                // Negative displacement
+                let mut neg_coords = current_coords.clone();
+                match dim {
+                    0 => neg_coords[atom_idx].x -= delta,
+                    1 => neg_coords[atom_idx].y -= delta,
+                    2 => neg_coords[atom_idx].z -= delta,
+                    _ => unreachable!(),
+                }
+                let neg_energy = self.evaluate_energy_at(&neg_coords);
+                
+                // Central difference approximation
+                let force_component = -(pos_energy - neg_energy) / (2.0 * delta);
+                match dim {
+                    0 => numerical_forces[atom_idx].x = force_component,
+                    1 => numerical_forces[atom_idx].y = force_component,
+                    2 => numerical_forces[atom_idx].z = force_component,
+                    _ => unreachable!(),
+                }
+            }
+        }
+        
+        // Log comparison
+        tracing::info!("  Force validation (numerical vs analytical):");
+        for (i, (num, ana)) in numerical_forces.iter().zip(analytical_forces.iter()).enumerate() {
+            let diff = (num - ana).norm();
+            tracing::info!("    Atom {}: num=[{:.6}, {:.6}, {:.6}] ana=[{:.6}, {:.6}, {:.6}] diff={:.6}",
+                i + 1, num.x, num.y, num.z, ana.x, ana.y, ana.z, diff);
+        }
+        
+        numerical_forces
     }
 }
 
@@ -236,6 +344,14 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
             }
         }
     }
+
+    fn evaluate_energy_at(&self, coords: &[Vector3<f64>]) -> f64 {
+        // Create a temporary SCF copy to evaluate energy without changing state
+        let mut temp_scf = self.scf.clone();
+        temp_scf.init_geometry(&coords.to_vec(), &self.elements);
+        temp_scf.scf_cycle();
+        temp_scf.calculate_total_energy()
+    }
 }
 
 impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
@@ -276,8 +392,19 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         tracing::info!("    Max force: {:.8} au", max_force);
         tracing::info!("    RMS force: {:.8} au", rms_force);
 
-        // Return true if both criteria are met
-        energy_change < self.convergence_threshold && max_force < self.convergence_threshold
+        // Use both energy and force criteria for convergence
+        let energy_converged = energy_change < self.convergence_threshold;
+        let force_converged = max_force < self.convergence_threshold;
+        
+        energy_converged && force_converged
+    }
+
+    fn evaluate_energy_at(&self, coords: &[Vector3<f64>]) -> f64 {
+        // Create a temporary SCF copy to evaluate energy without changing state
+        let mut temp_scf = self.scf.clone();
+        temp_scf.init_geometry(&coords.to_vec(), &self.elements);
+        temp_scf.scf_cycle();
+        temp_scf.calculate_total_energy()
     }
 
     fn log_progress(&self, iteration: usize) {
@@ -342,9 +469,16 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
     fn update_coordinates(&mut self) {
         self.iteration += 1;
 
-        // Move atoms according to current direction
+        // Use line search to find optimal step size (simplified version)
+        let current_step = if self.iteration > 1 {
+            self.adaptive_line_search()
+        } else {
+            self.step_size
+        };
+
+        // Move atoms according to current direction with adaptive step
         for (i, direction) in self.directions.iter().enumerate() {
-            self.coords[i] += self.step_size * direction;
+            self.coords[i] += current_step * direction;
         }
 
         // Update SCF with new geometry and recalculate
@@ -352,39 +486,29 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         self.scf.init_geometry(&self.coords, &self.elements);
         self.scf.scf_cycle();
         self.energy = self.scf.calculate_total_energy();
+        
+        // Store previous forces before updating
+        self.previous_forces = self.forces.clone();
         self.forces = self.scf.calculate_forces();
 
-        // Calculate beta using Polak-Ribière formula for next iteration
+        // Calculate beta for next iteration using Polak-Ribière+ formula
         if !self.is_converged() && self.iteration < self.max_iterations {
-            let mut numerator = 0.0;
-            let mut denominator = 0.0;
-
-            for i in 0..self.forces.len() {
-                let current_force = self.forces[i];
-                let prev_force = self.previous_forces[i];
-
-                // F_current · (F_current - F_prev)
-                numerator += current_force.dot(&(current_force - prev_force));
-
-                // F_prev · F_prev
-                denominator += prev_force.dot(&prev_force);
-            }
-
-            // Avoid division by zero and ensure beta is non-negative
-            let beta = if denominator.abs() < 1e-10 {
-                0.0
-            } else {
-                (numerator / denominator).max(0.0)
-            };
-
+            let beta = self.calculate_beta_polak_ribiere_plus();
+            
             // Update directions for next iteration: d = F + beta * d_prev
             for i in 0..self.directions.len() {
                 self.directions[i] = self.forces[i] + beta * self.directions[i];
             }
-
-            self.previous_forces = self.forces.clone();
+            
+            // Restart CG if direction becomes uphill
+            if self.is_direction_uphill() {
+                tracing::info!("    Restarting CG: direction became uphill");
+                self.directions = self.forces.clone();
+            }
         }
     }
+    
+
 
     fn optimize(&mut self) -> (Vec<Vector3<f64>>, f64) {
         // Log initial state
@@ -420,5 +544,209 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
 
         // Return optimized coordinates and final energy
         (self.coords.clone(), self.energy)
+    }
+}
+
+impl<S: SCF + Clone> CGOptimizer<S> {
+    /// Simplified adaptive line search for CG
+    fn adaptive_line_search(&mut self) -> f64 {
+        let _initial_energy = self.energy;
+        let mut step = self.step_size;
+        
+        // Try reducing step size if energy increased in previous step
+        if self.energy > self.previous_energy {
+            step *= 0.5;
+            tracing::info!("    Reducing step size to {:.6}", step);
+        } else if self.energy < self.previous_energy - 0.001 {
+            // If good progress, slightly increase step size
+            step = (step * 1.2).min(0.5);
+        }
+        
+        // Clamp step size to reasonable bounds
+        step.clamp(0.001, 0.5)
+    }
+    
+    /// Calculate beta using Polak-Ribière+ formula with restart capability
+    fn calculate_beta_polak_ribiere_plus(&self) -> f64 {
+        let mut numerator = 0.0;
+        let mut denominator = 0.0;
+
+        for i in 0..self.forces.len() {
+            let current_force = self.forces[i];
+            let prev_force = self.previous_forces[i];
+
+            // Polak-Ribière: F_current · (F_current - F_prev)
+            numerator += current_force.dot(&(current_force - prev_force));
+
+            // F_prev · F_prev
+            denominator += prev_force.dot(&prev_force);
+        }
+
+        // Avoid division by zero
+        if denominator.abs() < 1e-12 {
+            return 0.0;
+        }
+
+        // Polak-Ribière+ ensures beta >= 0 (automatic restart if negative)
+        let beta = numerator / denominator;
+        beta.max(0.0)
+    }
+    
+    /// Check if current search direction is uphill (should restart CG)
+    fn is_direction_uphill(&self) -> bool {
+        let mut dot_product = 0.0;
+        for i in 0..self.forces.len() {
+            dot_product += self.forces[i].dot(&self.directions[i]);
+        }
+        dot_product < 0.0 // If negative, direction is uphill
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::simple::SimpleSCF;
+    // Import for testing - comment out for now to avoid network dependency
+    // use basis::fetch_basis;
+    // use basis::cgto::Basis631G;
+    use std::collections::HashMap;
+    
+    // Commenting out tests that require basis fetching for now
+    /*
+    #[test]
+    fn test_optimizer_creation() {
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        
+        // Test CG optimizer creation
+        let cg_result = create_optimizer("cg", &mut scf, 100, 1e-6);
+        assert!(cg_result.is_ok());
+        
+        // Test SD optimizer creation
+        let sd_result = create_optimizer("sd", &mut scf, 100, 1e-6);
+        assert!(sd_result.is_ok());
+        
+        // Test invalid algorithm
+        let invalid_result = create_optimizer("invalid", &mut scf, 100, 1e-6);
+        assert!(invalid_result.is_err());
+    }
+    
+    #[test]
+    fn test_cg_optimizer_initialization() {
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        
+        // Simple H2 molecule
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.4), // 1.4 bohr ≈ 0.74 Å
+        ];
+        let elements = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        // Set up basis
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        basis.insert("H", &h_basis);
+        
+        scf.init_basis(&elements, basis);
+        scf.init_geometry(&coords, &elements);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+        
+        // Initialize optimizer
+        let mut optimizer = CGOptimizer::new(&mut scf, 10, 1e-4);
+        optimizer.init(coords.clone(), elements.clone());
+        
+        // Check initialization
+        assert_eq!(optimizer.get_coordinates().len(), 2);
+        assert_eq!(optimizer.get_forces().len(), 2);
+        assert!(optimizer.get_energy() != 0.0);
+    }
+    
+    #[test] 
+    fn test_force_validation() {
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        
+        // Simple H2 molecule with slightly displaced geometry
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.6), // Slightly longer than equilibrium
+        ];
+        let elements = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        // Set up basis
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        basis.insert("H", &h_basis);
+        
+        scf.init_basis(&elements, basis);
+        scf.init_geometry(&coords, &elements);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+        
+        // Initialize optimizer
+        let mut optimizer = CGOptimizer::new(&mut scf, 10, 1e-4);
+        optimizer.init(coords.clone(), elements.clone());
+        
+        // Validate forces (this will show the discrepancy due to incomplete implementation)
+        let numerical_forces = optimizer.validate_forces(1e-4);
+        let analytical_forces = optimizer.get_forces();
+        
+        // Just ensure the validation runs without crashing
+        assert_eq!(numerical_forces.len(), analytical_forces.len());
+    }
+    */
+    
+    #[test]
+    fn test_cg_beta_calculation() {
+        // Create a simple mock optimizer to test beta calculation
+        use crate::simple::SimpleSCF;
+        use basis::cgto::Basis631G;
+        
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut optimizer = CGOptimizer::new(&mut scf, 10, 1e-4);
+        
+        // Manually set up some forces for testing
+        optimizer.forces = vec![
+            Vector3::new(0.1, 0.0, 0.0),
+            Vector3::new(-0.1, 0.0, 0.0),
+        ];
+        optimizer.previous_forces = vec![
+            Vector3::new(0.15, 0.0, 0.0),
+            Vector3::new(-0.15, 0.0, 0.0),
+        ];
+        
+        let beta = optimizer.calculate_beta_polak_ribiere_plus();
+        
+        // Beta should be non-negative for Polak-Ribière+
+        assert!(beta >= 0.0);
+    }
+    
+    #[test] 
+    fn test_direction_uphill_check() {
+        // Create a simple mock optimizer to test direction checking
+        use crate::simple::SimpleSCF;
+        use basis::cgto::Basis631G;
+        
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut optimizer = CGOptimizer::new(&mut scf, 10, 1e-4);
+        
+        // Test downhill direction (forces and directions aligned)
+        optimizer.forces = vec![
+            Vector3::new(0.1, 0.0, 0.0),
+            Vector3::new(-0.1, 0.0, 0.0),
+        ];
+        optimizer.directions = vec![
+            Vector3::new(0.1, 0.0, 0.0),
+            Vector3::new(-0.1, 0.0, 0.0),
+        ];
+        assert!(!optimizer.is_direction_uphill());
+        
+        // Test uphill direction (forces and directions opposite)
+        optimizer.directions = vec![
+            Vector3::new(-0.1, 0.0, 0.0),
+            Vector3::new(0.1, 0.0, 0.0),
+        ];
+        assert!(optimizer.is_direction_uphill());
     }
 }

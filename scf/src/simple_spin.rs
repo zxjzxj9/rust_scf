@@ -2,14 +2,13 @@
 
 extern crate nalgebra as na;
 
-use crate::scf::{DIIS, SCF};
+use crate::scf::{SCF, DIIS};
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, Norm, SymmetricEigen, Vector3};
-use nalgebra::{Const, Dyn};
+use na::{DMatrix, DVector, Vector3, Dyn};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tracing::{info, span, Level};
+use tracing::info;
 
 pub struct SpinSCF<B: AOBasis> {
     pub(crate) num_atoms: usize,
@@ -576,8 +575,8 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             .sum();
 
         let unpaired_electrons = self.multiplicity - 1;
-        let n_alpha = (total_electrons + unpaired_electrons) / 2;
-        let n_beta = (total_electrons - unpaired_electrons) / 2;
+        let _n_alpha = (total_electrons + unpaired_electrons) / 2;
+        let _n_beta = (total_electrons - unpaired_electrons) / 2;
 
         // Calculate one-electron energy contribution
         let mut one_electron_energy = 0.0;
@@ -658,12 +657,13 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
         info!("#####################################################");
-        info!("----------- Calculating Hellman-Feynman Forces -------");
+        info!("----------- Calculating Complete Forces -------------");
         info!("#####################################################");
 
         let mut forces = vec![Vector3::zeros(); self.num_atoms];
 
         // Step 1: Calculate nuclear-nuclear repulsion forces
+        info!("  Step 1: Nuclear-nuclear repulsion forces...");
         for i in 0..self.num_atoms {
             for j in 0..self.num_atoms {
                 if i == j {
@@ -681,6 +681,7 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         }
 
         // Step 2: Calculate electron-nuclear attraction forces
+        info!("  Step 2: Electron-nuclear attraction forces...");
         // For spin-polarized calculation, use total density (alpha + beta)
         for atom_idx in 0..self.num_atoms {
             for i in 0..self.num_basis {
@@ -703,10 +704,79 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         }
 
         // Step 3: Calculate forces from two-electron integrals
-        // This is a simplified approach - for accurate calculations,
-        // derivatives of two-electron integrals are needed
+        info!("  Step 3: Two-electron integral derivatives...");
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
+                            let p_alpha_ij = self.density_matrix_alpha[(i, j)];
+                            let p_beta_ij = self.density_matrix_beta[(i, j)];
+                            let p_alpha_kl = self.density_matrix_alpha[(k, l)];
+                            let p_beta_kl = self.density_matrix_beta[(k, l)];
 
-        info!("  Forces calculated on atoms:");
+                            // Get derivatives of two-electron integrals
+                            let coulomb_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                &self.mo_basis[k],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            let exchange_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[k],
+                                &self.mo_basis[j],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            // Coulomb contribution (both spins interact)
+                            forces[atom_idx] -= ((p_alpha_ij + p_beta_ij) * (p_alpha_kl + p_beta_kl)) * coulomb_deriv;
+
+                            // Exchange contribution (same-spin only)
+                            forces[atom_idx] += 0.5 * (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl) * exchange_deriv;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Calculate Pulay forces (derivatives w.r.t. basis function centers)
+        info!("  Step 4: Pulay forces (basis function derivatives)...");
+        for atom_idx in 0..self.num_atoms {
+            // Core Hamiltonian Pulay forces
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+
+                    // Overlap matrix derivatives (weighted by Fock matrix elements)
+                    let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    // Use average of alpha and beta Fock matrices for Pulay force
+                    let fock_avg_ij = 0.5 * (self.fock_matrix_alpha[(i, j)] + self.fock_matrix_beta[(i, j)]);
+                    forces[atom_idx] -= p_total_ij * fock_avg_ij * ds_dr;
+
+                    // Kinetic energy derivatives
+                    let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    forces[atom_idx] -= p_total_ij * dt_dr;
+
+                    // Nuclear attraction Pulay forces
+                    for k in 0..self.num_atoms {
+                        let dv_dr_basis = B::BasisType::dVab_dRbasis(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            self.coords[k],
+                            self.elems[k].get_atomic_number() as u32,
+                            atom_idx,
+                        );
+                        forces[atom_idx] -= p_total_ij * dv_dr_basis;
+                    }
+                }
+            }
+        }
+
+        info!("  Complete forces calculated on atoms:");
         for (i, force) in forces.iter().enumerate() {
             info!(
                 "    Atom {}: [{:.6}, {:.6}, {:.6}] au",

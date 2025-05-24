@@ -48,15 +48,19 @@ impl Default for OptimizationParams {
 }
 
 fn fetch_basis(atomic_symbol: &str) -> Result<Basis631G> {
+    println!("DEBUG: Attempting to fetch basis set for {}", atomic_symbol);
     let url = format!(
         "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
         atomic_symbol
     );
+    println!("DEBUG: URL: {}", url);
     let response = reqwest::blocking::get(&url)
         .wrap_err_with(|| format!("Failed to fetch basis set for {}", atomic_symbol))?;
+    println!("DEBUG: HTTP request successful");
     let basis_str = response
         .text()
         .wrap_err("Failed to get response text from basis set API")?;
+    println!("DEBUG: Got response text, length: {}", basis_str.len());
     Ok(Basis631G::parse_nwchem(&basis_str))
 }
 
@@ -146,6 +150,9 @@ fn setup_output(output_path: Option<&String>) {
             }
         }
         None => {
+            // Initialize tracing for stdout
+            let stdout_layer = layer().with_writer(std::io::stdout);
+            Registry::default().with(stdout_layer).init();
             info!("Output will be printed to stdout");
         }
     }
@@ -174,17 +181,24 @@ fn print_optimized_geometry<W: Write>(
 }
 
 fn main() -> Result<()> {
+    println!("DEBUG: Starting main function");
     color_eyre::install()?;
+    println!("DEBUG: color_eyre installed");
     let args = Args::parse();
+    println!("DEBUG: Args parsed: {:?}", args.config_file);
     setup_output(args.output.as_ref());
+    println!("DEBUG: Output setup complete");
 
     // 1. Read YAML configuration file
     info!("Reading configuration from: {}", args.config_file);
+    println!("DEBUG: About to read config file");
     let config_file_content = fs::read_to_string(&args.config_file)
         .wrap_err_with(|| format!("Unable to read configuration file: {}", args.config_file))?;
+    println!("DEBUG: Config file read successfully");
 
     let mut config: Config = serde_yml::from_str(&config_file_content)
         .wrap_err("Failed to parse configuration file")?;
+    println!("DEBUG: Config parsed successfully");
 
     // Apply defaults to missing values but don't overwrite existing ones
     let default_params = ScfParams::default();
@@ -202,9 +216,11 @@ fn main() -> Result<()> {
     }
 
     info!("Configuration loaded:\n{:?}", config);
+    println!("DEBUG: About to create SimpleSCF");
 
     // Init SCF with params from config
     let mut scf = SimpleSCF::new();
+    println!("DEBUG: SimpleSCF created");
     scf.density_mixing = config.scf_params.density_mixing.unwrap_or(0.5);
     scf.max_cycle = config.scf_params.max_cycle.unwrap_or(100);
 
@@ -236,6 +252,7 @@ fn main() -> Result<()> {
 
     // 4. Prepare Basis Sets
     info!("\nPreparing basis sets...");
+    println!("DEBUG: Starting basis set preparation");
     let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
     for elem in &elements {
         let symbol = elem.get_symbol();
@@ -244,20 +261,30 @@ fn main() -> Result<()> {
         }
 
         let basis = fetch_basis(symbol)?;
+        println!("DEBUG: Fetched basis for {}", symbol);
         // Allocate on the heap to ensure a stable memory address
         let basis_ref: &Basis631G = Box::leak(Box::new(basis));
         basis_map.insert(symbol, basis_ref);
+        println!("DEBUG: Added {} to basis_map", symbol);
     }
+    println!("DEBUG: Basis set preparation complete");
 
     // 5. Initialize and run SCF
     info!("\nInitializing SCF calculation...");
+    println!("DEBUG: About to init basis");
     scf.init_basis(&elements, basis_map);
+    println!("DEBUG: About to init geometry");
     scf.init_geometry(&coords_vec, &elements);
+    println!("DEBUG: About to init density matrix");
     scf.init_density_matrix();
+    println!("DEBUG: About to init fock matrix");
     scf.init_fock_matrix();
+    println!("DEBUG: SCF initialization complete");
 
     info!("\nStarting SCF cycle...\n");
+    println!("DEBUG: About to start SCF cycle");
     scf.scf_cycle();
+    println!("DEBUG: SCF cycle complete");
 
     info!("\nSCF calculation finished.");
     info!("\nFinal Energy Levels:");

@@ -405,6 +405,89 @@ impl Basis for ContractedGTO {
             })
             .sum()
     }
+
+    // Derivatives of two-electron integrals w.r.t. nuclear positions
+    fn dJKabcd_dR(a: &Self, b: &Self, c: &Self, d: &Self, R: Vector3<f64>) -> Vector3<f64> {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        let nc = c.primitives.len();
+        let nd = d.primitives.len();
+
+        iproduct!(0..na, 0..nb, 0..nc, 0..nd)
+            .par_bridge()
+            .map(|(i, j, k, l)| {
+                let deriv = GTO::dJKabcd_dR(
+                    &a.primitives[i],
+                    &b.primitives[j],
+                    &c.primitives[k],
+                    &d.primitives[l],
+                    R,
+                );
+                deriv * (a.coefficients[i] * b.coefficients[j] * c.coefficients[k] * d.coefficients[l])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |acc, deriv| acc + deriv)
+    }
+
+    // Pulay forces: derivatives w.r.t. basis function centers
+    fn dSab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64> {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                let deriv = GTO::dSab_dR(&a.primitives[i], &b.primitives[j], atom_idx);
+                deriv * (a.coefficients[i] * b.coefficients[j])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |acc, deriv| acc + deriv)
+    }
+
+    fn dTab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64> {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                let deriv = GTO::dTab_dR(&a.primitives[i], &b.primitives[j], atom_idx);
+                deriv * (a.coefficients[i] * b.coefficients[j])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |acc, deriv| acc + deriv)
+    }
+
+    fn dVab_dRbasis(a: &Self, b: &Self, R: Vector3<f64>, Z: u32, atom_idx: usize) -> Vector3<f64> {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+
+        iproduct!(0..na, 0..nb)
+            .par_bridge()
+            .map(|(i, j)| {
+                let deriv = GTO::dVab_dRbasis(&a.primitives[i], &b.primitives[j], R, Z, atom_idx);
+                deriv * (a.coefficients[i] * b.coefficients[j])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |acc, deriv| acc + deriv)
+    }
+
+    fn dJKabcd_dRbasis(a: &Self, b: &Self, c: &Self, d: &Self, atom_idx: usize) -> Vector3<f64> {
+        let na = a.primitives.len();
+        let nb = b.primitives.len();
+        let nc = c.primitives.len();
+        let nd = d.primitives.len();
+
+        iproduct!(0..na, 0..nb, 0..nc, 0..nd)
+            .par_bridge()
+            .map(|(i, j, k, l)| {
+                let deriv = GTO::dJKabcd_dRbasis(
+                    &a.primitives[i],
+                    &b.primitives[j],
+                    &c.primitives[k],
+                    &d.primitives[l],
+                    atom_idx,
+                );
+                deriv * (a.coefficients[i] * b.coefficients[j] * c.coefficients[k] * d.coefficients[l])
+            })
+            .reduce(|| Vector3::new(0.0, 0.0, 0.0), |acc, deriv| acc + deriv)
+    }
 }
 
 #[cfg(test)]

@@ -70,9 +70,23 @@ fn main() {
     let dt = 0.001;
     let steps = 10_000;
     
-    println!("Starting MD simulation with {} atoms", n_atoms);
-    println!("Box dimensions: [{:.2}, {:.2}, {:.2}]", box_lengths.x, box_lengths.y, box_lengths.z);
+    println!("╔═══════════════════════════════════════════════════════════════╗");
+    println!("║               Molecular Dynamics Simulation                  ║");
+    println!("╠═══════════════════════════════════════════════════════════════╣");
+    println!("║ Atoms: {:>6}                                               ║", n_atoms);
+    println!("║ Box dimensions: [{:.2}, {:.2}, {:.2}]                       ║", 
+             box_lengths.x, box_lengths.y, box_lengths.z);
+    println!("║ Temperature: {:.2} K                                        ║", temperature);
+    println!("║ Time step: {:.3} fs                                        ║", dt);
+    println!("║ Total steps: {}                                         ║", steps);
+    println!("╚═══════════════════════════════════════════════════════════════╝");
+    println!();
     
+    // Print table header with nice formatting
+    println!("┌────────┬──────────┬──────────┬──────────┬──────────┐");
+    println!("│ {:>6} │ {:>8} │ {:>8} │ {:>8} │ {:>8} │", "Step", "Temp (K)", "KE", "PE", "Total E");
+    println!("├────────┼──────────┼──────────┼──────────┼──────────┤");
+
     for step in 0..steps {
         integrator.step(dt);
 
@@ -94,8 +108,13 @@ fn main() {
             let potential = integrator.provider.compute_potential_energy(&integrator.positions);
             let total_energy = kinetic + potential;
             
-            println!("Step {}: T={:.6}, KE={:.6}, PE={:.6}, E_total={:.6}", 
+            println!("│ {:>6} │ {:>8.4} │ {:>8.4} │ {:>8.4} │ {:>8.4} │", 
                      step, temp, kinetic, potential, total_energy);
         }
     }
+    
+    // Close the table with a nice border
+    println!("└────────┴──────────┴──────────┴──────────┴──────────┘");
+    println!();
+    println!("✅ Simulation completed successfully!");
 }

@@ -79,6 +79,26 @@ mod tests {
         fn dVab_dR(_: &Self, _: &Self, _: Vector3<f64>, _: u32) -> Vector3<f64> {
             Vector3::new(0.1, 0.1, 0.1) // Mock derivative of nuclear attraction integral
         }
+
+        fn dJKabcd_dR(_: &Self, _: &Self, _: &Self, _: &Self, _: Vector3<f64>) -> Vector3<f64> {
+            Vector3::new(0.01, 0.01, 0.01) // Mock derivative of two-electron integral
+        }
+
+        fn dSab_dR(_: &Self, _: &Self, _: usize) -> Vector3<f64> {
+            Vector3::new(0.05, 0.05, 0.05) // Mock derivative of overlap integral w.r.t. basis center
+        }
+
+        fn dTab_dR(_: &Self, _: &Self, _: usize) -> Vector3<f64> {
+            Vector3::new(0.02, 0.02, 0.02) // Mock derivative of kinetic integral w.r.t. basis center
+        }
+
+        fn dVab_dRbasis(_: &Self, _: &Self, _: Vector3<f64>, _: u32, _: usize) -> Vector3<f64> {
+            Vector3::new(0.03, 0.03, 0.03) // Mock derivative of nuclear attraction w.r.t. basis center
+        }
+
+        fn dJKabcd_dRbasis(_: &Self, _: &Self, _: &Self, _: &Self, _: usize) -> Vector3<f64> {
+            Vector3::new(0.001, 0.001, 0.001) // Mock derivative of two-electron integral w.r.t. basis center
+        }
     }
 
     // Helper function to create mock basis
