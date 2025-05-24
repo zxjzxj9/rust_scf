@@ -22,11 +22,11 @@ pub struct NoseHooverVerlet<F: ForceProvider> {
     pub(crate) provider: F,
     xi: f64,
     eta: f64,
-    Q: f64,
+    q: f64,
     target_temp: f64,
     dof: usize,
-    k_B: f64,
-    gkT: f64,
+    k_b: f64,
+    gk_t: f64,
 }
 
 impl<F: ForceProvider> NoseHooverVerlet<F> {
@@ -35,12 +35,12 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
         velocities: Vec<Vector3<f64>>,
         masses: Vec<f64>,
         provider: F,
-        Q: f64,
+        q: f64,
         target_temp: f64,
-        k_B: f64,
+        k_b: f64,
     ) -> Self {
         let dof = positions.len() * 3;
-        let gkT = dof as f64 * k_B * target_temp;
+        let gk_t = dof as f64 * k_b * target_temp;
         let forces = provider.compute_forces(&positions);
         let inv_masses = masses.iter().map(|&m| 1.0 / m).collect();
         NoseHooverVerlet {
@@ -52,11 +52,11 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
             provider,
             xi: 0.0,
             eta: 0.0,
-            Q,
+            q,
             target_temp,
             dof,
-            k_B,
-            gkT,
+            k_b,
+            gk_t,
         }
     }
 
@@ -73,39 +73,51 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
 impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
     fn step(&mut self, dt: f64) {
         let half_dt = 0.5 * dt;
-        // thermostat half‐step
+        
+        // Update xi (thermostat variable) first half-step
         let kin = self.kinetic_energy();
-        self.xi += (2.0 * kin - self.gkT) / self.Q * half_dt;
+        let xi_dot = (2.0 * kin - self.gk_t) / self.q;
+        self.xi += xi_dot * half_dt;
+        
+        // Limit xi to prevent runaway
+        self.xi = self.xi.clamp(-10.0, 10.0);
 
-        // first half‐step velocities
-        for (v, &f, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses)
-        {
-            *v = *v * (1.0 - self.xi * half_dt) + (f * inv_m) * half_dt;
+        // Update velocities (first half-step)
+        for (v, &f, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses) {
+            let scaling_factor = 1.0 / (1.0 + self.xi * half_dt);
+            let force_contrib = f * inv_m * half_dt;
+            *v = (*v + force_contrib) * scaling_factor;
         }
 
-        // full‐step positions
+        // Update positions (full step)
         for (pos, &v) in self.positions.iter_mut().zip(&self.velocities) {
             *pos += v * dt;
         }
 
-        // recompute forces
-        let new_forces = self.provider.compute_forces(&self.positions);
+        // Recompute forces
+        self.forces = self.provider.compute_forces(&self.positions);
 
-        // thermostat half‐step (new)
-        let kin = self.kinetic_energy();
-        self.xi += (2.0 * kin - self.gkT) / self.Q * half_dt;
-
-        // second half‐step velocities
-        for (v, &f_new, &inv_m) in izip!(&mut self.velocities, &new_forces, &self.inv_masses)
-        {
-            *v = *v * (1.0 - self.xi * half_dt) + (f_new * inv_m) * half_dt;
+        // Update velocities (second half-step)
+        for (v, &f_new, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses) {
+            let force_contrib = f_new * inv_m * half_dt;
+            *v += force_contrib;
+            let scaling_factor = 1.0 / (1.0 + self.xi * half_dt);
+            *v *= scaling_factor;
         }
 
-        self.forces = new_forces;
+        // Update xi (thermostat variable) second half-step
+        let kin = self.kinetic_energy();
+        let xi_dot = (2.0 * kin - self.gk_t) / self.q;
+        self.xi += xi_dot * half_dt;
+        
+        // Limit xi to prevent runaway
+        self.xi = self.xi.clamp(-10.0, 10.0);
+
+        // Update eta (extended coordinate)
         self.eta += self.xi * dt;
     }
 
     fn temperature(&self) -> f64 {
-        2.0 * self.kinetic_energy() / (self.dof as f64 * self.k_B)
+        2.0 * self.kinetic_energy() / (self.dof as f64 * self.k_b)
     }
 }

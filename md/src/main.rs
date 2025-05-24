@@ -14,9 +14,6 @@ fn main() {
     let a = 5.0;
     let basis = [
         Vector3::new(0.0, 0.0, 0.0),
-        Vector3::new(0.5, 0.0, 0.0),
-        Vector3::new(0.0, 0.5, 0.0),
-        Vector3::new(0.0, 0.0, 0.5),
         Vector3::new(0.5, 0.5, 0.0),
         Vector3::new(0.5, 0.0, 0.5),
         Vector3::new(0.0, 0.5, 0.5),
@@ -57,7 +54,6 @@ fn main() {
     }
     
     let masses = vec![1.0; n_atoms];
-    let box_lengths = Vector3::new(n_cells as f64 * a, n_cells as f64 * a, n_cells as f64 * a);
 
     // LJ parameters for argon in reduced units
     let lj = LennardJones::new(1.0, 1.0, box_lengths);
@@ -66,28 +62,40 @@ fn main() {
         velocities,
         masses,
         lj,
-        /* Q */ 1.0,
-        temperature ,
+        /* Q */ 100.0,
+        temperature,
         /* k_B */ 1.0,
     );
 
-    let dt = 0.005;
+    let dt = 0.001;
     let steps = 10_000;
+    
+    println!("Starting MD simulation with {} atoms", n_atoms);
+    println!("Box dimensions: [{:.2}, {:.2}, {:.2}]", box_lengths.x, box_lengths.y, box_lengths.z);
+    
     for step in 0..steps {
         integrator.step(dt);
 
         // apply periodic boundary conditions
         for pos in &mut integrator.positions {
             for k in 0..3 {
-                let L = a;
-                pos[k] -= L * (pos[k] / L).floor();
+                let box_l = box_lengths[k];
+                pos[k] -= box_l * (pos[k] / box_l).floor();
             }
         }
 
-        if step % 1 == 0 {
-            let e0 = integrator.provider.compute_forces(&integrator.positions)[0];
-            println!("Step {}: temperature={:?}", step, integrator.temperature());
+        if step % 500 == 0 {
+            let temp = integrator.temperature();
+            let kinetic = integrator.velocities
+                .iter()
+                .zip(&integrator.masses)
+                .map(|(v, &m)| 0.5 * m * v.dot(v))
+                .sum::<f64>();
+            let potential = integrator.provider.compute_potential_energy(&integrator.positions);
+            let total_energy = kinetic + potential;
             
+            println!("Step {}: T={:.6}, KE={:.6}, PE={:.6}, E_total={:.6}", 
+                     step, temp, kinetic, potential, total_energy);
         }
     }
 }

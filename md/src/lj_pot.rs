@@ -16,16 +16,48 @@ impl LennardJones {
     // Apply minimum-image convention
     fn minimum_image(&self, mut d: Vector3<f64>) -> Vector3<f64> {
         for k in 0..3 {
-            let L = self.box_lengths[k];
-            d[k] -= L * (d[k] / L).round();
+            let box_l = self.box_lengths[k];
+            d[k] -= box_l * (d[k] / box_l).round();
         }
         d
     }
 
-    fn lj_potential(&self, r2: f64) -> f64 {
+    pub fn lj_potential(&self, r2: f64) -> f64 {
         let inv_r2 = self.sigma*self.sigma/r2;
         let inv_r6 = inv_r2*inv_r2*inv_r2;
         4.0*self.epsilon*(inv_r6*inv_r6 - inv_r6)
+    }
+
+    pub fn compute_potential_energy(&self, positions: &[Vector3<f64>]) -> f64 {
+        let n = positions.len();
+        let mut potential = 0.0;
+        let sigma2 = self.sigma * self.sigma;
+
+        // cutoff at 2.5 sigma
+        let r_cut = 2.5 * self.sigma;
+        let r_cut2 = r_cut * r_cut;
+
+        // prevent singularity for r^2 < min_r2
+        let min_r2 = 0.01 * sigma2;
+
+        for i in 0..n {
+            for j in (i + 1)..n {
+                let rij = self.minimum_image(positions[i] - positions[j]);
+                let mut r2 = rij.norm_squared();
+
+                // skip outside cutoff, clamp below min_r2
+                if r2 > r_cut2 {
+                    continue;
+                }
+                if r2 < min_r2 {
+                    r2 = min_r2;
+                }
+
+                potential += self.lj_potential(r2);
+            }
+        }
+
+        potential
     }
 }
 
