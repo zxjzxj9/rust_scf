@@ -352,6 +352,150 @@ mod tests {
         assert!(total_hf_force.norm() < 1.0, "HF force balance violated");
     }
 
+    #[test]
+    fn test_hellman_feynman_force_debug() {
+        // Set up H2 molecule with real basis
+        let mut scf = SimpleSCF::<Basis631G>::new();
+
+        // H2 coordinates and elements
+        let h2_coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 0.74), // Typical H-H bond length in Angstrom
+        ];
+        let h2_elems = vec![Element::Hydrogen, Element::Hydrogen];
+
+        let mut basis = HashMap::new();
+        let h_basis = fetch_basis("H");
+        basis.insert("H", &h_basis);
+
+        scf.init_basis(&h2_elems, basis.clone());
+        scf.init_geometry(&h2_coords, &h2_elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        // Get the converged density matrix
+        let initial_density_matrix = scf.get_density_matrix();
+        
+        println!("\n=== Testing Hellman-Feynman Forces vs. Numerical Derivatives ===");
+        
+        // Calculate analytical Hellman-Feynman forces
+        let hf_forces = scf.calculate_hellman_feynman_forces_only();
+        
+        // Calculate numerical forces using the same density matrix
+        // but smaller displacements for better accuracy
+        const DELTA: f64 = 1e-6;
+        let mut numerical_forces = vec![Vector3::<f64>::zeros(); h2_elems.len()];
+        
+        println!("Calculating numerical forces with DELTA = {:.1e}:", DELTA);
+        
+        for atom_idx in 0..h2_elems.len() {
+            let mut atom_force = Vector3::<f64>::zeros();
+            println!("  Processing atom {}:", atom_idx);
+            
+            for dim in 0..3 {
+                // Only calculate z-component for efficiency
+                if dim != 2 { continue; }
+                
+                // Positive displacement
+                let mut pos_coords = h2_coords.clone();
+                match dim {
+                    0 => pos_coords[atom_idx].x += DELTA,
+                    1 => pos_coords[atom_idx].y += DELTA,
+                    2 => pos_coords[atom_idx].z += DELTA,
+                    _ => unreachable!(),
+                }
+                let pos_energy = {
+                    let mut scf_pos = SimpleSCF::<Basis631G>::new();
+                    scf_pos.init_basis(&h2_elems, basis.clone());
+                    scf_pos.init_geometry(&pos_coords, &h2_elems);
+                    scf_pos.set_initial_density_matrix(initial_density_matrix.clone());
+                    scf_pos.calculate_hf_energy_only(&initial_density_matrix)
+                };
+
+                // Negative displacement
+                let mut neg_coords = h2_coords.clone();
+                match dim {
+                    0 => neg_coords[atom_idx].x -= DELTA,
+                    1 => neg_coords[atom_idx].y -= DELTA,
+                    2 => neg_coords[atom_idx].z -= DELTA,
+                    _ => unreachable!(),
+                }
+                let neg_energy = {
+                    let mut scf_neg = SimpleSCF::<Basis631G>::new();
+                    scf_neg.init_basis(&h2_elems, basis.clone());
+                    scf_neg.init_geometry(&neg_coords, &h2_elems);
+                    scf_neg.set_initial_density_matrix(initial_density_matrix.clone());
+                    scf_neg.calculate_hf_energy_only(&initial_density_matrix)
+                };
+
+                // Central difference approximation
+                let force_component = -(pos_energy - neg_energy) / (2.0 * DELTA);
+                match dim {
+                    0 => atom_force.x = force_component,
+                    1 => atom_force.y = force_component,
+                    2 => atom_force.z = force_component,
+                    _ => unreachable!(),
+                }
+                
+                println!("    dim={}, E+ = {:.8}, E- = {:.8}, F = {:.8}", 
+                        dim, pos_energy, neg_energy, force_component);
+            }
+            numerical_forces[atom_idx] = atom_force;
+            println!("  Total numerical force on atom {}: [{:.8}, {:.8}, {:.8}]", 
+                    atom_idx, atom_force.x, atom_force.y, atom_force.z);
+        }
+        
+        // Compare the forces
+        println!("\n=== Comparing Forces ===");
+        let mut max_diff: f64 = 0.0;
+        
+        for i in 0..h2_elems.len() {
+            let hf_force = hf_forces[i];
+            let num_force = numerical_forces[i];
+            let diff = (hf_force - num_force).norm();
+            max_diff = max_diff.max(diff);
+            
+            println!("Atom {}: ", i);
+            println!("  HF Force:       [{:.8}, {:.8}, {:.8}]", hf_force.x, hf_force.y, hf_force.z);
+            println!("  Numerical Force: [{:.8}, {:.8}, {:.8}]", num_force.x, num_force.y, num_force.z);
+            println!("  Difference:      [{:.8}, {:.8}, {:.8}]", 
+                    hf_force.x - num_force.x, hf_force.y - num_force.y, hf_force.z - num_force.z);
+            println!("  Difference norm: {:.8}", diff);
+        }
+        
+        // Calculate the force on atom 0 directly by evaluating the derivatives of energy terms
+        let atom_idx = 0;
+        {
+            // Calculate nuclear repulsion contribution
+            let mut nuclear_force_z = 0.0;
+            let z_i = h2_elems[atom_idx].get_atomic_number() as f64;
+            let z_j = h2_elems[1-atom_idx].get_atomic_number() as f64;
+            let r_ij = h2_coords[atom_idx].z - h2_coords[1-atom_idx].z;
+            let r_ij_norm = r_ij.abs();
+            let direction = if r_ij > 0.0 { 1.0 } else { -1.0 };
+            
+            // Nuclear-nuclear repulsion force on atom i due to atom j
+            // F = Z_i * Z_j * r_ij / r_ij^3
+            let nuclear_contribution = z_i * z_j * direction / (r_ij_norm * r_ij_norm);
+            nuclear_force_z = nuclear_contribution;
+            
+            println!("\nDirect force calculation for atom {}:", atom_idx);
+            println!("  Z_i = {}, Z_j = {}, r_ij = {:.6}", z_i, z_j, r_ij);
+            println!("  Nuclear force z-component: {:.8}", nuclear_force_z);
+            
+            // For electronic contribution, we'd need access to internal values
+            // So we'll just observe the difference between total numerical and nuclear
+            let electronic_force_z = numerical_forces[atom_idx].z - nuclear_force_z;
+            println!("  Electronic force z-component (by subtraction): {:.8}", electronic_force_z);
+            println!("  Total numerical force z-component: {:.8}", numerical_forces[atom_idx].z);
+            println!("  HF force z-component: {:.8}", hf_forces[atom_idx].z);
+        }
+        
+        // Check if the forces are reasonably close
+        assert!(max_diff < 0.4, "Forces differ by more than 0.4 au");
+    }
+
     // Helper function for numerical force calculation via finite difference (central difference)
     fn calculate_numerical_force(
         elems: &Vec<Element>,
@@ -359,11 +503,16 @@ mod tests {
         initial_density: Option<DMatrix<f64>>,
         basis_map: &HashMap<&str, &Basis631G>,
     ) -> Vec<Vector3<f64>> {
-        const DELTA: f64 = 1e-4;
+        // Use a smaller delta for better numerical precision
+        const DELTA: f64 = 1e-6; // Changed from 1e-4 to 1e-6 for better accuracy
         let mut numerical_forces = vec![Vector3::<f64>::zeros(); elems.len()];
 
+        println!("Calculating numerical forces using finite differences with DELTA = {:.1e}:", DELTA);
+        
         for atom_idx in 0..elems.len() {
             let mut atom_force = Vector3::<f64>::zeros();
+            println!("  Processing atom {}:", atom_idx);
+            
             for dim in 0..3 {
                 // Positive displacement
                 let mut pos_coords = coords.clone();
@@ -379,7 +528,7 @@ mod tests {
                     scf_pos.init_geometry(&pos_coords, elems);
                     // Removed SCF cycle, using fixed density
                     if let Some(ref density) = initial_density {
-                        scf_pos.calculate_energy_with_fixed_density(density)
+                        scf_pos.calculate_hf_energy_only(density)
                     } else {
                         // Fallback to full SCF if no initial density provided (should not happen in this test)
                         scf_pos.init_density_matrix();
@@ -403,7 +552,7 @@ mod tests {
                     scf_neg.init_geometry(&neg_coords, elems);
                     // Removed SCF cycle, using fixed density
                     if let Some(ref density) = initial_density {
-                        scf_neg.calculate_energy_with_fixed_density(density)
+                        scf_neg.calculate_hf_energy_only(density)
                     } else {
                         // Fallback to full SCF if no initial density provided
                         scf_neg.init_density_matrix();
@@ -421,8 +570,13 @@ mod tests {
                     2 => atom_force.z = force_component,
                     _ => unreachable!(),
                 }
+                
+                println!("    dim={}, E+ = {:.8}, E- = {:.8}, F = {:.8}", 
+                        dim, pos_energy, neg_energy, force_component);
             }
             numerical_forces[atom_idx] = atom_force;
+            println!("  Total numerical force on atom {}: [{:.8}, {:.8}, {:.8}]", 
+                    atom_idx, atom_force.x, atom_force.y, atom_force.z);
         }
         numerical_forces
     }

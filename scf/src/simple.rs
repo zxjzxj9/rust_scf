@@ -156,11 +156,111 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         one_electron_energy + two_electron_energy + nuclear_repulsion
     }
 
+    /// Calculate only the Hartree-Fock energy using a fixed density matrix.
+    /// This function is mainly used for numerical force calculations, where we need
+    /// to evaluate the energy at different geometries without re-optimizing the density.
+    /// 
+    /// It includes all energy terms:
+    /// 1. Nuclear-nuclear repulsion
+    /// 2. Electron-nuclear attraction
+    /// 3. Electron-electron repulsion (Coulomb + Exchange)
+    pub fn calculate_hf_energy_only(&self, density_matrix: &DMatrix<f64>) -> f64 {
+        let mut energy = 0.0;
+        // Step 1: Nuclear repulsion energy
+        // The potential energy between two positively charged nuclei is positive
+        // V_nn = Z_i * Z_j / |R_i - R_j|
+        let mut nuclear_repulsion_energy = 0.0;
+        for i in 0..self.num_atoms {
+            for j in (i + 1)..self.num_atoms {
+                let z_i = self.elems[i].get_atomic_number() as f64;
+                let z_j = self.elems[j].get_atomic_number() as f64;
+                let r = (self.coords[i] - self.coords[j]).norm();
+                if r > 1e-10 {
+                    nuclear_repulsion_energy += z_i * z_j / r;
+                }
+            }
+        }
+        energy += nuclear_repulsion_energy;
+        
+        // Step 2: Electron-nuclear attraction energy (Hellman-Feynman term)
+        // NOTE: The sign convention here MUST match the convention in dVab_dR
+        let mut electronic_energy = 0.0;
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                let p = density_matrix[(i, j)];
+                if p.abs() < 1e-12 { continue; }
+                for k in 0..self.num_atoms {
+                    // Vab returns a negative value due to attraction, so we directly add it
+                    // without changing sign (consistent with dVab_dR)
+                    let v_term = B::BasisType::Vab(
+                        &self.mo_basis[i], &self.mo_basis[j],
+                        self.coords[k], self.elems[k].get_atomic_number() as u32
+                    );
+                    electronic_energy += p * v_term;
+                }
+            }
+        }
+        energy += electronic_energy;
+        
+        // Step 3: Electron-electron repulsion energy (two-electron integrals)
+        // This matches the convention used in the total energy calculation
+        let mut ee_energy = 0.0;
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        // Density matrix elements
+                        let p_ij = density_matrix[(i, j)];
+                        let p_kl = density_matrix[(k, l)];
+                        
+                        if p_ij.abs() < 1e-12 || p_kl.abs() < 1e-12 { 
+                            continue; 
+                        }
+                        
+                        // Coulomb integral: (ij|kl)
+                        let coulomb = B::BasisType::JKabcd(
+                            &self.mo_basis[i], 
+                            &self.mo_basis[j], 
+                            &self.mo_basis[k], 
+                            &self.mo_basis[l]
+                        );
+                        
+                        // Exchange integral: (ik|jl)
+                        let exchange = B::BasisType::JKabcd(
+                            &self.mo_basis[i], 
+                            &self.mo_basis[k], 
+                            &self.mo_basis[j], 
+                            &self.mo_basis[l]
+                        );
+                        
+                        // Add contributions
+                        // 0.5 factor for double counting in four-center sum
+                        ee_energy += 0.5 * p_ij * p_kl * coulomb;
+                        // 0.25 factor: 0.5 for double counting * 0.5 for exchange term
+                        ee_energy -= 0.25 * p_ij * p_kl * exchange;
+                    }
+                }
+            }
+        }
+        energy += ee_energy;
+        
+        println!("Energy breakdown in calculate_hf_energy_only:");
+        println!("  Nuclear repulsion: {:.8}", nuclear_repulsion_energy);
+        println!("  Electronic (e-n): {:.8}", electronic_energy);
+        println!("  Electronic (e-e): {:.8}", ee_energy);
+        println!("  Total energy: {:.8}", energy);
+        
+        energy
+    }
+
     // Add a simplified method to calculate forces without Pulay terms for debugging
     pub fn calculate_hellman_feynman_forces_only(&self) -> Vec<Vector3<f64>> {
         info!("#####################################################");
         info!("------- Calculating Hellman-Feynman Forces Only ----");
         info!("#####################################################");
+        println!("#####################################################");
+        println!("------- Calculating Hellman-Feynman Forces Only ----");
+        println!("#####################################################");
 
         let mut forces = vec![Vector3::zeros(); self.num_atoms];
 
@@ -183,9 +283,11 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
                 // F = Z_i * Z_j * r_ij / r_ij^3
                 let force_contrib = z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
                 nuclear_forces[i] += force_contrib;
-                info!("    Nuclear repulsion force on atom {} due to atom {}: [{:.6}, {:.6}, {:.6}]", i, j, force_contrib.x, force_contrib.y, force_contrib.z);
                 println!("    Nuclear repulsion force on atom {} due to atom {}: [{:.6}, {:.6}, {:.6}]", i, j, force_contrib.x, force_contrib.y, force_contrib.z);
+                println!("      z_i = {}, z_j = {}, distance = {:.6}", z_i, z_j, r_ij_norm);
             }
+            println!("    Total nuclear repulsion force on atom {}: [{:.6}, {:.6}, {:.6}]", 
+                    i, nuclear_forces[i].x, nuclear_forces[i].y, nuclear_forces[i].z);
         }
 
         // Step 2: Calculate electron-nuclear attraction forces (pure Hellman-Feynman)
@@ -241,13 +343,26 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
                     println!("    V[{},{}] w.r.t. atom {}: Analytical dV/dz = {:.6}, Numerical dV/dz = {:.6}, Diff = {:.6}", 
                              i, j, atom_idx, dv_dr_analytical.z, dv_dr_numerical_z, 
                              (dv_dr_analytical.z - dv_dr_numerical_z).abs());
+                    
+                    // Also check the actual values of V
+                    let v_0 = B::BasisType::Vab(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+                    println!("      V at center = {:.8}, V(+delta) = {:.8}, V(-delta) = {:.8}", v_0, v_plus, v_minus);
                 }
             }
         }
         
+        // Calculate electron-nuclear attraction forces
         let mut electronic_forces = vec![Vector3::zeros(); self.num_atoms];
         for atom_idx in 0..self.num_atoms {
             println!("    Calculating electronic force on atom {}:", atom_idx);
+            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
+            let mut total_electronic_force = Vector3::zeros();
+            
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
                     // Get density matrix element
@@ -261,11 +376,19 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
                         self.coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
-
+                    
                     // Add contribution to force on the nucleus
                     // The force is -dE/dR, and dE/dR contains dV/dR
                     let force_contrib = -p_ij * dv_dr;
                     electronic_forces[atom_idx] += force_contrib;
+                    
+                    // Print significant contributions
+                    if force_contrib.norm() > 0.01 {
+                        println!("      Force from P[{},{}]={:.6} * dV[{},{}]/dR = [{:.6}, {:.6}, {:.6}]", 
+                                i, j, p_ij, i, j, force_contrib.x, force_contrib.y, force_contrib.z);
+                    }
+                    
+                    total_electronic_force += force_contrib;
                 }
             }
             println!("    Total electronic force on atom {}: [{:.6}, {:.6}, {:.6}]", atom_idx, electronic_forces[atom_idx].x, electronic_forces[atom_idx].y, electronic_forces[atom_idx].z);
@@ -291,6 +414,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         println!("  Total force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}", total_force.x, total_force.y, total_force.z, total_force.norm());
 
         info!("-----------------------------------------------------\n");
+        println!("-----------------------------------------------------\n");
 
         forces
     }
@@ -806,7 +930,7 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                         self.coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
-
+                    
                     // Add contribution to force on the nucleus
                     // The force is -dE/dR, and dE/dR contains dV/dR
                     let force_contrib = -p_ij * dv_dr;
@@ -984,13 +1108,13 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
             
             // Step 4b: Two-electron Pulay forces
             let mut two_electron_pulay_contrib = Vector3::zeros();
-            for i in 0..self.num_basis { // mu
-                for j in 0..self.num_basis { // nu
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
                     let p_ij = self.density_matrix[(i, j)];
                     // Could optimize by checking if p_ij or p_kl are zero early.
 
-                    for k in 0..self.num_basis { // kappa
-                        for l in 0..self.num_basis { // lambda
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
                             let p_kl = self.density_matrix[(k, l)];
                             let p_ik = self.density_matrix[(i, k)];
                             let p_jl = self.density_matrix[(j, l)]; // Note: P is symmetric, P_jl == P_lj
