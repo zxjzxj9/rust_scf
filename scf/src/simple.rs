@@ -306,45 +306,39 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         // Debug: Verify dVab_dR with finite differences for a few key terms
         println!("  Verifying dVab_dR with finite differences:");
         const DELTA: f64 = 1e-6;
-        for atom_idx in 0..self.num_atoms {
-            for i in [0, 1] { // Check first two basis functions
-                for j in [0, 1] {
-                    if i >= self.num_basis || j >= self.num_basis { continue; }
-                    
-                    // Analytical derivative
-                    let dv_dr_analytical = B::BasisType::dVab_dR(
+        for i in 0..2 {
+            for j in 0..2 {
+                for atom_idx in 0..self.num_atoms {
+                    let analytical = B::BasisType::dVab_dR(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
                         self.coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    // Finite difference derivative
-                    let mut coords_plus = self.coords.clone();
-                    let mut coords_minus = self.coords.clone();
-                    coords_plus[atom_idx].z += DELTA;
-                    coords_minus[atom_idx].z -= DELTA;
-                    
+                    // Calculate numerical derivative
+                    let mut pos_coords = self.coords.clone();
+                    pos_coords[atom_idx].z += DELTA;
                     let v_plus = B::BasisType::Vab(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
-                        coords_plus[atom_idx],
+                        pos_coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
+                    
+                    let mut neg_coords = self.coords.clone();
+                    neg_coords[atom_idx].z -= DELTA;
                     let v_minus = B::BasisType::Vab(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
-                        coords_minus[atom_idx],
+                        neg_coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    let dv_dr_numerical_z = (v_plus - v_minus) / (2.0 * DELTA);
-                    
+                    let numerical = (v_plus - v_minus) / (2.0 * DELTA);
                     println!("    V[{},{}] w.r.t. atom {}: Analytical dV/dz = {:.6}, Numerical dV/dz = {:.6}, Diff = {:.6}", 
-                             i, j, atom_idx, dv_dr_analytical.z, dv_dr_numerical_z, 
-                             (dv_dr_analytical.z - dv_dr_numerical_z).abs());
+                            i, j, atom_idx, analytical.z, numerical, analytical.z - numerical);
                     
-                    // Also check the actual values of V
                     let v_0 = B::BasisType::Vab(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
@@ -361,7 +355,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         for atom_idx in 0..self.num_atoms {
             println!("    Calculating electronic force on atom {}:", atom_idx);
             println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
-            let mut total_electronic_force = Vector3::zeros();
+            let mut total_electronic_force: Vector3<f64> = Vector3::zeros();
             
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
@@ -394,27 +388,134 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             println!("    Total electronic force on atom {}: [{:.6}, {:.6}, {:.6}]", atom_idx, electronic_forces[atom_idx].x, electronic_forces[atom_idx].y, electronic_forces[atom_idx].z);
         }
 
-        // Combine forces
-        for i in 0..self.num_atoms {
-            forces[i] = nuclear_forces[i] + electronic_forces[i];
+        // Step 3: Calculate Pulay forces
+        info!("  Step 3: Calculating Pulay forces...");
+        println!("  Step 3: Calculating Pulay forces...");
+        
+        // Create mapping from basis functions to atoms
+        let mut basis_to_atom = vec![0; self.num_basis];
+        let mut basis_idx = 0;
+        for atom_idx in 0..self.num_atoms {
+            let ao_basis = self.ao_basis[atom_idx].lock().unwrap();
+            for _ in ao_basis.get_basis() {
+                basis_to_atom[basis_idx] = atom_idx;
+                basis_idx += 1;
+            }
         }
 
+        // Calculate energy-weighted density matrix W = P*S*P
+        let S = &self.overlap_matrix;
+        let P = &self.density_matrix;
+        let PS = P * S;
+        let W = &PS * P; // Energy-weighted density matrix W = P*S*P
+
+        // Calculate Pulay forces for each atom
+        for atom_idx in 0..self.num_atoms {
+            let mut pulay_force_atom = Vector3::zeros();
+            let mut kinetic_contrib = Vector3::zeros();
+            let mut nuclear_contrib = Vector3::zeros();
+            let mut overlap_contrib = Vector3::zeros();
+            
+            // Contribution from dH_core/dR_A (kinetic and nuclear attraction basis derivatives)
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+                    if p_ij.abs() < 1e-12 { continue; }
+
+                    // Kinetic energy derivatives
+                    if basis_to_atom[i] == atom_idx {
+                        let dt_dr_i = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        let contrib = -p_ij * dt_dr_i;
+                        kinetic_contrib += contrib;
+                        pulay_force_atom += contrib;
+                    }
+                    if basis_to_atom[j] == atom_idx && i != j {
+                        let dt_dr_j = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                        let contrib = -p_ij * dt_dr_j;
+                        kinetic_contrib += contrib;
+                        pulay_force_atom += contrib;
+                    }
+
+                    // Nuclear attraction Pulay forces
+                    for k in 0..self.num_atoms {
+                        if basis_to_atom[i] == atom_idx {
+                            let dv_dr_basis = B::BasisType::dVab_dRbasis(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                self.coords[k],
+                                self.elems[k].get_atomic_number() as u32,
+                                0,
+                            );
+                            let contrib = -p_ij * dv_dr_basis;
+                            nuclear_contrib += contrib;
+                            pulay_force_atom += contrib;
+                        }
+                        if basis_to_atom[j] == atom_idx && i != j {
+                            let dv_dr_basis = B::BasisType::dVab_dRbasis(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                self.coords[k],
+                                self.elems[k].get_atomic_number() as u32,
+                                1,
+                            );
+                            let contrib = -p_ij * dv_dr_basis;
+                            nuclear_contrib += contrib;
+                            pulay_force_atom += contrib;
+                        }
+                    }
+                }
+            }
+
+            // Overlap matrix contribution to Pulay forces
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let w_ij = W[(i,j)];
+                    if w_ij.abs() < 1e-12 { continue; }
+
+                    if basis_to_atom[i] == atom_idx {
+                        let ds_dr_i = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        let contrib = w_ij * ds_dr_i;
+                        overlap_contrib += contrib;
+                        pulay_force_atom += contrib;
+                    }
+                    if basis_to_atom[j] == atom_idx && i != j {
+                        let ds_dr_j = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                        let contrib = w_ij * ds_dr_j;
+                        overlap_contrib += contrib;
+                        pulay_force_atom += contrib;
+                    }
+                }
+            }
+            
+            println!("  Pulay force breakdown for atom {}:", atom_idx);
+            println!("    Kinetic contribution: [{:.6e}, {:.6e}, {:.6e}]", kinetic_contrib.x, kinetic_contrib.y, kinetic_contrib.z);
+            println!("    Nuclear contribution: [{:.6e}, {:.6e}, {:.6e}]", nuclear_contrib.x, nuclear_contrib.y, nuclear_contrib.z);
+            println!("    Overlap contribution: [{:.6e}, {:.6e}, {:.6e}]", overlap_contrib.x, overlap_contrib.y, overlap_contrib.z);
+            println!("    Total Pulay force: [{:.6e}, {:.6e}, {:.6e}]", pulay_force_atom.x, pulay_force_atom.y, pulay_force_atom.z);
+            
+            // Add Pulay forces to total forces
+            forces[atom_idx] = nuclear_forces[atom_idx] + electronic_forces[atom_idx] + pulay_force_atom;
+        }
+
+        // Print force breakdown
         info!("  Force breakdown:");
         println!("  Force breakdown:");
-        for (i, ((nuclear, electronic), total)) in nuclear_forces.iter().zip(electronic_forces.iter()).zip(forces.iter()).enumerate() {
-            info!("    Atom {}: Nuclear = [{:.6}, {:.6}, {:.6}], Electronic = [{:.6}, {:.6}, {:.6}], Total = [{:.6}, {:.6}, {:.6}]", 
-                  i + 1, nuclear.x, nuclear.y, nuclear.z, electronic.x, electronic.y, electronic.z, total.x, total.y, total.z);
-            println!("    Atom {}: Nuclear = [{:.6}, {:.6}, {:.6}], Electronic = [{:.6}, {:.6}, {:.6}], Total = [{:.6}, {:.6}, {:.6}]", 
-                  i + 1, nuclear.x, nuclear.y, nuclear.z, electronic.x, electronic.y, electronic.z, total.x, total.y, total.z);
+        for i in 0..self.num_atoms {
+            println!("    Atom {}: Nuclear = [{:.6}, {:.6}, {:.6}], Electronic = [{:.6}, {:.6}, {:.6}], Total = [{:.6}, {:.6}, {:.6}]",
+                    i + 1,
+                    nuclear_forces[i].x, nuclear_forces[i].y, nuclear_forces[i].z,
+                    electronic_forces[i].x, electronic_forces[i].y, electronic_forces[i].z,
+                    forces[i].x, forces[i].y, forces[i].z);
         }
 
         // Check force balance
-        let total_force: Vector3<f64> = forces.iter().sum();
-        info!("  Total force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}", total_force.x, total_force.y, total_force.z, total_force.norm());
-        println!("  Total force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}", total_force.x, total_force.y, total_force.z, total_force.norm());
-
-        info!("-----------------------------------------------------\n");
-        println!("-----------------------------------------------------\n");
+        let mut total_force = Vector3::zeros();
+        for force in &forces {
+            total_force += force;
+        }
+        println!("  Total force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}",
+                total_force.x, total_force.y, total_force.z, total_force.norm());
+        println!("-----------------------------------------------------");
 
         forces
     }
@@ -873,43 +974,46 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         // Debug: Verify dVab_dR with finite differences for a few key terms
         println!("  Verifying dVab_dR with finite differences:");
         const DELTA: f64 = 1e-6;
-        for atom_idx in 0..self.num_atoms {
-            for i in [0, 1] { // Check first two basis functions
-                for j in [0, 1] {
-                    if i >= self.num_basis || j >= self.num_basis { continue; }
-                    
-                    // Analytical derivative
-                    let dv_dr_analytical = B::BasisType::dVab_dR(
+        for i in 0..2 {
+            for j in 0..2 {
+                for atom_idx in 0..self.num_atoms {
+                    let analytical = B::BasisType::dVab_dR(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
                         self.coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    // Finite difference derivative
-                    let mut coords_plus = self.coords.clone();
-                    let mut coords_minus = self.coords.clone();
-                    coords_plus[atom_idx].z += DELTA;
-                    coords_minus[atom_idx].z -= DELTA;
-                    
+                    // Calculate numerical derivative
+                    let mut pos_coords = self.coords.clone();
+                    pos_coords[atom_idx].z += DELTA;
                     let v_plus = B::BasisType::Vab(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
-                        coords_plus[atom_idx],
+                        pos_coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
+                    
+                    let mut neg_coords = self.coords.clone();
+                    neg_coords[atom_idx].z -= DELTA;
                     let v_minus = B::BasisType::Vab(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
-                        coords_minus[atom_idx],
+                        neg_coords[atom_idx],
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    let dv_dr_numerical_z = (v_plus - v_minus) / (2.0 * DELTA);
-                    
+                    let numerical = (v_plus - v_minus) / (2.0 * DELTA);
                     println!("    V[{},{}] w.r.t. atom {}: Analytical dV/dz = {:.6}, Numerical dV/dz = {:.6}, Diff = {:.6}", 
-                             i, j, atom_idx, dv_dr_analytical.z, dv_dr_numerical_z, 
-                             (dv_dr_analytical.z - dv_dr_numerical_z).abs());
+                            i, j, atom_idx, analytical.z, numerical, analytical.z - numerical);
+                    
+                    let v_0 = B::BasisType::Vab(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+                    println!("      V at center = {:.8}, V(+delta) = {:.8}, V(-delta) = {:.8}", v_0, v_plus, v_minus);
                 }
             }
         }
@@ -917,6 +1021,9 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         let mut electronic_forces = vec![Vector3::zeros(); self.num_atoms];
         for atom_idx in 0..self.num_atoms {
             println!("    Calculating electronic force on atom {}:", atom_idx);
+            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
+            let mut total_electronic_force: Vector3<f64> = Vector3::zeros();
+            
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
                     // Get density matrix element
