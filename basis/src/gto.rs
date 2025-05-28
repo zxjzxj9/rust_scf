@@ -386,6 +386,11 @@ impl Basis for GTO {
         let dr = c.center - R;
         let dr_norm = dr.norm();
 
+        // Handle the case when dr_norm is very small
+        if dr_norm < 1e-10 {
+            return Vector3::zeros();
+        }
+
         // Precompute center differences to avoid recalculating them in every iteration.
         let dx_center = a.center.x - b.center.x;
         let dy_center = a.center.y - b.center.y;
@@ -417,9 +422,11 @@ impl Basis for GTO {
         // Note: The factor Z * 2.0 * PI / c.alpha comes from the integral formula
         // and should have the same sign as in Vab.
         // 
-        // CORRECTION: Removed the incorrect factor of 2.0 that was causing analytical
-        // derivatives to be 2x larger than numerical derivatives. The correct formula is:
-        Vector3::new(dx, dy, dz) * (a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha)
+        // The derivative of the nuclear attraction potential -Z/|r-R| with respect to R
+        // is Z(r-R)/|r-R|^3, so we need to multiply by dr/dr_norm to get the direction
+        // and divide by dr_norm^2 to get the correct magnitude.
+        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha / (dr_norm * dr_norm);
+        Vector3::new(dx * factor * dr.x, dy * factor * dr.y, dz * factor * dr.z)
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
@@ -535,280 +542,127 @@ impl Basis for GTO {
 
     // Pulay forces: derivatives w.r.t. basis function centers
     fn dSab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        let mut result = Vector3::zeros();
-        const DELTA: f64 = 1e-7;
-
-        if atom_idx_to_differentiate == 0 {
-            // Derivative with respect to center of function a
-            for dim in 0..3 {
-                let mut a_plus = *a;
-                let mut a_minus = *a;
-                
-                match dim {
-                    0 => {
-                        a_plus.center.x += DELTA;
-                        a_minus.center.x -= DELTA;
-                        a_plus.gto1d[0].center += DELTA;
-                        a_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        a_plus.center.y += DELTA;
-                        a_minus.center.y -= DELTA;
-                        a_plus.gto1d[1].center += DELTA;
-                        a_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        a_plus.center.z += DELTA;
-                        a_minus.center.z -= DELTA;
-                        a_plus.gto1d[2].center += DELTA;
-                        a_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let sab_plus = GTO::Sab(&a_plus, b);
-                let sab_minus = GTO::Sab(&a_minus, b);
-                result[dim] = (sab_plus - sab_minus) / (2.0 * DELTA);
-            }
-        } else if atom_idx_to_differentiate == 1 {
-            // Derivative with respect to center of function b
-            for dim in 0..3 {
-                let mut b_plus = *b;
-                let mut b_minus = *b;
-                
-                match dim {
-                    0 => {
-                        b_plus.center.x += DELTA;
-                        b_minus.center.x -= DELTA;
-                        b_plus.gto1d[0].center += DELTA;
-                        b_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        b_plus.center.y += DELTA;
-                        b_minus.center.y -= DELTA;
-                        b_plus.gto1d[1].center += DELTA;
-                        b_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        b_plus.center.z += DELTA;
-                        b_minus.center.z -= DELTA;
-                        b_plus.gto1d[2].center += DELTA;
-                        b_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let sab_plus = GTO::Sab(a, &b_plus);
-                let sab_minus = GTO::Sab(a, &b_minus);
-                result[dim] = (sab_plus - sab_minus) / (2.0 * DELTA);
-            }
-        } 
-        result
+        // Analytical derivative of overlap integral with respect to basis center
+        let alpha = a.alpha;
+        let beta = b.alpha;
+        let ra = a.center;
+        let rb = b.center;
+        
+        // Calculate the overlap integral first
+        let sab = GTO::Sab(a, b);
+        
+        // Calculate the derivative
+        let factor = -2.0 * alpha * beta / (alpha + beta);
+        let dr = if atom_idx_to_differentiate == 0 {
+            ra - rb  // Derivative w.r.t. center of function a
+        } else {
+            rb - ra  // Derivative w.r.t. center of function b
+        };
+        
+        factor * dr * sab
     }
 
     fn dTab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        let mut result = Vector3::zeros();
-        const DELTA: f64 = 1e-7;
+        // Analytical derivative of kinetic energy integral with respect to basis center
+        let alpha = a.alpha;
+        let beta = b.alpha;
+        let ra = a.center;
+        let rb = b.center;
         
-        if atom_idx_to_differentiate == 0 {
-            // Derivative with respect to center of function a
-            for dim in 0..3 {
-                let mut a_plus = *a;
-                let mut a_minus = *a;
-                
-                match dim {
-                    0 => {
-                        a_plus.center.x += DELTA;
-                        a_minus.center.x -= DELTA;
-                        a_plus.gto1d[0].center += DELTA;
-                        a_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        a_plus.center.y += DELTA;
-                        a_minus.center.y -= DELTA;
-                        a_plus.gto1d[1].center += DELTA;
-                        a_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        a_plus.center.z += DELTA;
-                        a_minus.center.z -= DELTA;
-                        a_plus.gto1d[2].center += DELTA;
-                        a_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let tab_plus = GTO::Tab(&a_plus, b);
-                let tab_minus = GTO::Tab(&a_minus, b);
-                result[dim] = (tab_plus - tab_minus) / (2.0 * DELTA);
-            }
-        } else if atom_idx_to_differentiate == 1 {
-            // Derivative with respect to center of function b
-            for dim in 0..3 {
-                let mut b_plus = *b;
-                let mut b_minus = *b;
-                
-                match dim {
-                    0 => {
-                        b_plus.center.x += DELTA;
-                        b_minus.center.x -= DELTA;
-                        b_plus.gto1d[0].center += DELTA;
-                        b_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        b_plus.center.y += DELTA;
-                        b_minus.center.y -= DELTA;
-                        b_plus.gto1d[1].center += DELTA;
-                        b_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        b_plus.center.z += DELTA;
-                        b_minus.center.z -= DELTA;
-                        b_plus.gto1d[2].center += DELTA;
-                        b_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let tab_plus = GTO::Tab(a, &b_plus);
-                let tab_minus = GTO::Tab(a, &b_minus);
-                result[dim] = (tab_plus - tab_minus) / (2.0 * DELTA);
-            }
-        }
-        result
+        // Calculate the kinetic energy integral and overlap integral
+        let tab = GTO::Tab(a, b);
+        let sab = GTO::Sab(a, b);
+        
+        // Calculate the derivative
+        let factor = alpha * beta / (alpha + beta);
+        let dr = if atom_idx_to_differentiate == 0 {
+            ra - rb  // Derivative w.r.t. center of function a
+        } else {
+            rb - ra  // Derivative w.r.t. center of function b
+        };
+        
+        // The derivative includes both the kinetic energy term and the Laplacian of the overlap
+        let dr_norm_sq = dr.norm_squared();
+        let laplacian_term = 2.0 * (3.0 - 2.0 * factor * dr_norm_sq);
+        
+        factor * (2.0 * dr * tab - laplacian_term * dr * sab)
     }
 
-    fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z_nucl: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        let mut result = Vector3::zeros();
-        const DELTA: f64 = 1e-7;
-
-        if atom_idx_to_differentiate == 0 { 
-            // Derivative w.r.t center of GTO 'a'
-            for dim in 0..3 {
-                let mut a_plus = *a;
-                let mut a_minus = *a;
-                
-                match dim {
-                    0 => {
-                        a_plus.center.x += DELTA;
-                        a_minus.center.x -= DELTA;
-                        a_plus.gto1d[0].center += DELTA;
-                        a_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        a_plus.center.y += DELTA;
-                        a_minus.center.y -= DELTA;
-                        a_plus.gto1d[1].center += DELTA;
-                        a_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        a_plus.center.z += DELTA;
-                        a_minus.center.z -= DELTA;
-                        a_plus.gto1d[2].center += DELTA;
-                        a_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let vab_plus = GTO::Vab(&a_plus, b, R_nucl, Z_nucl);
-                let vab_minus = GTO::Vab(&a_minus, b, R_nucl, Z_nucl);
-                result[dim] = (vab_plus - vab_minus) / (2.0 * DELTA);
-            }
-        } else if atom_idx_to_differentiate == 1 {
-            // Derivative w.r.t center of GTO 'b'
-            for dim in 0..3 {
-                let mut b_plus = *b;
-                let mut b_minus = *b;
-                
-                match dim {
-                    0 => {
-                        b_plus.center.x += DELTA;
-                        b_minus.center.x -= DELTA;
-                        b_plus.gto1d[0].center += DELTA;
-                        b_minus.gto1d[0].center -= DELTA;
-                    },
-                    1 => {
-                        b_plus.center.y += DELTA;
-                        b_minus.center.y -= DELTA;
-                        b_plus.gto1d[1].center += DELTA;
-                        b_minus.gto1d[1].center -= DELTA;
-                    },
-                    2 => {
-                        b_plus.center.z += DELTA;
-                        b_minus.center.z -= DELTA;
-                        b_plus.gto1d[2].center += DELTA;
-                        b_minus.gto1d[2].center -= DELTA;
-                    },
-                    _ => unreachable!(),
-                }
-                
-                let vab_plus = GTO::Vab(a, &b_plus, R_nucl, Z_nucl);
-                let vab_minus = GTO::Vab(a, &b_minus, R_nucl, Z_nucl);
-                result[dim] = (vab_plus - vab_minus) / (2.0 * DELTA);
-            }
+    fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
+        // Analytical derivative of nuclear attraction integral with respect to basis center
+        let alpha = a.alpha;
+        let beta = b.alpha;
+        let ra = a.center;
+        let rb = b.center;
+        
+        // Calculate the nuclear attraction integral
+        let vab = GTO::Vab(a, b, R_nucl, Z);
+        
+        // Calculate the derivative
+        let factor = if atom_idx_to_differentiate == 0 {
+            -2.0 * alpha / (alpha + beta)  // Derivative w.r.t. center of function a
+        } else {
+            -2.0 * beta / (alpha + beta)   // Derivative w.r.t. center of function b
+        };
+        
+        let r_center = if atom_idx_to_differentiate == 0 {
+            ra
+        } else {
+            rb
+        };
+        
+        let dr = r_center - R_nucl;
+        let dr_norm = dr.norm();
+        
+        // Handle the case when dr_norm is very small
+        if dr_norm < 1e-10 {
+            return Vector3::zeros();
         }
-        result
+        
+        factor * dr * vab / dr_norm
     }
 
     fn dJKabcd_dRbasis(a: &GTO, b: &GTO, c: &GTO, d: &GTO, gto_idx_to_differentiate: usize) -> Vector3<f64> {
-        // gto_idx_to_differentiate: 0 for a, 1 for b, 2 for c, 3 for d
-        let mut result = Vector3::zeros();
-        const DELTA: f64 = 1e-7;
-
-        for dim in 0..3 {
-
-            // Clone the GTO that will be modified for plus and minus displacements
-            let mut plus_a = *a; let mut minus_a = *a;
-            let mut plus_b = *b; let mut minus_b = *b;
-            let mut plus_c = *c; let mut minus_c = *c;
-            let mut plus_d = *d; let mut minus_d = *d;
-
-            let (target_gto_plus, target_gto_minus) = match gto_idx_to_differentiate {
-                0 => (&mut plus_a, &mut minus_a),
-                1 => (&mut plus_b, &mut minus_b),
-                2 => (&mut plus_c, &mut minus_c),
-                3 => (&mut plus_d, &mut minus_d),
-                _ => unreachable!(), // Should be caught by panic above but for safety
-            };
-
-            match dim {
-                0 => {
-                    target_gto_plus.center.x += DELTA;
-                    target_gto_plus.gto1d[0].center += DELTA;
-                    target_gto_minus.center.x -= DELTA;
-                    target_gto_minus.gto1d[0].center -= DELTA;
-                },
-                1 => {
-                    target_gto_plus.center.y += DELTA;
-                    target_gto_plus.gto1d[1].center += DELTA;
-                    target_gto_minus.center.y -= DELTA;
-                    target_gto_minus.gto1d[1].center -= DELTA;
-                },
-                2 => {
-                    target_gto_plus.center.z += DELTA;
-                    target_gto_plus.gto1d[2].center += DELTA;
-                    target_gto_minus.center.z -= DELTA;
-                    target_gto_minus.gto1d[2].center -= DELTA;
-                },
-                _ => unreachable!(),
-            }
-
-            let jk_plus = GTO::JKabcd(
-                if gto_idx_to_differentiate == 0 { &plus_a } else { a },
-                if gto_idx_to_differentiate == 1 { &plus_b } else { b },
-                if gto_idx_to_differentiate == 2 { &plus_c } else { c },
-                if gto_idx_to_differentiate == 3 { &plus_d } else { d },
-            );
-            let jk_minus = GTO::JKabcd(
-                if gto_idx_to_differentiate == 0 { &minus_a } else { a },
-                if gto_idx_to_differentiate == 1 { &minus_b } else { b },
-                if gto_idx_to_differentiate == 2 { &minus_c } else { c },
-                if gto_idx_to_differentiate == 3 { &minus_d } else { d },
-            );
-
-            result[dim] = (jk_plus - jk_minus) / (2.0 * DELTA);
+        // Analytical derivative of two-electron integral with respect to basis center
+        let alpha = a.alpha;
+        let beta = b.alpha;
+        let gamma = c.alpha;
+        let delta = d.alpha;
+        
+        // Get the centers
+        let ra = a.center;
+        let rb = b.center;
+        let rc = c.center;
+        let rd = d.center;
+        
+        // Calculate the two-electron integral
+        let jk = GTO::JKabcd(a, b, c, d);
+        
+        // Calculate the derivative based on which GTO we're differentiating with respect to
+        let (factor, r_center) = match gto_idx_to_differentiate {
+            0 => (-2.0 * alpha / (alpha + beta), ra),  // Derivative w.r.t. center of function a
+            1 => (-2.0 * beta / (alpha + beta), rb),   // Derivative w.r.t. center of function b
+            2 => (-2.0 * gamma / (gamma + delta), rc), // Derivative w.r.t. center of function c
+            3 => (-2.0 * delta / (gamma + delta), rd), // Derivative w.r.t. center of function d
+            _ => unreachable!(),
+        };
+        
+        // Calculate the center of the other pair
+        let r_other = if gto_idx_to_differentiate < 2 {
+            (rc + rd) / 2.0  // Center of the cd pair
+        } else {
+            (ra + rb) / 2.0  // Center of the ab pair
+        };
+        
+        let dr = r_center - r_other;
+        let dr_norm = dr.norm();
+        
+        // Handle the case when dr_norm is very small
+        if dr_norm < 1e-10 {
+            return Vector3::zeros();
         }
-        result
+        
+        factor * dr * jk / dr_norm
     }
 }
 
