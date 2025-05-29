@@ -388,120 +388,24 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
             println!("    Total electronic force on atom {}: [{:.6}, {:.6}, {:.6}]", atom_idx, electronic_forces[atom_idx].x, electronic_forces[atom_idx].y, electronic_forces[atom_idx].z);
         }
 
-        // Step 3: Calculate Pulay forces
-        info!("  Step 3: Calculating Pulay forces...");
-        println!("  Step 3: Calculating Pulay forces...");
+        // Note: For true Hellman-Feynman forces, we should NOT include Pulay forces
+        // Pulay forces arise from the dependence of the basis functions on nuclear coordinates
+        // and are needed for complete forces but not for pure Hellman-Feynman forces
         
-        // Create mapping from basis functions to atoms
-        let mut basis_to_atom = vec![0; self.num_basis];
-        let mut basis_idx = 0;
+        // Step 3: Combine nuclear and electronic forces (Hellman-Feynman only)
+        info!("  Step 3: Combining nuclear and electronic forces (no Pulay terms)...");
+        println!("  Step 3: Combining nuclear and electronic forces (no Pulay terms)...");
+        
         for atom_idx in 0..self.num_atoms {
-            let ao_basis = self.ao_basis[atom_idx].lock().unwrap();
-            for _ in ao_basis.get_basis() {
-                basis_to_atom[basis_idx] = atom_idx;
-                basis_idx += 1;
-            }
-        }
-
-        // Calculate energy-weighted density matrix W = P*S*P
-        let S = &self.overlap_matrix;
-        let P = &self.density_matrix;
-        let PS = P * S;
-        let W = &PS * P; // Energy-weighted density matrix W = P*S*P
-
-        // Calculate Pulay forces for each atom
-        for atom_idx in 0..self.num_atoms {
-            let mut pulay_force_atom = Vector3::zeros();
-            let mut kinetic_contrib = Vector3::zeros();
-            let mut nuclear_contrib = Vector3::zeros();
-            let mut overlap_contrib = Vector3::zeros();
-            
-            // Contribution from dH_core/dR_A (kinetic and nuclear attraction basis derivatives)
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
-                    let p_ij = self.density_matrix[(i, j)];
-                    if p_ij.abs() < 1e-12 { continue; }
-
-                    // Kinetic energy derivatives
-                    if basis_to_atom[i] == atom_idx {
-                        let dt_dr_i = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
-                        let contrib = -p_ij * dt_dr_i;
-                        kinetic_contrib += contrib;
-                        pulay_force_atom += contrib;
-                    }
-                    if basis_to_atom[j] == atom_idx && i != j {
-                        let dt_dr_j = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
-                        let contrib = -p_ij * dt_dr_j;
-                        kinetic_contrib += contrib;
-                        pulay_force_atom += contrib;
-                    }
-
-                    // Nuclear attraction Pulay forces
-                    for k in 0..self.num_atoms {
-                        if basis_to_atom[i] == atom_idx {
-                            let dv_dr_basis = B::BasisType::dVab_dRbasis(
-                                &self.mo_basis[i],
-                                &self.mo_basis[j],
-                                self.coords[k],
-                                self.elems[k].get_atomic_number() as u32,
-                                0,
-                            );
-                            let contrib = -p_ij * dv_dr_basis;
-                            nuclear_contrib += contrib;
-                            pulay_force_atom += contrib;
-                        }
-                        if basis_to_atom[j] == atom_idx && i != j {
-                            let dv_dr_basis = B::BasisType::dVab_dRbasis(
-                                &self.mo_basis[i],
-                                &self.mo_basis[j],
-                                self.coords[k],
-                                self.elems[k].get_atomic_number() as u32,
-                                1,
-                            );
-                            let contrib = -p_ij * dv_dr_basis;
-                            nuclear_contrib += contrib;
-                            pulay_force_atom += contrib;
-                        }
-                    }
-                }
-            }
-
-            // Overlap matrix contribution to Pulay forces
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
-                    let w_ij = W[(i,j)];
-                    if w_ij.abs() < 1e-12 { continue; }
-
-                    if basis_to_atom[i] == atom_idx {
-                        let ds_dr_i = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
-                        let contrib = w_ij * ds_dr_i;
-                        overlap_contrib += contrib;
-                        pulay_force_atom += contrib;
-                    }
-                    if basis_to_atom[j] == atom_idx && i != j {
-                        let ds_dr_j = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
-                        let contrib = w_ij * ds_dr_j;
-                        overlap_contrib += contrib;
-                        pulay_force_atom += contrib;
-                    }
-                }
-            }
-            
-            println!("  Pulay force breakdown for atom {}:", atom_idx);
-            println!("    Kinetic contribution: [{:.6e}, {:.6e}, {:.6e}]", kinetic_contrib.x, kinetic_contrib.y, kinetic_contrib.z);
-            println!("    Nuclear contribution: [{:.6e}, {:.6e}, {:.6e}]", nuclear_contrib.x, nuclear_contrib.y, nuclear_contrib.z);
-            println!("    Overlap contribution: [{:.6e}, {:.6e}, {:.6e}]", overlap_contrib.x, overlap_contrib.y, overlap_contrib.z);
-            println!("    Total Pulay force: [{:.6e}, {:.6e}, {:.6e}]", pulay_force_atom.x, pulay_force_atom.y, pulay_force_atom.z);
-            
-            // Add Pulay forces to total forces
-            forces[atom_idx] = nuclear_forces[atom_idx] + electronic_forces[atom_idx] + pulay_force_atom;
+            // Pure Hellman-Feynman forces = Nuclear repulsion + Electronic attraction only
+            forces[atom_idx] = nuclear_forces[atom_idx] + electronic_forces[atom_idx];
         }
 
         // Print force breakdown
-        info!("  Force breakdown:");
-        println!("  Force breakdown:");
+        info!("  Pure Hellman-Feynman force breakdown:");
+        println!("  Pure Hellman-Feynman force breakdown:");
         for i in 0..self.num_atoms {
-            println!("    Atom {}: Nuclear = [{:.6}, {:.6}, {:.6}], Electronic = [{:.6}, {:.6}, {:.6}], Total = [{:.6}, {:.6}, {:.6}]",
+            println!("    Atom {}: Nuclear = [{:.6}, {:.6}, {:.6}], Electronic = [{:.6}, {:.6}, {:.6}], Total HF = [{:.6}, {:.6}, {:.6}]",
                     i + 1,
                     nuclear_forces[i].x, nuclear_forces[i].y, nuclear_forces[i].z,
                     electronic_forces[i].x, electronic_forces[i].y, electronic_forces[i].z,
@@ -513,7 +417,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         for force in &forces {
             total_force += force;
         }
-        println!("  Total force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}",
+        println!("  Total Hellman-Feynman force (should be ~zero): [{:.6}, {:.6}, {:.6}], Magnitude: {:.6}",
                 total_force.x, total_force.y, total_force.z, total_force.norm());
         println!("-----------------------------------------------------");
 

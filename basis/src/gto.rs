@@ -369,64 +369,38 @@ impl Basis for GTO {
     }
 
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
-        // Compute the derivative of the electron-nuclear attraction integral
-        // with respect to the nuclear position R.
-        //
-        // This function computes d/dR[ <a|V|b> ] where V = -Z/|r-R| is the nuclear attraction potential.
-        // The minus sign in V means this is an attractive potential, and Vab will be negative.
-        //
-        // For Hellman-Feynman forces, we need:
-        // F_nuc = -∇_R E_elec = -∇_R ∑_ij P_ij <i|V|j> = -∑_ij P_ij ∇_R <i|V|j>
-        // where P_ij is the density matrix element.
-        //
-        // Therefore, the force contribution is F_nuc = -P_ij * dVab_dR
-        // The sign is important here: this is the force on the nucleus due to electrons.
-        
         let c = GTO::merge(a, b);
         let dr = c.center - R;
         let dr_norm = dr.norm();
 
-        // Handle the case when dr_norm is very small
         if dr_norm < 1e-10 {
             return Vector3::zeros();
         }
 
-        // Precompute center differences to avoid recalculating them in every iteration.
         let dx_center = a.center.x - b.center.x;
         let dy_center = a.center.y - b.center.y;
         let dz_center = a.center.z - b.center.z;
 
-        // Combine the three parallel loops into one.
-        // Each iteration calculates the contribution to each derivative component.
         let (dx, dy, dz) = iproduct!(0..=c.l_xyz.x, 0..=c.l_xyz.y, 0..=c.l_xyz.z)
             .par_bridge()
             .map(|(i, j, k)| {
-                // Compute the E coefficients once.
                 let eab_x = GTO1d::Eab(a.l_xyz.x, b.l_xyz.x, i, dx_center, a.alpha, b.alpha);
                 let eab_y = GTO1d::Eab(a.l_xyz.y, b.l_xyz.y, j, dy_center, a.alpha, b.alpha);
                 let eab_z = GTO1d::Eab(a.l_xyz.z, b.l_xyz.z, k, dz_center, a.alpha, b.alpha);
                 let common = eab_x * eab_y * eab_z;
 
-                // Compute each derivative's Hermite integral.
                 let dxi = common * GTO::dhermite_coulomb(Direction::X, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
                 let dyi = common * GTO::dhermite_coulomb(Direction::Y, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
                 let dzi = common * GTO::dhermite_coulomb(Direction::Z, i, j, k, 0, c.alpha, dr.x, dr.y, dr.z, dr_norm);
                 (dxi, dyi, dzi)
             })
-            // Use reduce to sum up the contributions from all iterations.
             .reduce(|| (0.0, 0.0, 0.0), |(dx1, dy1, dz1), (dx2, dy2, dz2)| {
                 (dx1 + dx2, dy1 + dy2, dz1 + dz2)
             });
 
-        // Apply the remaining multiplicative factors (as in Vab).
-        // Note: The factor Z * 2.0 * PI / c.alpha comes from the integral formula
-        // and should have the same sign as in Vab.
-        // 
-        // The derivative of the nuclear attraction potential -Z/|r-R| with respect to R
-        // is Z(r-R)/|r-R|^3, so we need to multiply by dr/dr_norm to get the direction
-        // and divide by dr_norm^2 to get the correct magnitude.
-        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha / (dr_norm * dr_norm);
-        Vector3::new(dx * factor * dr.x, dy * factor * dr.y, dz * factor * dr.z)
+        let sum = Vector3::new(dx, dy, dz);
+        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        sum * factor
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
