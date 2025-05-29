@@ -399,7 +399,7 @@ impl Basis for GTO {
             });
 
         let sum = Vector3::new(dx, dy, dz);
-        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        let factor = -a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
         sum * factor
     }
 
@@ -559,7 +559,14 @@ impl Basis for GTO {
         let dr_norm_sq = dr.norm_squared();
         let laplacian_term = 2.0 * (3.0 - 2.0 * factor * dr_norm_sq);
         
-        factor * (2.0 * dr * tab - laplacian_term * dr * sab)
+        // factor * (2.0 * dr * tab - laplacian_term * dr * sab)
+
+        let mu     = alpha * beta / (alpha + beta);
+        let qvec   = if atom_idx_to_differentiate == 0 { ra - rb } else { rb - ra };
+        let q2     = qvec.norm_squared();
+        let sab    = GTO::Sab(a,b);
+
+        -2.0 * mu*mu * (5.0 - 2.0*mu*q2) * qvec * sab
     }
 
     fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
