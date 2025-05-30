@@ -352,18 +352,21 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         
         // Calculate electron-nuclear attraction forces
         let mut electronic_forces = vec![Vector3::zeros(); self.num_atoms];
-        for atom_idx in 0..self.num_atoms {
-            println!("    Calculating electronic force on atom {}:", atom_idx);
-            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
-            let mut total_electronic_force: Vector3<f64> = Vector3::zeros();
-            
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
-                    // Get density matrix element
-                    let p_ij = self.density_matrix[(i, j)];
-                    if p_ij.abs() < 1e-12 { continue; }
+        
+        // For each density matrix element P[i,j], calculate its contribution to the force on ALL nuclei
+        // Handle double counting properly: off-diagonal elements should be counted twice (once for (i,j) and once for (j,i))
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                // Get density matrix element
+                let p_ij = self.density_matrix[(i, j)];
+                if p_ij.abs() < 1e-12 { continue; }
 
-                    // Get derivative of nuclear attraction integral with respect to nuclear coordinate
+                // Factor to avoid double counting: diagonal elements count once, off-diagonal twice
+                let factor = if i == j { 1.0 } else { 0.5 };
+
+                // For each nucleus α, calculate the force contribution from this P[i,j] element
+                for atom_idx in 0..self.num_atoms {
+                    // Get derivative of nuclear attraction integral V_{i,j,α} w.r.t. position of nucleus α
                     let dv_dr = B::BasisType::dVab_dR(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
@@ -371,18 +374,43 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    // Add contribution to force on the nucleus
-                    // The force is -dE/dR, and dE/dR contains dV/dR
-                    let force_contrib = -p_ij * dv_dr;
+                    // Add contribution to force on nucleus α
+                    // The force is -dE/dR, and since E contains P_ij * V_ij, the force is -P_ij * dV/dR
+                    // Apply factor to handle double counting
+                    let force_contrib = -factor * p_ij * dv_dr;
                     electronic_forces[atom_idx] += force_contrib;
+                }
+            }
+        }
+        
+        // Print electronic forces
+        for atom_idx in 0..self.num_atoms {
+            println!("    Calculating electronic force on atom {}:", atom_idx);
+            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
+            
+            // Print detailed breakdown for debugging
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+                    if p_ij.abs() < 1e-12 { continue; }
+
+                    // Apply same factor as in the main calculation
+                    let factor = if i == j { 1.0 } else { 0.5 };
+
+                    let dv_dr = B::BasisType::dVab_dR(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+                    
+                    let force_contrib = -factor * p_ij * dv_dr;
                     
                     // Print significant contributions
                     if force_contrib.norm() > 0.01 {
-                        println!("      Force from P[{},{}]={:.6} * dV[{},{}]/dR = [{:.6}, {:.6}, {:.6}]", 
-                                i, j, p_ij, i, j, force_contrib.x, force_contrib.y, force_contrib.z);
+                        println!("      Force from P[{},{}]={:.6} * dV[{},{}]/dR * {:.1} = [{:.6}, {:.6}, {:.6}]", 
+                                i, j, p_ij, i, j, factor, force_contrib.x, force_contrib.y, force_contrib.z);
                     }
-                    
-                    total_electronic_force += force_contrib;
                 }
             }
             println!("    Total electronic force on atom {}: [{:.6}, {:.6}, {:.6}]", atom_idx, electronic_forces[atom_idx].x, electronic_forces[atom_idx].y, electronic_forces[atom_idx].z);
@@ -923,18 +951,21 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
         }
         
         let mut electronic_forces = vec![Vector3::zeros(); self.num_atoms];
-        for atom_idx in 0..self.num_atoms {
-            println!("    Calculating electronic force on atom {}:", atom_idx);
-            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
-            let mut total_electronic_force: Vector3<f64> = Vector3::zeros();
-            
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
-                    // Get density matrix element
-                    let p_ij = self.density_matrix[(i, j)];
-                    if p_ij.abs() < 1e-12 { continue; }
+        
+        // For each density matrix element P[i,j], calculate its contribution to the force on ALL nuclei
+        // Handle double counting properly: off-diagonal elements should be counted twice (once for (i,j) and once for (j,i))
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                // Get density matrix element
+                let p_ij = self.density_matrix[(i, j)];
+                if p_ij.abs() < 1e-12 { continue; }
 
-                    // Get derivative of nuclear attraction integral with respect to nuclear coordinate
+                // Factor to avoid double counting: diagonal elements count once, off-diagonal twice
+                let factor = if i == j { 1.0 } else { 0.5 };
+
+                // For each nucleus α, calculate the force contribution from this P[i,j] element
+                for atom_idx in 0..self.num_atoms {
+                    // Get derivative of nuclear attraction integral V_{i,j,α} w.r.t. position of nucleus α
                     let dv_dr = B::BasisType::dVab_dR(
                         &self.mo_basis[i],
                         &self.mo_basis[j],
@@ -942,10 +973,43 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
                         self.elems[atom_idx].get_atomic_number() as u32,
                     );
                     
-                    // Add contribution to force on the nucleus
-                    // The force is -dE/dR, and dE/dR contains dV/dR
-                    let force_contrib = -p_ij * dv_dr;
+                    // Add contribution to force on nucleus α
+                    // The force is -dE/dR, and since E contains P_ij * V_ij, the force is -P_ij * dV/dR
+                    // Apply factor to handle double counting
+                    let force_contrib = -factor * p_ij * dv_dr;
                     electronic_forces[atom_idx] += force_contrib;
+                }
+            }
+        }
+        
+        // Print electronic forces
+        for atom_idx in 0..self.num_atoms {
+            println!("    Calculating electronic force on atom {}:", atom_idx);
+            println!("      Z = {}", self.elems[atom_idx].get_atomic_number());
+            
+            // Print detailed breakdown for debugging
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+                    if p_ij.abs() < 1e-12 { continue; }
+
+                    // Apply same factor as in the main calculation
+                    let factor = if i == j { 1.0 } else { 0.5 };
+
+                    let dv_dr = B::BasisType::dVab_dR(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+                    
+                    let force_contrib = -factor * p_ij * dv_dr;
+                    
+                    // Print significant contributions
+                    if force_contrib.norm() > 0.01 {
+                        println!("      Force from P[{},{}]={:.6} * dV[{},{}]/dR * {:.1} = [{:.6}, {:.6}, {:.6}]", 
+                                i, j, p_ij, i, j, factor, force_contrib.x, force_contrib.y, force_contrib.z);
+                    }
                 }
             }
             println!("    Total electronic force on atom {}: [{:.6}, {:.6}, {:.6}]", atom_idx, electronic_forces[atom_idx].x, electronic_forces[atom_idx].y, electronic_forces[atom_idx].z);

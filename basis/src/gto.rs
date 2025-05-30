@@ -399,7 +399,7 @@ impl Basis for GTO {
             });
 
         let sum = Vector3::new(dx, dy, dz);
-        let factor = -a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
         sum * factor
     }
 
