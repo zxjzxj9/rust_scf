@@ -488,30 +488,39 @@ impl Basis for GTO {
 
     /// Calculate the derivative of two-electron integrals with respect to nuclear coordinates.
     /// 
-    /// In Hellman-Feynman theory, the derivative of two-electron integrals with respect
-    /// to nuclear coordinates is zero for a fixed electron density. This is because
-    /// the two-electron integrals depend only on the electron coordinates and basis 
-    /// function parameters, not directly on the nuclear coordinates.
+    /// For Hellman-Feynman forces, we need the derivative of the two-electron integral
+    /// with respect to nuclear positions. While the integral itself doesn't explicitly
+    /// depend on nuclear coordinates, it contributes through the potential energy terms.
     /// 
-    /// The actual dependence on nuclear positions comes through:
-    /// 1. Changes in the electron density (not included in pure Hellman-Feynman)
-    /// 2. Changes in the basis function parameters (Pulay forces, not included here)
+    /// The two-electron integral (μν|λσ) = ∫∫ φ_μ(r1) φ_ν(r1) (1/|r1-r2|) φ_λ(r2) φ_σ(r2) dr1 dr2
     /// 
-    /// Therefore, this function correctly returns a zero vector for pure Hellman-Feynman forces.
-    fn dJKabcd_dR(_a: &GTO, _b: &GTO, _c: &GTO, _d: &GTO, _R: Vector3<f64>) -> Vector3<f64> {
-        // For two-electron integrals, there is actually no direct dependence on the nuclear 
-        // position R in the integral expression. The dependence only comes indirectly through
-        // the electron density.
+    /// In pure Hellman-Feynman theory with fixed density, the contribution comes from
+    /// the fact that the electronic repulsion energy includes these integrals weighted
+    /// by density matrix elements.
+    fn dJKabcd_dR(a: &GTO, b: &GTO, c: &GTO, d: &GTO, R: Vector3<f64>) -> Vector3<f64> {
+        // For pure Hellman-Feynman forces with a fixed density matrix, the derivative
+        // of two-electron integrals with respect to nuclear coordinates is indeed zero
+        // when the nuclear coordinate R doesn't appear explicitly in the integral.
+        // 
+        // However, the contribution to forces comes through the density-weighted sum
+        // of these integrals in the total energy expression. The correct approach is
+        // to recognize that for Hellman-Feynman forces, we need the derivative of
+        // the electron-electron repulsion energy:
+        // 
+        // E_ee = (1/2) Σ_ijkl P_ij P_kl (ij|kl) - (1/4) Σ_ijkl P_ij P_kl (ik|jl)
+        // 
+        // The derivative with respect to nuclear position R is:
+        // dE_ee/dR = (1/2) Σ_ijkl P_ij P_kl d(ij|kl)/dR - (1/4) Σ_ijkl P_ij P_kl d(ik|jl)/dR
+        // 
+        // For a fixed density and basis functions that don't depend on the nuclear
+        // position R, d(ij|kl)/dR = 0. This is the correct result for pure 
+        // Hellman-Feynman forces.
         //
-        // In the context of Hellman-Feynman forces, the direct derivative of JKabcd with respect
-        // to nuclear coordinates R is actually zero for a fixed density.
-        //
-        // The complete forces do need derivatives of two-electron integrals, but those are with
-        // respect to basis function centers, not nuclear positions directly (Pulay forces).
-        let grad = Vector3::zeros();
+        // The missing contribution that makes analytical forces match numerical ones
+        // comes from the fact that real calculations need Pulay force corrections
+        // due to basis function dependence on nuclear coordinates.
         
-        // Return zero vector as this is the physically correct result
-        grad
+        Vector3::zeros()
     }
 
     // Pulay forces: derivatives w.r.t. basis function centers

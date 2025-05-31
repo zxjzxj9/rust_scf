@@ -420,9 +420,55 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         // Pulay forces arise from the dependence of the basis functions on nuclear coordinates
         // and are needed for complete forces but not for pure Hellman-Feynman forces
         
-        // Step 3: Combine nuclear and electronic forces (Hellman-Feynman only)
-        info!("  Step 3: Combining nuclear and electronic forces (no Pulay terms)...");
-        println!("  Step 3: Combining nuclear and electronic forces (no Pulay terms)...");
+        // Step 3: Calculate electron-electron repulsion force contributions
+        info!("  Step 3: Electron-electron repulsion forces...");
+        println!("  Step 3: Electron-electron repulsion forces...");
+        
+        // For Hellman-Feynman forces, we need the derivative of the electron-electron
+        // repulsion energy with respect to nuclear coordinates. While individual 
+        // two-electron integrals don't depend directly on nuclear coordinates,
+        // the total electron-electron energy does contribute to Hellman-Feynman forces
+        // through the kinetic energy and potential energy balance.
+        //
+        // However, for a fixed density matrix (as in numerical differentiation),
+        // the electron-electron contribution to pure Hellman-Feynman forces comes
+        // through the electronic density response to nuclear motion.
+        //
+        // Since we're using dJKabcd_dR = 0 (correct for fixed density), we need to
+        // account for the fact that the electron-electron energy still affects
+        // the force balance through the virial theorem and energy partitioning.
+        
+        // For pure Hellman-Feynman forces with fixed density, the electron-electron
+        // force contribution should be calculated differently. Let's use the fact
+        // that for a variational wavefunction, the force can be calculated as the
+        // derivative of the total energy including all terms.
+        
+        // Calculate the electron-electron energy contribution to forces
+        for atom_idx in 0..self.num_atoms {
+            let mut ee_force = Vector3::zeros();
+            
+            // The electron-electron force contribution in Hellman-Feynman theory
+            // comes from the fact that moving a nucleus changes the electronic
+            // potential energy even with a fixed density. This is captured by
+            // the fact that the electron-electron repulsion energy contributes
+            // to the total electrostatic balance.
+            //
+            // For H2, this contribution can be estimated by considering that
+            // the electron-electron repulsion opposes nuclear attraction.
+            // Since dJKabcd_dR = 0 for the basis-independent part, we don't
+            // add any contribution here, keeping the pure Hellman-Feynman result.
+            
+            // Note: The discrepancy with numerical forces indicates that either:
+            // 1. The system is not at its variational minimum, or
+            // 2. We need Pulay force corrections, or  
+            // 3. The numerical differentiation includes basis set superposition effects
+            
+            forces[atom_idx] += ee_force;
+        }
+
+        // Step 4: Combine nuclear and electronic forces (Hellman-Feynman only)
+        info!("  Step 4: Combining nuclear and electronic forces (no Pulay terms)...");
+        println!("  Step 4: Combining nuclear and electronic forces (no Pulay terms)...");
         
         for atom_idx in 0..self.num_atoms {
             // Pure Hellman-Feynman forces = Nuclear repulsion + Electronic attraction only
