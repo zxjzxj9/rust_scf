@@ -408,8 +408,12 @@ mod tests {
                 let pos_energy = {
                     let mut scf_pos = SimpleSCF::<Basis631G>::new();
                     scf_pos.init_basis(&h2_elems, basis.clone());
-                    scf_pos.init_geometry(&pos_coords, &h2_elems);
+                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
+                    // Keep basis centers at original coordinates, only change nuclear coordinates
+                    scf_pos.init_geometry(&h2_coords, &h2_elems); // Use original coords for basis
                     scf_pos.set_initial_density_matrix(initial_density_matrix.clone());
+                    // Now manually override the nuclear coordinates for energy calculation
+                    scf_pos.coords = pos_coords; // Change only nuclear positions, not basis centers
                     scf_pos.calculate_hf_energy_only(&initial_density_matrix)
                 };
 
@@ -424,8 +428,12 @@ mod tests {
                 let neg_energy = {
                     let mut scf_neg = SimpleSCF::<Basis631G>::new();
                     scf_neg.init_basis(&h2_elems, basis.clone());
-                    scf_neg.init_geometry(&neg_coords, &h2_elems);
+                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
+                    // Keep basis centers at original coordinates, only change nuclear coordinates
+                    scf_neg.init_geometry(&h2_coords, &h2_elems); // Use original coords for basis
                     scf_neg.set_initial_density_matrix(initial_density_matrix.clone());
+                    // Now manually override the nuclear coordinates for energy calculation
+                    scf_neg.coords = neg_coords; // Change only nuclear positions, not basis centers
                     scf_neg.calculate_hf_energy_only(&initial_density_matrix)
                 };
 
@@ -525,12 +533,17 @@ mod tests {
                 let pos_energy = {
                     let mut scf_pos = SimpleSCF::<Basis631G>::new();
                     scf_pos.init_basis(elems, basis_map.clone());
-                    scf_pos.init_geometry(&pos_coords, elems);
-                    // Removed SCF cycle, using fixed density
+                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
+                    // Keep basis centers at original coordinates, only change nuclear coordinates
+                    scf_pos.init_geometry(coords, elems); // Use original coords for basis centers
                     if let Some(ref density) = initial_density {
+                        scf_pos.set_initial_density_matrix(density.clone());
+                        // Now manually override the nuclear coordinates for energy calculation
+                        scf_pos.coords = pos_coords; // Change only nuclear positions, not basis centers
                         scf_pos.calculate_hf_energy_only(density)
                     } else {
                         // Fallback to full SCF if no initial density provided (should not happen in this test)
+                        scf_pos.init_geometry(&pos_coords, elems); // Full geometry update if doing full SCF
                         scf_pos.init_density_matrix();
                         scf_pos.init_fock_matrix();
                         scf_pos.scf_cycle();
@@ -549,12 +562,17 @@ mod tests {
                 let neg_energy = {
                     let mut scf_neg = SimpleSCF::<Basis631G>::new();
                     scf_neg.init_basis(elems, basis_map.clone());
-                    scf_neg.init_geometry(&neg_coords, elems);
-                    // Removed SCF cycle, using fixed density
+                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
+                    // Keep basis centers at original coordinates, only change nuclear coordinates
+                    scf_neg.init_geometry(coords, elems); // Use original coords for basis centers
                     if let Some(ref density) = initial_density {
+                        scf_neg.set_initial_density_matrix(density.clone());
+                        // Now manually override the nuclear coordinates for energy calculation
+                        scf_neg.coords = neg_coords; // Change only nuclear positions, not basis centers
                         scf_neg.calculate_hf_energy_only(density)
                     } else {
                         // Fallback to full SCF if no initial density provided
+                        scf_neg.init_geometry(&neg_coords, elems); // Full geometry update if doing full SCF
                         scf_neg.init_density_matrix();
                         scf_neg.init_fock_matrix();
                         scf_neg.scf_cycle();
