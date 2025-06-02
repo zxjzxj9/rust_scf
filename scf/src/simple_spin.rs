@@ -662,6 +662,30 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 
         let mut forces = vec![Vector3::zeros(); self.num_atoms];
 
+        // Calculate n_alpha and n_beta for W matrix construction
+        let total_electrons: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+        let unpaired_electrons = self.multiplicity - 1;
+        // These assertions should ideally be present or ensure multiplicity is always valid
+        // assert!(total_electrons >= unpaired_electrons, "Invalid multiplicity for force calculation");
+        // assert_eq!((total_electrons - unpaired_electrons) % 2, 0, "Invalid electron count for multiplicity in force calculation");
+        let n_alpha = (total_electrons + unpaired_electrons) / 2;
+        let n_beta = (total_electrons - unpaired_electrons) / 2;
+
+        // Construct Energy-Weighted Density Matrices W_alpha and W_beta
+        let c_occ_alpha = self.coeffs_alpha.columns(0, n_alpha);
+        let e_occ_alpha_vec = self.e_level_alpha.rows(0, n_alpha);
+        let e_occ_alpha_diag = DMatrix::from_diagonal(&e_occ_alpha_vec);
+        let w_matrix_alpha = &c_occ_alpha * e_occ_alpha_diag * c_occ_alpha.transpose();
+
+        let c_occ_beta = self.coeffs_beta.columns(0, n_beta);
+        let e_occ_beta_vec = self.e_level_beta.rows(0, n_beta);
+        let e_occ_beta_diag = DMatrix::from_diagonal(&e_occ_beta_vec);
+        let w_matrix_beta = &c_occ_beta * e_occ_beta_diag * c_occ_beta.transpose();
+
         // Step 1: Calculate nuclear-nuclear repulsion forces
         info!("  Step 1: Nuclear-nuclear repulsion forces...");
         for i in 0..self.num_atoms {
@@ -751,11 +775,10 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 for j in 0..self.num_basis {
                     let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
 
-                    // Overlap matrix derivatives (weighted by Fock matrix elements)
+                    // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
                     let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
-                    // Use average of alpha and beta Fock matrices for Pulay force
-                    let fock_avg_ij = 0.5 * (self.fock_matrix_alpha[(i, j)] + self.fock_matrix_beta[(i, j)]);
-                    forces[atom_idx] -= p_total_ij * fock_avg_ij * ds_dr;
+                    let w_total_ij = w_matrix_alpha[(i,j)] + w_matrix_beta[(i,j)];
+                    forces[atom_idx] -= w_total_ij * ds_dr;
 
                     // Kinetic energy derivatives
                     let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
