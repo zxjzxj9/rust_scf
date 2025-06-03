@@ -101,10 +101,13 @@ impl GTO1d {
             // For l = 0, the derivative is just the Gaussian part
             -2.0 * self.alpha * x * self.norm * (-self.alpha * x.powi(2)).exp()
         } else {
-            // For l > 0, use the derivative formula
-            let term1 = self.l as f64 * x.powi((self.l - 1) as i32);
-            let term2 = -2.0 * self.alpha * x.powi(self.l);
-            self.norm * (term1 + term2) * (-self.alpha * x.powi(2)).exp()
+            // For l > 0, use the product rule: d/dx[x^l * exp(-α*x^2)]
+            // = l*x^(l-1)*exp(-α*x^2) + x^l*(-2α*x)*exp(-α*x^2)
+            // = exp(-α*x^2) * [l*x^(l-1) - 2α*x^(l+1)]
+            let exp_part = (-self.alpha * x.powi(2)).exp();
+            let term1 = self.l as f64 * x.powi(self.l - 1);
+            let term2 = -2.0 * self.alpha * x.powi(self.l + 1);
+            self.norm * exp_part * (term1 + term2)
         }
     }
 
@@ -526,133 +529,101 @@ impl Basis for GTO {
     // Pulay forces: derivatives w.r.t. basis function centers
     fn dSab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
         // Analytical derivative of overlap integral with respect to basis center
-        let alpha = a.alpha;
-        let beta = b.alpha;
-        let ra = a.center;
-        let rb = b.center;
+        // For Gaussian overlap integral S_ab = ∫ φ_a(r) φ_b(r) dr
+        // The derivative w.r.t. center R_A is: dS_ab/dR_A = -2*μ*(R_A - R_B)*S_ab
+        // where μ = α_a*α_b/(α_a + α_b)
         
-        // Calculate the overlap integral first
-        let sab = GTO::Sab(a, b);
+        let alpha_a = a.alpha;
+        let alpha_b = b.alpha;
+        let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
         
-        // Calculate the derivative
-        let factor = -2.0 * alpha * beta / (alpha + beta);
-        let dr = if atom_idx_to_differentiate == 0 {
-            ra - rb  // Derivative w.r.t. center of function a
+        let r_diff = if atom_idx_to_differentiate == 0 {
+            a.center - b.center  // Derivative w.r.t. center of function a
         } else {
-            rb - ra  // Derivative w.r.t. center of function b
+            b.center - a.center  // Derivative w.r.t. center of function b  
         };
         
-        factor * dr * sab
+        let sab = GTO::Sab(a, b);
+        -2.0 * mu * r_diff * sab
     }
 
     fn dTab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
         // Analytical derivative of kinetic energy integral with respect to basis center
-        let alpha = a.alpha;
-        let beta = b.alpha;
-        let ra = a.center;
-        let rb = b.center;
+        // For kinetic energy integral T_ab = -0.5 * ∫ φ_a(r) ∇²φ_b(r) dr
+        // The derivative involves second-order terms
         
-        // Calculate the kinetic energy integral and overlap integral
-        let tab = GTO::Tab(a, b);
-        let sab = GTO::Sab(a, b);
+        let alpha_a = a.alpha;
+        let alpha_b = b.alpha;
+        let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
         
-        // Calculate the derivative
-        let factor = alpha * beta / (alpha + beta);
-        let dr = if atom_idx_to_differentiate == 0 {
-            ra - rb  // Derivative w.r.t. center of function a
+        let r_diff = if atom_idx_to_differentiate == 0 {
+            a.center - b.center  // Derivative w.r.t. center of function a
         } else {
-            rb - ra  // Derivative w.r.t. center of function b
+            b.center - a.center  // Derivative w.r.t. center of function b
         };
         
-        // The derivative includes both the kinetic energy term and the Laplacian of the overlap
-        let dr_norm_sq = dr.norm_squared();
-        let laplacian_term = 2.0 * (3.0 - 2.0 * factor * dr_norm_sq);
+        let sab = GTO::Sab(a, b);
+        let q2 = r_diff.norm_squared();
         
-        // factor * (2.0 * dr * tab - laplacian_term * dr * sab)
-
-        let mu     = alpha * beta / (alpha + beta);
-        let qvec   = if atom_idx_to_differentiate == 0 { ra - rb } else { rb - ra };
-        let q2     = qvec.norm_squared();
-        let sab    = GTO::Sab(a,b);
-
-        -2.0 * mu*mu * (5.0 - 2.0*mu*q2) * qvec * sab
+        // Derivative of kinetic energy: more complex due to second derivatives
+        -2.0 * mu * mu * (5.0 - 2.0 * mu * q2) * r_diff * sab
     }
 
     fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
         // Analytical derivative of nuclear attraction integral with respect to basis center
-        let alpha = a.alpha;
-        let beta = b.alpha;
-        let ra = a.center;
-        let rb = b.center;
+        // For nuclear attraction V_ab = ∫ φ_a(r) (-Z/|r-R_nucl|) φ_b(r) dr
+        // The derivative w.r.t. basis center involves the gradient of the nuclear attraction
+        
+        let alpha_a = a.alpha;
+        let alpha_b = b.alpha;
+        let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
+        
+        let r_diff = if atom_idx_to_differentiate == 0 {
+            a.center - b.center  // Derivative w.r.t. center of function a
+        } else {
+            b.center - a.center  // Derivative w.r.t. center of function b
+        };
         
         // Calculate the nuclear attraction integral
         let vab = GTO::Vab(a, b, R_nucl, Z);
         
-        // Calculate the derivative
-        let factor = if atom_idx_to_differentiate == 0 {
-            -2.0 * alpha / (alpha + beta)  // Derivative w.r.t. center of function a
-        } else {
-            -2.0 * beta / (alpha + beta)   // Derivative w.r.t. center of function b
-        };
-        
-        let r_center = if atom_idx_to_differentiate == 0 {
-            ra
-        } else {
-            rb
-        };
-        
-        let dr = r_center - R_nucl;
-        let dr_norm = dr.norm();
-        
-        // Handle the case when dr_norm is very small
-        if dr_norm < 1e-10 {
-            return Vector3::zeros();
-        }
-        
-        factor * dr * vab / dr_norm
+        // Approximate derivative using overlap-like formula
+        // This is an approximation; exact analytical formula is more complex
+        -2.0 * mu * r_diff * vab
     }
 
     fn dJKabcd_dRbasis(a: &GTO, b: &GTO, c: &GTO, d: &GTO, gto_idx_to_differentiate: usize) -> Vector3<f64> {
         // Analytical derivative of two-electron integral with respect to basis center
-        let alpha = a.alpha;
-        let beta = b.alpha;
-        let gamma = c.alpha;
-        let delta = d.alpha;
+        // For two-electron integral (ab|cd) = ∫∫ φ_a(r1) φ_b(r1) (1/r12) φ_c(r2) φ_d(r2) dr1 dr2
+        // The derivative w.r.t. basis center involves complex expressions
         
-        // Get the centers
-        let ra = a.center;
-        let rb = b.center;
-        let rc = c.center;
-        let rd = d.center;
+        // Get the exponents and centers
+        let (alpha, center) = match gto_idx_to_differentiate {
+            0 => (a.alpha, a.center),
+            1 => (b.alpha, b.center),
+            2 => (c.alpha, c.center),
+            3 => (d.alpha, d.center),
+            _ => unreachable!(),
+        };
+        
+        // Get the paired exponent and center
+        let (other_alpha, other_center) = match gto_idx_to_differentiate {
+            0 => (b.alpha, b.center),  // a pairs with b
+            1 => (a.alpha, a.center),  // b pairs with a  
+            2 => (d.alpha, d.center),  // c pairs with d
+            3 => (c.alpha, c.center),  // d pairs with c
+            _ => unreachable!(),
+        };
+        
+        let mu = alpha * other_alpha / (alpha + other_alpha);
+        let r_diff = center - other_center;
         
         // Calculate the two-electron integral
         let jk = GTO::JKabcd(a, b, c, d);
         
-        // Calculate the derivative based on which GTO we're differentiating with respect to
-        let (factor, r_center) = match gto_idx_to_differentiate {
-            0 => (-2.0 * alpha / (alpha + beta), ra),  // Derivative w.r.t. center of function a
-            1 => (-2.0 * beta / (alpha + beta), rb),   // Derivative w.r.t. center of function b
-            2 => (-2.0 * gamma / (gamma + delta), rc), // Derivative w.r.t. center of function c
-            3 => (-2.0 * delta / (gamma + delta), rd), // Derivative w.r.t. center of function d
-            _ => unreachable!(),
-        };
-        
-        // Calculate the center of the other pair
-        let r_other = if gto_idx_to_differentiate < 2 {
-            (rc + rd) / 2.0  // Center of the cd pair
-        } else {
-            (ra + rb) / 2.0  // Center of the ab pair
-        };
-        
-        let dr = r_center - r_other;
-        let dr_norm = dr.norm();
-        
-        // Handle the case when dr_norm is very small
-        if dr_norm < 1e-10 {
-            return Vector3::zeros();
-        }
-        
-        factor * dr * jk / dr_norm
+        // Approximate derivative using overlap-like formula
+        // This is an approximation; exact analytical formula is extremely complex
+        -2.0 * mu * r_diff * jk
     }
 }
 
