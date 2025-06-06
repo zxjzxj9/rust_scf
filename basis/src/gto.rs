@@ -155,6 +155,12 @@ impl GTO1d {
         -0.5 * norm * (term1 + term2 + term3)
     }
 
+    fn sab_unnormalized(a: &GTO1d, b: &GTO1d) -> f64 {
+        let p = a.alpha + b.alpha;
+        let Qx = a.center - b.center;
+        GTO1d::Eab(a.l, b.l, 0, Qx, a.alpha, b.alpha) * (PI / p).sqrt()
+    }
+
 }
 
 #[derive(Debug, Serialize, Deserialize, Copy, Clone)]
@@ -528,30 +534,70 @@ impl Basis for GTO {
 
     // Pulay forces: derivatives w.r.t. basis function centers
     fn dSab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        // Analytical derivative of overlap integral with respect to basis center
-        // For Gaussian overlap integral S_ab = ∫ φ_a(r) φ_b(r) dr
-        // The derivative w.r.t. center R_A is: dS_ab/dR_A = -2*μ*(R_A - R_B)*S_ab
-        // where μ = α_a*α_b/(α_a + α_b)
+        // This calculates the derivative of the 3D overlap integral S_ab with respect
+        // to the center of one of the GTOs, R_A or R_B.
+        // The derivative dS/d(RAx) = (dSx/d(RAx)) * Sy * Sz
+        // where dSx/d(RAx) = <d(ax)/d(RAx)|bx>, and d(ax)/d(RAx) = -d(ax)/dx.
+        // The derivative of a 1D GTO is d/dx(x^l*exp(-ax^2)) = (l/x - 2ax) * x^l*exp(-ax^2),
+        // which gives the recurrence relation:
+        // d/dx |l> -> l|l-1> - 2a|l+1>
+        // So, -d/dx |l> -> 2a|l+1> - l|l-1>
         
-        let alpha_a = a.alpha;
-        let alpha_b = b.alpha;
-        let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
-        
-        let r_diff = if atom_idx_to_differentiate == 0 {
-            a.center - b.center  // Derivative w.r.t. center of function a
+        let (target_gto, other_gto) = if atom_idx_to_differentiate == 0 {
+            (a, b) // Differentiating with respect to the center of GTO 'a'
         } else {
-            b.center - a.center  // Derivative w.r.t. center of function b  
+            (b, a) // Differentiating with respect to the center of GTO 'b'
         };
+
+        let alpha = target_gto.alpha;
+        let l = target_gto.l_xyz;
+
+        // Calculate 1D overlap integrals (un-normalized for recurrence)
+        let s_x_un = GTO1d::sab_unnormalized(&target_gto.gto1d[0], &other_gto.gto1d[0]);
+        let s_y_un = GTO1d::sab_unnormalized(&target_gto.gto1d[1], &other_gto.gto1d[1]);
+        let s_z_un = GTO1d::sab_unnormalized(&target_gto.gto1d[2], &other_gto.gto1d[2]);
         
-        let sab = GTO::Sab(a, b);
-        -2.0 * mu * r_diff * sab
+        // Final normalization constant for the entire 3D overlap
+        let norm_product = target_gto.norm * other_gto.norm;
+        
+        let mut grad = Vector3::zeros();
+
+        // x-component
+        let mut ds_x_un = 0.0;
+        let l_plus_x = GTO1d::new(alpha, l.x + 1, target_gto.center.x);
+        ds_x_un += 2.0 * alpha * GTO1d::sab_unnormalized(&l_plus_x, &other_gto.gto1d[0]);
+        if l.x > 0 {
+            let l_minus_x = GTO1d::new(alpha, l.x - 1, target_gto.center.x);
+            ds_x_un -= l.x as f64 * GTO1d::sab_unnormalized(&l_minus_x, &other_gto.gto1d[0]);
+        }
+        grad.x = ds_x_un * s_y_un * s_z_un * norm_product;
+        
+        // y-component
+        let mut ds_y_un = 0.0;
+        let l_plus_y = GTO1d::new(alpha, l.y + 1, target_gto.center.y);
+        ds_y_un += 2.0 * alpha * GTO1d::sab_unnormalized(&l_plus_y, &other_gto.gto1d[1]);
+        if l.y > 0 {
+            let l_minus_y = GTO1d::new(alpha, l.y - 1, target_gto.center.y);
+            ds_y_un -= l.y as f64 * GTO1d::sab_unnormalized(&l_minus_y, &other_gto.gto1d[1]);
+        }
+        grad.y = s_x_un * ds_y_un * s_z_un * norm_product;
+        
+        // z-component
+        let mut ds_z_un = 0.0;
+        let l_plus_z = GTO1d::new(alpha, l.z + 1, target_gto.center.z);
+        ds_z_un += 2.0 * alpha * GTO1d::sab_unnormalized(&l_plus_z, &other_gto.gto1d[2]);
+        if l.z > 0 {
+            let l_minus_z = GTO1d::new(alpha, l.z - 1, target_gto.center.z);
+            ds_z_un -= l.z as f64 * GTO1d::sab_unnormalized(&l_minus_z, &other_gto.gto1d[2]);
+        }
+        grad.z = s_x_un * s_y_un * ds_z_un * norm_product;
+        
+        grad
     }
 
     fn dTab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        // Analytical derivative of kinetic energy integral with respect to basis center
-        // For kinetic energy integral T_ab = -0.5 * ∫ φ_a(r) ∇²φ_b(r) dr
-        // The derivative involves second-order terms
-        
+        // NOTE: This implementation is an approximation and only correct for s-orbitals.
+        // A full implementation requires recurrence relations for kinetic energy derivatives.
         let alpha_a = a.alpha;
         let alpha_b = b.alpha;
         let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
@@ -570,10 +616,8 @@ impl Basis for GTO {
     }
 
     fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        // Analytical derivative of nuclear attraction integral with respect to basis center
-        // For nuclear attraction V_ab = ∫ φ_a(r) (-Z/|r-R_nucl|) φ_b(r) dr
-        // The derivative w.r.t. basis center involves the gradient of the nuclear attraction
-        
+        // NOTE: This implementation is an approximation and likely incorrect for general GTOs.
+        // The exact analytical formula is significantly more complex.
         let alpha_a = a.alpha;
         let alpha_b = b.alpha;
         let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
@@ -593,9 +637,8 @@ impl Basis for GTO {
     }
 
     fn dJKabcd_dRbasis(a: &GTO, b: &GTO, c: &GTO, d: &GTO, gto_idx_to_differentiate: usize) -> Vector3<f64> {
-        // Analytical derivative of two-electron integral with respect to basis center
-        // For two-electron integral (ab|cd) = ∫∫ φ_a(r1) φ_b(r1) (1/r12) φ_c(r2) φ_d(r2) dr1 dr2
-        // The derivative w.r.t. basis center involves complex expressions
+        // NOTE: This implementation is an approximation and likely incorrect for general GTOs.
+        // The exact analytical formula is extremely complex.
         
         // Get the exponents and centers
         let (alpha, center) = match gto_idx_to_differentiate {

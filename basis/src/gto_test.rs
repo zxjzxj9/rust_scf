@@ -924,49 +924,65 @@ mod tests {
 
     #[test]
     fn test_gto_dsab_dr() {
-        // Test overlap integral derivative w.r.t. basis center
-        let a = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(0.0, 0.0, 0.0));
-        let b = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(1.0, 0.0, 0.0));
+        // Test overlap integral derivative w.r.t. basis center for both s and p orbitals
+        let h = 1e-6;
+        let tol = 1e-6; // Tighter tolerance for the corrected implementation
+
+        // Case 1: s-orbitals
+        let a_s = GTO::new(1.0, Vector3::new(0, 0, 0), Vector3::new(0.0, 0.0, 0.0));
+        let b_s = GTO::new(0.8, Vector3::new(0, 0, 0), Vector3::new(1.0, 0.0, 0.0));
         
         // Test derivative w.r.t. first basis function center
-        let deriv_analytical = GTO::dSab_dR(&a, &b, 0);
+        let deriv_analytical_s = GTO::dSab_dR(&a_s, &b_s, 0);
         
         // Test with numerical derivative
-        let h = 1e-6;
-        let mut deriv_numerical = Vector3::zeros();
+        let mut deriv_numerical_s = Vector3::zeros();
         
         // x component
-        let mut a_plus = a.clone();
-        a_plus.center.x += h;
-        a_plus.gto1d[0].center += h;
-        let mut a_minus = a.clone();
-        a_minus.center.x -= h;
-        a_minus.gto1d[0].center -= h;
-        deriv_numerical.x = (GTO::Sab(&a_plus, &b) - GTO::Sab(&a_minus, &b)) / (2.0 * h);
+        let a_plus_x = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center + Vector3::new(h, 0.0, 0.0));
+        let a_minus_x = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center - Vector3::new(h, 0.0, 0.0));
+        deriv_numerical_s.x = (GTO::Sab(&a_plus_x, &b_s) - GTO::Sab(&a_minus_x, &b_s)) / (2.0 * h);
         
         // y component  
-        let mut a_plus = a.clone();
-        a_plus.center.y += h;
-        a_plus.gto1d[1].center += h;
-        let mut a_minus = a.clone();
-        a_minus.center.y -= h;
-        a_minus.gto1d[1].center -= h;
-        deriv_numerical.y = (GTO::Sab(&a_plus, &b) - GTO::Sab(&a_minus, &b)) / (2.0 * h);
+        let a_plus_y = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center + Vector3::new(0.0, h, 0.0));
+        let a_minus_y = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center - Vector3::new(0.0, h, 0.0));
+        deriv_numerical_s.y = (GTO::Sab(&a_plus_y, &b_s) - GTO::Sab(&a_minus_y, &b_s)) / (2.0 * h);
         
         // z component
-        let mut a_plus = a.clone();
-        a_plus.center.z += h;
-        a_plus.gto1d[2].center += h;
-        let mut a_minus = a.clone();
-        a_minus.center.z -= h;
-        a_minus.gto1d[2].center -= h;
-        deriv_numerical.z = (GTO::Sab(&a_plus, &b) - GTO::Sab(&a_minus, &b)) / (2.0 * h);
+        let a_plus_z = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center + Vector3::new(0.0, 0.0, h));
+        let a_minus_z = GTO::new(a_s.alpha, a_s.l_xyz, a_s.center - Vector3::new(0.0, 0.0, h));
+        deriv_numerical_s.z = (GTO::Sab(&a_plus_z, &b_s) - GTO::Sab(&a_minus_z, &b_s)) / (2.0 * h);
         
-        let tol = 1e-4;
         assert!(
-            (deriv_analytical - deriv_numerical).norm() < tol,
-            "dSab_dR mismatch: analytical = {:?}, numerical = {:?}",
-            deriv_analytical, deriv_numerical
+            (deriv_analytical_s - deriv_numerical_s).norm() < tol,
+            "dSab_dR mismatch for s-orbitals: analytical = {:?}, numerical = {:?}",
+            deriv_analytical_s, deriv_numerical_s
+        );
+
+        // Case 2: p-orbitals to test higher angular momentum
+        let a_p = GTO::new(1.0, Vector3::new(1, 0, 0), Vector3::new(0.0, 0.0, 0.0));
+        let b_p = GTO::new(0.8, Vector3::new(0, 1, 0), Vector3::new(1.0, 0.0, 0.0));
+        
+        let deriv_analytical_p = GTO::dSab_dR(&a_p, &b_p, 0);
+        
+        let mut deriv_numerical_p = Vector3::zeros();
+        
+        let a_p_plus_x = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center + Vector3::new(h, 0.0, 0.0));
+        let a_p_minus_x = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center - Vector3::new(h, 0.0, 0.0));
+        deriv_numerical_p.x = (GTO::Sab(&a_p_plus_x, &b_p) - GTO::Sab(&a_p_minus_x, &b_p)) / (2.0 * h);
+        
+        let a_p_plus_y = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center + Vector3::new(0.0, h, 0.0));
+        let a_p_minus_y = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center - Vector3::new(0.0, h, 0.0));
+        deriv_numerical_p.y = (GTO::Sab(&a_p_plus_y, &b_p) - GTO::Sab(&a_p_minus_y, &b_p)) / (2.0 * h);
+
+        let a_p_plus_z = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center + Vector3::new(0.0, 0.0, h));
+        let a_p_minus_z = GTO::new(a_p.alpha, a_p.l_xyz, a_p.center - Vector3::new(0.0, 0.0, h));
+        deriv_numerical_p.z = (GTO::Sab(&a_p_plus_z, &b_p) - GTO::Sab(&a_p_minus_z, &b_p)) / (2.0 * h);
+        
+        assert!(
+            (deriv_analytical_p - deriv_numerical_p).norm() < tol,
+            "dSab_dR mismatch for p-orbitals: analytical = {:?}, numerical = {:?}",
+            deriv_analytical_p, deriv_numerical_p
         );
     }
 
