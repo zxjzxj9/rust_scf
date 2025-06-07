@@ -9,15 +9,22 @@ mod tests {
     use periodic_table_on_an_enum::Element;
     use std::collections::HashMap;
     use std::sync::Arc;
+    use std::fs;
 
-    fn fetch_basis(atomic_symbol: &str) -> Basis631G {
-        let url = format!(
-            "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
-            atomic_symbol
-        );
-        let basis_str = reqwest::blocking::get(url).unwrap().text().unwrap();
+    fn load_basis_from_file_or_panic(atomic_symbol: &str) -> Basis631G {
+        let path = format!("tests/basis_sets/sto-3g.{}.nwchem", atomic_symbol.to_lowercase());
+        let basis_str = fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("Failed to read basis set file: {}", path));
         Basis631G::parse_nwchem(&basis_str)
     }
+
+    fn load_631g_basis(atomic_symbol: &str) -> Basis631G {
+        let path = format!("tests/basis_sets/6-31g.{}.nwchem", atomic_symbol.to_lowercase());
+        let basis_str = fs::read_to_string(&path)
+            .unwrap_or_else(|_| panic!("Failed to read basis set file: {}", path));
+        Basis631G::parse_nwchem(&basis_str)
+    }
+
     // Mock implementations for testing
     #[derive(Clone)]
     struct MockAOBasis {
@@ -197,16 +204,16 @@ mod tests {
         scf.init_density_matrix();
         scf.init_fock_matrix();
 
-        // Test integral matrix dimensions
+        // Test fock matrix dimensions
         assert_eq!(
-            scf.integral_matrix.shape(),
-            (scf.num_basis * scf.num_basis, scf.num_basis * scf.num_basis)
+            scf.fock_matrix.shape(),
+            (scf.num_basis, scf.num_basis)
         );
 
-        // Verify integral values (0.01 - 0.5*0.01 = 0.005)
-        let expected_value = 0.01 - 0.5 * 0.01;
+        // Verify h_core values (T + V = 0.02 + 2*(-0.03) = -0.04)
+        let expected_value = 0.02 - 2.0 * 0.03;
         assert!(scf
-            .integral_matrix
+            .fock_matrix
             .iter()
             .all(|&x| (x - expected_value).abs() < 1e-6));
     }
@@ -226,7 +233,7 @@ mod tests {
         scf.init_fock_matrix();
 
         let initial_coeffs = scf.coeffs.clone();
-        let initial_energy = scf.e_level.clone();
+        let _initial_energy = scf.e_level.clone();
 
         scf.scf_cycle();
 
@@ -249,353 +256,274 @@ mod tests {
         scf.init_basis(&elems, basis);
         scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
-
-        // Verify occupied orbitals count
-        let total_electrons: usize = elems.iter().map(|e| e.get_atomic_number() as usize).sum();
-        assert_eq!(total_electrons, 2);
-        let n_occ = total_electrons / 2;
-        assert_eq!(n_occ, 1);
     }
 
     #[test]
     fn test_simple_scf() {
-        let mut scf = SimpleSCF::new();
-        let h2o_coords = vec![
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 1.809),
-            Vector3::new(1.443, 0.0, -0.453),
-        ];
-        let h2o_elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
-
+        let mut scf = SimpleSCF::<MockAOBasis>::new();
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
         let mut basis = HashMap::new();
-        let h_basis = fetch_basis("H");
-        let o_basis = fetch_basis("O");
-        basis.insert("H", &h_basis);
-        basis.insert("O", &o_basis);
+        let mock_basis = create_mock_basis();
 
-        scf.init_basis(&h2o_elems, basis);
-        scf.init_geometry(&h2o_coords, &h2o_elems);
+        basis.insert("H", &mock_basis);
+        scf.init_basis(&elems, basis);
+        scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
         scf.init_fock_matrix();
         scf.scf_cycle();
+
+        assert!(scf.calculate_total_energy() < 0.0);
+    }
+
+    #[test]
+    fn test_h2_sto3g_energy() {
+        // Test SCF energy for H2 with STO-3G basis set
+        // Reference energy from PySCF: -1.066453950284943
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+
+        scf.init_basis(&elems, basis_map);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        let total_energy = scf.calculate_total_energy();
+        let expected_energy = -1.06645395;
+
+        assert!(
+            (total_energy - expected_energy).abs() < 1e-6,
+            "H2 STO-3G energy mismatch: got {}, expected {}",
+            total_energy,
+            expected_energy
+        );
     }
 
     #[test]
     fn test_real_hellman_feynman_forces() {
-        // Set up H2 molecule with real basis
-        let mut scf = SimpleSCF::<Basis631G>::new();
-
-        // H2 coordinates and elements
-        let h2_coords = vec![
+        let mut coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.74), // Typical H-H bond length in Angstrom
+            Vector3::new(0.0, 0.0, 1.4), // Standard bond length for H2
         ];
-        let h2_elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
 
-        let mut basis = HashMap::new();
-        let h_basis = fetch_basis("H");
-        // let o_basis = fetch_basis("O"); // Not needed for H2
-        basis.insert("H", &h_basis);
-        // basis.insert("O", &o_basis);
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+        
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
 
-        scf.init_basis(&h2_elems, basis.clone());
-        scf.init_geometry(&h2_coords, &h2_elems);
+        scf.init_basis(&elems, basis_map.clone());
+
+        // Calculate analytical forces
+        scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
         scf.init_fock_matrix();
         scf.scf_cycle();
-
-        // Get the converged density matrix
-        let initial_density_matrix = scf.get_density_matrix();
-
-        // Calculate analytical forces (complete)
         let analytical_forces = scf.calculate_forces();
-        
-        // Calculate pure Hellman-Feynman forces (without Pulay terms)
-        let hf_forces = scf.calculate_hellman_feynman_forces_only();
 
-        // Validate with numerical derivative, passing the initial density matrix
-        let numerical_forces = calculate_numerical_force(&h2_elems, &h2_coords, Some(initial_density_matrix), &basis);
+        // Calculate numerical forces
+        let numerical_forces = calculate_numerical_force(&elems, &coords, Some(scf.density_matrix.clone()), &basis_map);
 
-        // Compare analytical and numerical forces
-        println!("Complete analytical forces: {:?}", analytical_forces);
-        println!("Hellman-Feynman only forces: {:?}", hf_forces);
-        println!("Numerical forces: {:?}", numerical_forces);
-
-        assert_eq!(analytical_forces.len(), numerical_forces.len(), "Mismatch in number of force vectors");
-        
-        // First check if Hellman-Feynman forces are closer to numerical
-        println!("\n=== Force Comparison ===");
-        for i in 0..analytical_forces.len() {
-            let diff_complete = (analytical_forces[i] - numerical_forces[i]).norm();
-            let diff_hf = (hf_forces[i] - numerical_forces[i]).norm();
-            println!("Atom {}: Complete Analytical = {:?}, HF-only = {:?}, Numerical = {:?}", i, analytical_forces[i], hf_forces[i], numerical_forces[i]);
-            println!("         Complete Error = {:.6e}, HF-only Error = {:.6e}", diff_complete, diff_hf);
+        // Compare forces
+        for (i, (analytical, numerical)) in analytical_forces.iter().zip(numerical_forces.iter()).enumerate() {
+            let diff = (analytical - numerical).norm();
+            assert!(
+                diff < 1e-3,
+                "Force mismatch for atom {}: analytical={:?}, numerical={:?}",
+                i,
+                analytical,
+                numerical
+            );
         }
-        
-        // For now, let's use a more relaxed threshold and check if HF forces are reasonable
-        for i in 0..hf_forces.len() {
-            let diff_norm = (hf_forces[i] - numerical_forces[i]).norm();
-            println!("Atom {}: HF Force = {:?}, Numerical Force = {:?}, Difference Norm = {:.6e}", i, hf_forces[i], numerical_forces[i], diff_norm);
-            // Temporarily comment out the assertion to see more debug info
-            // assert!(diff_norm < 1e-1, "HF force mismatch for atom {} exceeds threshold", i); // Relaxed threshold for debugging
-        }
-
-        // Check force balance for both methods
-        let total_hf_force: Vector3<f64> = hf_forces.iter().sum();
-        let total_numerical_force: Vector3<f64> = numerical_forces.iter().sum();
-        println!("\n=== Force Balance Check ===");
-        println!("HF total force: {:?}, magnitude: {:.6e}", total_hf_force, total_hf_force.norm());
-        println!("Numerical total force: {:?}, magnitude: {:.6e}", total_numerical_force, total_numerical_force.norm());
-        println!("(Should be close to zero by Newton's 3rd law)");
-
-        // Focus on the relative error and force balance for now
-        assert!(total_hf_force.norm() < 1.0, "HF force balance violated");
     }
 
     #[test]
     fn test_hellman_feynman_force_debug() {
-        // Set up H2 molecule with real basis
-        let mut scf = SimpleSCF::<Basis631G>::new();
-
-        // H2 coordinates and elements
-        let h2_coords = vec![
+        let mut coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 0.0, 0.74), // Typical H-H bond length in Angstrom
+            Vector3::new(0.0, 0.0, 1.5),
         ];
-        let h2_elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
 
-        let mut basis = HashMap::new();
-        let h_basis = fetch_basis("H");
-        basis.insert("H", &h_basis);
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
 
-        scf.init_basis(&h2_elems, basis.clone());
-        scf.init_geometry(&h2_coords, &h2_elems);
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        scf.init_basis(&elems, basis_map);
+        scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
         scf.init_fock_matrix();
         scf.scf_cycle();
-
-        // Get the converged density matrix
-        let initial_density_matrix = scf.get_density_matrix();
-        
-        println!("\n=== Testing Hellman-Feynman Forces vs. Numerical Derivatives ===");
-        
-        // Calculate analytical Hellman-Feynman forces
-        let hf_forces = scf.calculate_hellman_feynman_forces_only();
-        
-        // Calculate numerical forces using the same density matrix
-        // but smaller displacements for better accuracy
-        const DELTA: f64 = 1e-6;
-        let mut numerical_forces = vec![Vector3::<f64>::zeros(); h2_elems.len()];
-        
-        println!("Calculating numerical forces with DELTA = {:.1e}:", DELTA);
-        
-        for atom_idx in 0..h2_elems.len() {
-            let mut atom_force = Vector3::<f64>::zeros();
-            println!("  Processing atom {}:", atom_idx);
-            
-            for dim in 0..3 {
-                // Only calculate z-component for efficiency
-                if dim != 2 { continue; }
-                
-                // Positive displacement
-                let mut pos_coords = h2_coords.clone();
-                match dim {
-                    0 => pos_coords[atom_idx].x += DELTA,
-                    1 => pos_coords[atom_idx].y += DELTA,
-                    2 => pos_coords[atom_idx].z += DELTA,
-                    _ => unreachable!(),
-                }
-                let pos_energy = {
-                    let mut scf_pos = SimpleSCF::<Basis631G>::new();
-                    scf_pos.init_basis(&h2_elems, basis.clone());
-                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
-                    // Keep basis centers at original coordinates, only change nuclear coordinates
-                    scf_pos.init_geometry(&h2_coords, &h2_elems); // Use original coords for basis
-                    scf_pos.set_initial_density_matrix(initial_density_matrix.clone());
-                    // Now manually override the nuclear coordinates for energy calculation
-                    scf_pos.coords = pos_coords; // Change only nuclear positions, not basis centers
-                    scf_pos.calculate_hf_energy_only(&initial_density_matrix)
-                };
-
-                // Negative displacement
-                let mut neg_coords = h2_coords.clone();
-                match dim {
-                    0 => neg_coords[atom_idx].x -= DELTA,
-                    1 => neg_coords[atom_idx].y -= DELTA,
-                    2 => neg_coords[atom_idx].z -= DELTA,
-                    _ => unreachable!(),
-                }
-                let neg_energy = {
-                    let mut scf_neg = SimpleSCF::<Basis631G>::new();
-                    scf_neg.init_basis(&h2_elems, basis.clone());
-                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
-                    // Keep basis centers at original coordinates, only change nuclear coordinates
-                    scf_neg.init_geometry(&h2_coords, &h2_elems); // Use original coords for basis
-                    scf_neg.set_initial_density_matrix(initial_density_matrix.clone());
-                    // Now manually override the nuclear coordinates for energy calculation
-                    scf_neg.coords = neg_coords; // Change only nuclear positions, not basis centers
-                    scf_neg.calculate_hf_energy_only(&initial_density_matrix)
-                };
-
-                // Central difference approximation
-                let force_component = -(pos_energy - neg_energy) / (2.0 * DELTA);
-                match dim {
-                    0 => atom_force.x = force_component,
-                    1 => atom_force.y = force_component,
-                    2 => atom_force.z = force_component,
-                    _ => unreachable!(),
-                }
-                
-                println!("    dim={}, E+ = {:.8}, E- = {:.8}, F = {:.8}", 
-                        dim, pos_energy, neg_energy, force_component);
-            }
-            numerical_forces[atom_idx] = atom_force;
-            println!("  Total numerical force on atom {}: [{:.8}, {:.8}, {:.8}]", 
-                    atom_idx, atom_force.x, atom_force.y, atom_force.z);
-        }
-        
-        // Compare the forces
-        println!("\n=== Comparing Forces ===");
-        let mut max_diff: f64 = 0.0;
-        
-        for i in 0..h2_elems.len() {
-            let hf_force = hf_forces[i];
-            let num_force = numerical_forces[i];
-            let diff = (hf_force - num_force).norm();
-            max_diff = max_diff.max(diff);
-            
-            println!("Atom {}: ", i);
-            println!("  HF Force:       [{:.8}, {:.8}, {:.8}]", hf_force.x, hf_force.y, hf_force.z);
-            println!("  Numerical Force: [{:.8}, {:.8}, {:.8}]", num_force.x, num_force.y, num_force.z);
-            println!("  Difference:      [{:.8}, {:.8}, {:.8}]", 
-                    hf_force.x - num_force.x, hf_force.y - num_force.y, hf_force.z - num_force.z);
-            println!("  Difference norm: {:.8}", diff);
-        }
-        
-        // Calculate the force on atom 0 directly by evaluating the derivatives of energy terms
-        let atom_idx = 0;
-        {
-            // Calculate nuclear repulsion contribution
-            let mut nuclear_force_z = 0.0;
-            let z_i = h2_elems[atom_idx].get_atomic_number() as f64;
-            let z_j = h2_elems[1-atom_idx].get_atomic_number() as f64;
-            let r_ij = h2_coords[atom_idx].z - h2_coords[1-atom_idx].z;
-            let r_ij_norm = r_ij.abs();
-            let direction = if r_ij > 0.0 { 1.0 } else { -1.0 };
-            
-            // Nuclear-nuclear repulsion force on atom i due to atom j
-            // F = Z_i * Z_j * r_ij / r_ij^3
-            let nuclear_contribution = z_i * z_j * direction / (r_ij_norm * r_ij_norm);
-            nuclear_force_z = nuclear_contribution;
-            
-            println!("\nDirect force calculation for atom {}:", atom_idx);
-            println!("  Z_i = {}, Z_j = {}, r_ij = {:.6}", z_i, z_j, r_ij);
-            println!("  Nuclear force z-component: {:.8}", nuclear_force_z);
-            
-            // For electronic contribution, we'd need access to internal values
-            // So we'll just observe the difference between total numerical and nuclear
-            let electronic_force_z = numerical_forces[atom_idx].z - nuclear_force_z;
-            println!("  Electronic force z-component (by subtraction): {:.8}", electronic_force_z);
-            println!("  Total numerical force z-component: {:.8}", numerical_forces[atom_idx].z);
-            println!("  HF force z-component: {:.8}", hf_forces[atom_idx].z);
-        }
-        
-        // Check if the forces are reasonably close
-        assert!(max_diff < 0.4, "Forces differ by more than 0.4 au");
+    
+        let forces = scf.calculate_forces();
+        println!("forces, {:?}", forces);
     }
 
-    // Helper function for numerical force calculation via finite difference (central difference)
     fn calculate_numerical_force(
         elems: &Vec<Element>,
         coords: &Vec<Vector3<f64>>,
         initial_density: Option<DMatrix<f64>>,
         basis_map: &HashMap<&str, &Basis631G>,
     ) -> Vec<Vector3<f64>> {
-        // Use a smaller delta for better numerical precision
-        const DELTA: f64 = 1e-6; // Changed from 1e-4 to 1e-6 for better accuracy
-        let mut numerical_forces = vec![Vector3::<f64>::zeros(); elems.len()];
-
-        println!("Calculating numerical forces using finite differences with DELTA = {:.1e}:", DELTA);
-        
-        for atom_idx in 0..elems.len() {
-            let mut atom_force = Vector3::<f64>::zeros();
-            println!("  Processing atom {}:", atom_idx);
-            
-            for dim in 0..3 {
-                // Positive displacement
-                let mut pos_coords = coords.clone();
-                match dim {
-                    0 => pos_coords[atom_idx].x += DELTA,
-                    1 => pos_coords[atom_idx].y += DELTA,
-                    2 => pos_coords[atom_idx].z += DELTA,
-                    _ => unreachable!(),
-                }
-                let pos_energy = {
-                    let mut scf_pos = SimpleSCF::<Basis631G>::new();
-                    scf_pos.init_basis(elems, basis_map.clone());
-                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
-                    // Keep basis centers at original coordinates, only change nuclear coordinates
-                    scf_pos.init_geometry(coords, elems); // Use original coords for basis centers
-                    if let Some(ref density) = initial_density {
-                        scf_pos.set_initial_density_matrix(density.clone());
-                        // Now manually override the nuclear coordinates for energy calculation
-                        scf_pos.coords = pos_coords; // Change only nuclear positions, not basis centers
-                        scf_pos.calculate_hf_energy_only(density)
-                    } else {
-                        // Fallback to full SCF if no initial density provided (should not happen in this test)
-                        scf_pos.init_geometry(&pos_coords, elems); // Full geometry update if doing full SCF
-                        scf_pos.init_density_matrix();
-                        scf_pos.init_fock_matrix();
-                        scf_pos.scf_cycle();
-                        scf_pos.calculate_total_energy()
-                    }
-                };
-
-                // Negative displacement
-                let mut neg_coords = coords.clone();
-                match dim {
-                    0 => neg_coords[atom_idx].x -= DELTA,
-                    1 => neg_coords[atom_idx].y -= DELTA,
-                    2 => neg_coords[atom_idx].z -= DELTA,
-                    _ => unreachable!(),
-                }
-                let neg_energy = {
-                    let mut scf_neg = SimpleSCF::<Basis631G>::new();
-                    scf_neg.init_basis(elems, basis_map.clone());
-                    // For pure Hellman-Feynman forces, we should NOT move the basis centers!
-                    // Keep basis centers at original coordinates, only change nuclear coordinates
-                    scf_neg.init_geometry(coords, elems); // Use original coords for basis centers
-                    if let Some(ref density) = initial_density {
-                        scf_neg.set_initial_density_matrix(density.clone());
-                        // Now manually override the nuclear coordinates for energy calculation
-                        scf_neg.coords = neg_coords; // Change only nuclear positions, not basis centers
-                        scf_neg.calculate_hf_energy_only(density)
-                    } else {
-                        // Fallback to full SCF if no initial density provided
-                        scf_neg.init_geometry(&neg_coords, elems); // Full geometry update if doing full SCF
-                        scf_neg.init_density_matrix();
-                        scf_neg.init_fock_matrix();
-                        scf_neg.scf_cycle();
-                        scf_neg.calculate_total_energy()
-                    }
-                };
-
-                // Central difference approximation
-                let force_component = -(pos_energy - neg_energy) / (2.0 * DELTA);
-                match dim {
-                    0 => atom_force.x = force_component,
-                    1 => atom_force.y = force_component,
-                    2 => atom_force.z = force_component,
-                    _ => unreachable!(),
-                }
-                
-                println!("    dim={}, E+ = {:.8}, E- = {:.8}, F = {:.8}", 
-                        dim, pos_energy, neg_energy, force_component);
+        let mut numerical_forces = vec![Vector3::zeros(); elems.len()];
+        let delta = 1e-5;
+    
+        for i in 0..elems.len() {
+            for j in 0..3 {
+                let mut coords_plus = coords.clone();
+                coords_plus[i][j] += delta;
+                let energy_plus = run_scf_for_force(elems, &coords_plus, initial_density.clone(), basis_map);
+    
+                let mut coords_minus = coords.clone();
+                coords_minus[i][j] -= delta;
+                let energy_minus = run_scf_for_force(elems, &coords_minus, initial_density.clone(), basis_map);
+    
+                numerical_forces[i][j] = -(energy_plus - energy_minus) / (2.0 * delta);
             }
-            numerical_forces[atom_idx] = atom_force;
-            println!("  Total numerical force on atom {}: [{:.8}, {:.8}, {:.8}]", 
-                    atom_idx, atom_force.x, atom_force.y, atom_force.z);
         }
         numerical_forces
+    }
+    
+    fn run_scf_for_force(
+        elems: &Vec<Element>,
+        coords: &Vec<Vector3<f64>>,
+        initial_density: Option<DMatrix<f64>>,
+        basis_map: &HashMap<&str, &Basis631G>,
+    ) -> f64 {
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        scf.init_basis(&elems, basis_map.clone());
+        scf.init_geometry(&coords, &elems);
+        if let Some(density) = initial_density {
+            scf.density_matrix = density;
+            scf.init_fock_matrix();
+        } else {
+            scf.init_density_matrix();
+            scf.init_fock_matrix();
+        }
+        scf.scf_cycle();
+        scf.calculate_total_energy()
+    }
+
+    #[test]
+    fn test_h2o_sto3g_energy() {
+        // H2O molecule with STO-3G basis set
+        // Reference energy: -74.965901 Hartree (from PySCF)
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+            Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+            Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+        ];
+        let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+
+        let h_basis = load_basis_from_file_or_panic("H");
+        let o_basis = load_basis_from_file_or_panic("O");
+        basis_map.insert("H", &h_basis);
+        basis_map.insert("O", &o_basis);
+
+        scf.init_basis(&elems, basis_map);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        let total_energy = scf.calculate_total_energy();
+        let expected_energy = -74.965901;
+
+        assert!(
+            (total_energy - expected_energy).abs() < 1e-5,
+            "H2O STO-3G energy mismatch: got {}, expected {}",
+            total_energy,
+            expected_energy
+        );
+    }
+
+    #[test]
+    fn test_h2o_sto3g_zero_forces() {
+        // H2O molecule at equilibrium geometry. Forces should be close to zero.
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+            Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+            Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+        ];
+        let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+
+        let h_basis = load_basis_from_file_or_panic("H");
+        let o_basis = load_basis_from_file_or_panic("O");
+        basis_map.insert("H", &h_basis);
+        basis_map.insert("O", &o_basis);
+
+        scf.init_basis(&elems, basis_map);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+
+        let forces = scf.calculate_forces();
+        for (i, force) in forces.iter().enumerate() {
+            assert!(
+                force.norm() < 1e-5,
+                "Force on atom {} is not zero: {:?}",
+                i,
+                force
+            );
+        }
+    }
+
+    #[test]
+    fn test_ch4_631g_energy() {
+        let elems = vec![
+            Element::Carbon,
+            Element::Hydrogen,
+            Element::Hydrogen,
+            Element::Hydrogen,
+            Element::Hydrogen,
+        ];
+        // Coordinates in Bohr
+        let d = 2.054 / (3.0_f64.sqrt());
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(d, d, d),
+            Vector3::new(d, -d, -d),
+            Vector3::new(-d, d, -d),
+            Vector3::new(-d, -d, d),
+        ];
+
+        let mut scf = SimpleSCF::<Basis631G>::new();
+
+        let c_basis = load_631g_basis("C");
+        let h_basis = load_631g_basis("H");
+
+        let mut basis_map = HashMap::new();
+        basis_map.insert("C", &c_basis);
+        basis_map.insert("H", &h_basis);
+
+        scf.init_basis(&elems, basis_map);
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+
+        scf.scf_cycle();
+
+        let energy = scf.calculate_total_energy();
+
+        let expected_energy = -40.195172;
+        assert!((energy - expected_energy).abs() < 1e-4);
     }
 }

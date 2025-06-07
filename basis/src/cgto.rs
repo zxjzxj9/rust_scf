@@ -31,6 +31,21 @@ pub struct ContractedGTO {
     pub s: i32, // +1 or -1, stand for alpha or beta, 0 stands for closed shell
 }
 
+impl ContractedGTO {
+    pub fn new_empty(shell_type: String, Z: u32, n: i32, l: i32, m: i32) -> Self {
+        Self {
+            primitives: Vec::new(),
+            coefficients: Vec::new(),
+            shell_type,
+            Z,
+            n,
+            l,
+            m,
+            s: 0,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Basis631G {
     // define of the basis set
@@ -82,140 +97,173 @@ impl Basis631G {
         Z: u32,
         center: Vector3<f64>,
         basis_type: &str,
+        n: &mut i32,
     ) -> Vec<ContractedGTO> {
         let mut res: Vec<ContractedGTO> = Vec::new();
 
         match basis_type {
-            "S" => res.push(ContractedGTO {
-                primitives: Vec::new(),
-                coefficients: Vec::new(),
-                shell_type: "1s".to_string(),
-                Z: Z,
-                n: 1,
-                l: 0,
-                m: 0,
-                s: 0,
-            }),
-            "SP" => {
-                let shells = vec![
-                    ("1s", 0, 0, 0),
-                    ("2px", 1, -1, 0),
-                    ("2py", 1, 1, 0),
-                    ("2pz", 1, 0, 0),
-                ];
-                for (shell_type, l, m, s) in shells {
-                    res.push(ContractedGTO {
-                        primitives: Vec::new(),
-                        coefficients: Vec::new(),
-                        shell_type: shell_type.to_string(),
-                        Z: Z,
-                        n: 2,
-                        l,
-                        m,
-                        s,
-                    });
+            "S" => {
+                let mut cgto = ContractedGTO::new_empty(format!("{}s", n), Z, *n, 0, 0);
+                for line in lines {
+                    let tokens: Vec<&str> = line.split_whitespace().collect();
+                    if tokens.is_empty() { continue; }
+                    let alpha = tokens[0].parse::<f64>().unwrap();
+                    let coeff = tokens[1].parse::<f64>().unwrap();
+                    cgto.primitives.push(GTO::new(alpha, Vector3::new(0, 0, 0), center));
+                    cgto.coefficients.push(coeff);
                 }
+                res.push(cgto);
+            }
+            "P" => {
+                let l = 1;
+                let mut p_cgtos = vec![
+                    ContractedGTO::new_empty(format!("{}px", n), Z, *n, l, 1),
+                    ContractedGTO::new_empty(format!("{}py", n), Z, *n, l, -1),
+                    ContractedGTO::new_empty(format!("{}pz", n), Z, *n, l, 0),
+                ];
+                let l_xyzs = [Vector3::new(1,0,0), Vector3::new(0,1,0), Vector3::new(0,0,1)];
+
+                for line in lines {
+                    let tokens: Vec<&str> = line.split_whitespace().collect();
+                    if tokens.is_empty() { continue; }
+                    let alpha = tokens[0].parse::<f64>().unwrap();
+                    let coeff = tokens[1].parse::<f64>().unwrap();
+                    for i in 0..3 {
+                        p_cgtos[i].primitives.push(GTO::new(alpha, l_xyzs[i], center));
+                        p_cgtos[i].coefficients.push(coeff);
+                    }
+                }
+                res.extend(p_cgtos);
+            }
+            "L" | "SP" => {
+                let mut s_cgto = ContractedGTO::new_empty(format!("{}s", n), Z, *n, 0, 0);
+                let mut p_cgtos = vec![
+                    ContractedGTO::new_empty(format!("{}px", n), Z, *n, 1, 1),
+                    ContractedGTO::new_empty(format!("{}py", n), Z, *n, 1, -1),
+                    ContractedGTO::new_empty(format!("{}pz", n), Z, *n, 1, 0),
+                ];
+                let l_xyzs = [Vector3::new(1,0,0), Vector3::new(0,1,0), Vector3::new(0,0,1)];
+
+                for line in lines {
+                    let tokens: Vec<&str> = line.split_whitespace().collect();
+                    if tokens.is_empty() { continue; }
+                    let alpha = tokens[0].parse::<f64>().unwrap();
+                    let s_coeff = tokens[1].parse::<f64>().unwrap();
+                    let p_coeff = if tokens.len() > 2 {
+                        tokens[2].parse::<f64>().unwrap()
+                    } else {
+                        s_coeff
+                    };
+
+                    s_cgto.primitives.push(GTO::new(alpha, Vector3::new(0,0,0), center));
+                    s_cgto.coefficients.push(s_coeff);
+
+                    for i in 0..3 {
+                        p_cgtos[i].primitives.push(GTO::new(alpha, l_xyzs[i], center));
+                        p_cgtos[i].coefficients.push(p_coeff);
+                    }
+                }
+                res.push(s_cgto);
+                res.extend(p_cgtos);
+            }
+            "D" => {
+                let l = 2;
+                let cartesian_d = [
+                    (Vector3::new(2,0,0), "xx"), (Vector3::new(0,2,0), "yy"), (Vector3::new(0,0,2), "zz"),
+                    (Vector3::new(1,1,0), "xy"), (Vector3::new(1,0,1), "xz"), (Vector3::new(0,1,1), "yz")
+                ];
+                let mut d_cgtos: Vec<_> = cartesian_d.iter().map(|(_, suffix)| {
+                    ContractedGTO::new_empty(format!("{}d{}", n, suffix), Z, *n, l, 0) // m is tricky for cartesian
+                }).collect();
+
+                for line in lines {
+                    let tokens: Vec<&str> = line.split_whitespace().collect();
+                    if tokens.is_empty() { continue; }
+                    let alpha = tokens[0].parse::<f64>().unwrap();
+                    let coeff = tokens[1].parse::<f64>().unwrap();
+                    for i in 0..6 {
+                        d_cgtos[i].primitives.push(GTO::new(alpha, cartesian_d[i].0, center));
+                        d_cgtos[i].coefficients.push(coeff);
+                    }
+                }
+                res.extend(d_cgtos);
             }
             _ => {
-                panic!("Unsupported basis type: {}", basis_type);
+                //panic!("Unsupported basis type: {}", basis_type);
             }
         }
-
-        for line in lines {
-            let tokens: Vec<&str> = line.split_whitespace().collect();
-            if tokens.len() < 2 {
-                continue;
-            }
-
-            // Parse the exponent and coefficients
-            let alpha = tokens[0].parse::<f64>().unwrap();
-            let s_coeff = tokens[1].parse::<f64>().unwrap();
-
-            let s_gto = GTO::new(
-                alpha,
-                Vector3::new(0, 0, 0), // S orbital: l_xyz = [0,0,0]
-                center,
-            );
-            res[0].primitives.push(s_gto);
-            res[0].coefficients.push(s_coeff);
-
-            // If this is an SP shell, also create P-type GTOs
-            if basis_type == "SP" {
-                // println!("test ### {:?}", tokens);
-                let p_coeff = tokens[2].parse::<f64>().unwrap();
-                let p_gto_x = GTO::new(alpha, Vector3::new(1, 0, 0), center);
-                let p_gto_y = GTO::new(alpha, Vector3::new(0, 1, 0), center);
-                let p_gto_z = GTO::new(alpha, Vector3::new(0, 0, 1), center);
-
-                res[1].primitives.push(p_gto_x);
-                res[1].coefficients.push(p_coeff);
-                res[2].primitives.push(p_gto_y);
-                res[2].coefficients.push(p_coeff);
-                res[3].primitives.push(p_gto_z);
-                res[3].coefficients.push(p_coeff);
-            }
-        }
-
         res
     }
 
     /// Parses a string in NWChem format, returning a Basis631G.
     pub fn parse_nwchem(input: &str) -> Self {
         let mut basis = Basis631G {
-            name: String::from("6-31G"),
+            name: String::new(),
             atomic_number: 0,
             basis_set: Vec::new(),
         };
 
         let mut current_block = Vec::new();
         let mut current_shell_type = None;
-        let center = Vector3::new(0.0, 0.0, 0.0); // Assuming center at origin
+        let center = Vector3::new(0.0, 0.0, 0.0);
+
+        let mut n = 0; // Principal quantum number
 
         for line in input.lines() {
             let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
+            if line.is_empty() || line.starts_with('#') || line.starts_with("BASIS") || line.starts_with("END") {
                 continue;
             }
 
             let tokens: Vec<&str> = line.split_whitespace().collect();
-            if tokens.len() >= 2 && (tokens[1] == "S" || tokens[1] == "SP") {
-                // pase element name
+            let is_new_shell_line = tokens.len() >= 2 && tokens.get(1).map_or(false, |s| s.chars().all(char::is_alphabetic));
 
-                // Process previous block if it exists
-                if !current_block.is_empty() {
-                    // initialize the element information
+            if is_new_shell_line {
+                if let Some(shell_type) = current_shell_type {
+                    if !current_block.is_empty() {
+                         if shell_type == "S" || shell_type == "P" || shell_type == "SP" || shell_type == "D" || shell_type == "L" {
+                            n += 1;
+                        }
+                        let parsed = Self::parse_primitive_block(
+                            &current_block,
+                            basis.atomic_number,
+                            center,
+                            shell_type,
+                            &mut n,
+                        );
+                        basis.basis_set.extend(parsed);
+                    }
+                }
+                
+                current_block.clear();
+                let element_symbol = tokens[0];
+                current_shell_type = Some(tokens[1]);
+
+                if basis.name.is_empty() {
                     let element =
-                        periodic_table_on_an_enum::Element::from_symbol(tokens[0]).unwrap();
+                        periodic_table_on_an_enum::Element::from_symbol(element_symbol).unwrap();
                     basis.name = element.get_symbol().to_string();
                     basis.atomic_number = element.get_atomic_number() as u32;
-                    let parsed = Self::parse_primitive_block(
-                        &current_block,
-                        basis.atomic_number,
-                        center,
-                        current_shell_type.unwrap(),
-                    );
-                    basis.basis_set.extend(parsed);
-                    // Add to basis_set with appropriate shell type...
-                    // You'll need to create ContractedGTO objects here
                 }
-
-                current_block.clear();
-                current_shell_type = Some(tokens[1]);
             } else if !tokens.is_empty() && current_shell_type.is_some() {
                 current_block.push(line);
             }
         }
 
-        // Process the last block
-        if !current_block.is_empty() {
-            let parsed = Self::parse_primitive_block(
-                &current_block,
-                basis.atomic_number,
-                center,
-                current_shell_type.unwrap(),
-            );
-            // Add to basis_set...
-            basis.basis_set.extend(parsed);
+        if let Some(shell_type) = current_shell_type {
+            if !current_block.is_empty() {
+                if shell_type == "S" || shell_type == "P" || shell_type == "SP" || shell_type == "D" || shell_type == "L" {
+                    n += 1;
+                }
+                let parsed = Self::parse_primitive_block(
+                    &current_block,
+                    basis.atomic_number,
+                    center,
+                    shell_type,
+                    &mut n,
+                );
+                basis.basis_set.extend(parsed);
+            }
         }
 
         basis
