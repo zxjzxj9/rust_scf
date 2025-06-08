@@ -31,7 +31,7 @@ pub struct SimpleSCF<B: AOBasis> {
 /// Given a matrix where each column is an eigenvector,
 /// this function aligns each eigenvector so that the entry with the largest
 /// absolute value is positive.
-fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
+pub fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
     for j in 0..eigvecs.ncols() {
         let col = eigvecs.column(j);
         let (_, &max_val) = col
@@ -76,7 +76,7 @@ impl<B: AOBasis + Clone> SimpleSCF<B> {
         self.density_matrix = density_matrix;
     }
 
-    fn update_fock_matrix(&mut self) {
+    pub fn update_fock_matrix(&mut self) {
         let mut g_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
         for i in 0..self.num_basis {
@@ -249,8 +249,144 @@ impl<B: AOBasis + Clone> SCF for SimpleSCF<B> {
     }
 
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
-        // Placeholder for force calculation
-        vec![Vector3::zeros(); self.num_atoms]
+        info!("-----------------------------------------------------");
+        info!("  Computing forces using Hellmann-Feynman theorem");
+        info!("-----------------------------------------------------");
+        
+        let mut forces = vec![Vector3::zeros(); self.num_atoms];
+        
+        // Calculate Energy Weighted Density Matrix for Pulay forces
+        // W = C_occ * ε_occ * C_occ^T
+        let total_electrons: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+        let n_occ = total_electrons / 2;
+        
+        let c_occ = self.coeffs.columns(0, n_occ);
+        let e_occ_vec = self.e_level.rows(0, n_occ);
+        let e_occ_diag = DMatrix::from_diagonal(&e_occ_vec);
+        let w_matrix = &c_occ * e_occ_diag * c_occ.transpose();
+
+        // Step 1: Calculate nuclear-nuclear repulsion forces
+        info!("  Step 1: Nuclear-nuclear repulsion forces...");
+        for i in 0..self.num_atoms {
+            for j in 0..self.num_atoms {
+                if i == j {
+                    continue;
+                }
+
+                let z_i = self.elems[i].get_atomic_number() as f64;
+                let z_j = self.elems[j].get_atomic_number() as f64;
+                let r_ij = self.coords[i] - self.coords[j];
+                let r_ij_norm = r_ij.norm();
+
+                // Nuclear-nuclear repulsion force
+                forces[i] += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
+            }
+        }
+
+        // Step 2: Calculate electron-nuclear attraction forces
+        info!("  Step 2: Electron-nuclear attraction forces...");
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+
+                    // Calculate derivative of nuclear attraction integrals
+                    let dv_dr = B::BasisType::dVab_dR(
+                        &self.mo_basis[i],
+                        &self.mo_basis[j],
+                        self.coords[atom_idx],
+                        self.elems[atom_idx].get_atomic_number() as u32,
+                    );
+
+                    // Add contribution to force
+                    forces[atom_idx] -= p_ij * dv_dr;
+                }
+            }
+        }
+
+        // Step 3: Calculate forces from two-electron integrals
+        info!("  Step 3: Two-electron integral derivatives...");
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
+                            let p_ij = self.density_matrix[(i, j)];
+                            let p_kl = self.density_matrix[(k, l)];
+
+                            // Get derivatives of two-electron integrals
+                            let coulomb_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                &self.mo_basis[k],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            let exchange_deriv = B::BasisType::dJKabcd_dR(
+                                &self.mo_basis[i],
+                                &self.mo_basis[k],
+                                &self.mo_basis[j],
+                                &self.mo_basis[l],
+                                self.coords[atom_idx],
+                            );
+
+                            // Coulomb contribution
+                            forces[atom_idx] -= p_ij * p_kl * coulomb_deriv;
+
+                            // Exchange contribution
+                            forces[atom_idx] += 0.5 * p_ij * p_kl * exchange_deriv;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 4: Calculate Pulay forces (derivatives w.r.t. basis function centers)
+        info!("  Step 4: Pulay forces (basis function derivatives)...");
+        for atom_idx in 0..self.num_atoms {
+            // Core Hamiltonian Pulay forces
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_ij = self.density_matrix[(i, j)];
+
+                    // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
+                    let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    let w_ij = w_matrix[(i, j)];
+                    forces[atom_idx] -= w_ij * ds_dr;
+
+                    // Kinetic energy derivatives
+                    let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    forces[atom_idx] -= p_ij * dt_dr;
+
+                    // Nuclear attraction Pulay forces
+                    for k in 0..self.num_atoms {
+                        let dv_dr_basis = B::BasisType::dVab_dRbasis(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            self.coords[k],
+                            self.elems[k].get_atomic_number() as u32,
+                            atom_idx,
+                        );
+                        forces[atom_idx] -= p_ij * dv_dr_basis;
+                    }
+                }
+            }
+        }
+
+        info!("  Complete forces calculated on atoms:");
+        for (i, force) in forces.iter().enumerate() {
+            info!(
+                "    Atom {}: [{:.6}, {:.6}, {:.6}] au",
+                i + 1,
+                force.x,
+                force.y,
+                force.z
+            );
+        }
+        info!("-----------------------------------------------------\n");
+
+        forces
     }
 }
 
