@@ -1344,6 +1344,7 @@ dependencies = [
  "color-eyre",
  "nalgebra",
  "periodic-table-on-an-enum",
+ "rayon",
  "reqwest",
  "serde",
  "serde_yml",
