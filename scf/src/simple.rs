@@ -9,7 +9,7 @@ use periodic_table_on_an_enum::Element;
 use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use tracing::info;
+use tracing::{info, error};
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
@@ -198,7 +198,15 @@ where
         }
         self.fock_matrix = self.h_core.clone();
 
-        let l = self.overlap_matrix.clone().cholesky().unwrap();
+        let l = match self.overlap_matrix.clone().cholesky() {
+            Some(chol) => chol,
+            None => {
+                error!("Cholesky decomposition failed during density matrix initialization!");
+                error!("This typically happens when atoms are too close together or the basis set is inappropriate.");
+                error!("Check the initial geometry and basis set configuration.");
+                panic!("Overlap matrix is singular or nearly singular during initialization");
+            }
+        };
         let l_inv = l.inverse();
         let f_prime = l_inv.clone() * self.fock_matrix.clone() * l_inv.transpose();
         let eig = f_prime.symmetric_eigen();
@@ -241,7 +249,15 @@ where
             self.update_fock_matrix();
             info!("Finished updating Fock matrix for cycle {}", cycle);
 
-            let l = self.overlap_matrix.clone().cholesky().unwrap();
+            let l = match self.overlap_matrix.clone().cholesky() {
+                Some(chol) => chol,
+                None => {
+                    error!("Cholesky decomposition failed - overlap matrix is not positive definite!");
+                    error!("This typically happens when atoms are too close together during optimization.");
+                    error!("Try reducing the optimization step size or checking the geometry.");
+                    panic!("Overlap matrix is singular or nearly singular");
+                }
+            };
             let l_inv = l.inverse();
             let f_prime = l_inv.clone() * self.fock_matrix.clone() * l_inv.transpose();
             let eig = f_prime.symmetric_eigen();
