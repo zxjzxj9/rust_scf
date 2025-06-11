@@ -225,6 +225,8 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         self.elements = elements;
         // Initialize SCF with geometry
         self.scf.init_geometry(&self.coords, &self.elements);
+        // Recompute matrices for the new geometry
+        self.scf.init_density_matrix();
         // Run initial SCF to get energy and forces
         self.scf.scf_cycle();
         self.energy = self.scf.calculate_total_energy();
@@ -242,6 +244,7 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         // Update SCF with new geometry and recalculate
         self.previous_energy = self.energy;
         self.scf.init_geometry(&self.coords, &self.elements);
+        self.scf.init_density_matrix();
         self.scf.scf_cycle();
         self.energy = self.scf.calculate_total_energy();
         self.forces = self.scf.calculate_forces();
@@ -349,6 +352,7 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         // Create a temporary SCF copy to evaluate energy without changing state
         let mut temp_scf = self.scf.clone();
         temp_scf.init_geometry(&coords.to_vec(), &self.elements);
+        temp_scf.init_density_matrix();
         temp_scf.scf_cycle();
         temp_scf.calculate_total_energy()
     }
@@ -403,6 +407,7 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         // Create a temporary SCF copy to evaluate energy without changing state
         let mut temp_scf = self.scf.clone();
         temp_scf.init_geometry(&coords.to_vec(), &self.elements);
+        temp_scf.init_density_matrix();
         temp_scf.scf_cycle();
         temp_scf.calculate_total_energy()
     }
@@ -453,6 +458,8 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         self.elements = elements;
         // Initialize SCF with geometry
         self.scf.init_geometry(&self.coords, &self.elements);
+        // Recompute matrices for the new geometry
+        self.scf.init_density_matrix();
         // Run initial SCF to get energy and forces
         self.scf.scf_cycle();
         self.energy = self.scf.calculate_total_energy();
@@ -484,6 +491,7 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         // Update SCF with new geometry and recalculate
         self.previous_energy = self.energy;
         self.scf.init_geometry(&self.coords, &self.elements);
+        self.scf.init_density_matrix();
         self.scf.scf_cycle();
         self.energy = self.scf.calculate_total_energy();
         

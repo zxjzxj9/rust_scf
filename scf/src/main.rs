@@ -143,7 +143,8 @@ fn setup_output(output_path: Option<&String>) {
         Some(path) => {
             info!("Output will be written to: {}", path);
             if let Ok(log) = File::create(path) {
-                let file_layer = layer().with_writer(log);
+                let file_layer = layer()
+                    .with_writer(log);
                 Registry::default().with(file_layer).init();
             } else {
                 eprintln!("Could not create output file: {}", path);
