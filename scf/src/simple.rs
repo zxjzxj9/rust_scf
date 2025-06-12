@@ -355,8 +355,14 @@ where
                     let r_ij = self.coords[i] - self.coords[j];
                     let r_ij_norm = r_ij.norm();
 
-                    // Nuclear-nuclear repulsion force
-                    force_i += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
+                    // Nuclear-nuclear component of the Hellmann–Feynman force is the
+                    // negative gradient of the Coulomb interaction energy Z_i Z_j / r.
+                    // Force on nucleus i:  F_i = -∂E/∂R_i = -Z_i Z_j (R_i - R_j) / r^3.
+                    // The previous implementation had the wrong sign (adding instead of
+                    // subtracting), which reversed this contribution.  We switch to `-=` so
+                    // that the total force is consistent with the convention used
+                    // elsewhere (forces are defined as -∇E).
+                    force_i -= z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
                 }
                 force_i
             })
