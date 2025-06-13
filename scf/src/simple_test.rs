@@ -405,12 +405,18 @@ mod tests {
         let mut scf = SimpleSCF::<Basis631G>::new();
         scf.init_basis(&elems, basis_map.clone());
         scf.init_geometry(&coords, &elems);
+        // Always compute the one-electron integrals and overlap matrix first.
+        // This guarantees that the matrices required by `scf_cycle` are
+        // positive-definite even when we want to reuse a previously converged
+        // density matrix as the initial guess.
+        scf.init_density_matrix();
+
+        // If an initial density matrix was provided, overwrite the default
+        // guess that `init_density_matrix` created. We can skip the obsolete
+        // `init_fock_matrix` call because `scf_cycle` recomputes the Fock
+        // matrix at the start of every cycle via `update_fock_matrix`.
         if let Some(density) = initial_density {
             scf.density_matrix = density;
-            scf.init_fock_matrix();
-        } else {
-            scf.init_density_matrix();
-            scf.init_fock_matrix();
         }
         scf.scf_cycle();
         scf.calculate_total_energy()
