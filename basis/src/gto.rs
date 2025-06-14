@@ -374,7 +374,8 @@ impl Basis for GTO {
             .sum::<f64>();
 
         // add minus sign to the result, since it is a nuclear attraction term
-        -1.0 * a.norm * b.norm * val * 2.0 * PI * (Z as f64) / c.alpha
+        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        -val * factor
     }
 
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
