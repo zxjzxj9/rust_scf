@@ -279,7 +279,7 @@ where
             self.h_core.fill(0.0);
 
             let kinetic_scale = self.density_mixing;        // ≈ 0.20
-            let nuclear_scale = self.density_mixing * 0.75; // ≈ 0.15
+            let nuclear_scale = self.density_mixing * 0.75;  // ≈ 0.15
 
             let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
                 .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
@@ -356,19 +356,19 @@ where
     }
 
     fn calculate_total_energy(&self) -> f64 {
-        // Parallel computation of one-electron energy
+        // One‐electron + two‐electron (Fock) contribution: 0.5 * P (H + F)
         let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
             .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
             .collect();
-            
-        let one_electron_energy: f64 = ij_pairs
+
+        let electronic_energy: f64 = ij_pairs
             .par_iter()
             .map(|&(i, j)| {
                 self.density_matrix[(i, j)] * (self.h_core[(i, j)] + self.fock_matrix[(i, j)])
             })
             .sum::<f64>() * 0.5;
-
-        // Parallel computation of nuclear repulsion
+        
+        // --- Nuclear repulsion --------------------------------------------------
         let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
             .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))
             .collect();
@@ -387,7 +387,7 @@ where
             })
             .sum();
 
-        one_electron_energy + nuclear_repulsion
+        electronic_energy + nuclear_repulsion
     }
 
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
@@ -423,14 +423,9 @@ where
                     let r_ij = self.coords[i] - self.coords[j];
                     let r_ij_norm = r_ij.norm();
 
-                    // Nuclear-nuclear component of the Hellmann–Feynman force is the
-                    // negative gradient of the Coulomb interaction energy Z_i Z_j / r.
-                    // Force on nucleus i:  F_i = -∂E/∂R_i = -Z_i Z_j (R_i - R_j) / r^3.
-                    // The previous implementation had the wrong sign (adding instead of
-                    // subtracting), which reversed this contribution.  We switch to `-=` so
-                    // that the total force is consistent with the convention used
-                    // elsewhere (forces are defined as -∇E).
-                    force_i -= z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
+                    // Nuclear–nuclear repulsion:  F_i = +Z_i Z_j (R_i - R_j) / r^3
+                    // (see derivation from  E = Z_i Z_j / r_{ij}).
+                    force_i += z_i * z_j * r_ij / (r_ij_norm * r_ij_norm * r_ij_norm);
                 }
                 force_i
             })
@@ -483,7 +478,8 @@ where
                                 let p_ij = self.density_matrix[(i, j)];
                                 let p_kl = self.density_matrix[(k, l)];
 
-                                // Get derivatives of two-electron integrals
+                                // Derivatives of two-electron (Coulomb and
+                                // exchange) integrals.
                                 let coulomb_deriv = B::BasisType::dJKabcd_dR(
                                     &self.mo_basis[i],
                                     &self.mo_basis[j],
