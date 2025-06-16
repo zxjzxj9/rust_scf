@@ -431,6 +431,14 @@ where
             })
             .collect();
         
+        // --- Debug output ----------------------------------------------------
+        #[cfg(test)]
+        {
+            for (idx, f) in nuclear_force_contributions.iter().enumerate() {
+                println!("[DEBUG] Step1-nuclear atom {}: [{:.6}, {:.6}, {:.6}]", idx, f.x, f.y, f.z);
+            }
+        }
+
         for (i, force_contrib) in nuclear_force_contributions.into_iter().enumerate() {
             forces[i] += force_contrib;
         }
@@ -453,14 +461,22 @@ where
                             self.elems[atom_idx].get_atomic_number() as u32,
                         );
 
-                        // Add contribution to force
-                        force_atom -= p_ij * dv_dr;
+                        // Electron–nuclear Hellmann–Feynman term
+                        force_atom += p_ij * dv_dr;
                     }
                 }
                 force_atom
             })
             .collect();
         
+        // --- Debug output ----------------------------------------------------
+        #[cfg(test)]
+        {
+            for (idx, f) in electron_nuclear_forces.iter().enumerate() {
+                println!("[DEBUG] Step2-eN atom {}: [{:.6}, {:.6}, {:.6}]", idx, f.x, f.y, f.z);
+            }
+        }
+
         for (atom_idx, force_contrib) in electron_nuclear_forces.into_iter().enumerate() {
             forces[atom_idx] += force_contrib;
         }
@@ -496,11 +512,9 @@ where
                                     self.coords[atom_idx],
                                 );
 
-                                // Coulomb contribution
-                                force_atom -= p_ij * p_kl * coulomb_deriv;
-
-                                // Exchange contribution
-                                force_atom += 0.5 * p_ij * p_kl * exchange_deriv;
+                                //  +½ P P ( J' – ½ K' )
+                                force_atom += 0.5 * p_ij * p_kl * coulomb_deriv;
+                                force_atom -= 0.25 * p_ij * p_kl * exchange_deriv;
                             }
                         }
                     }
@@ -509,6 +523,14 @@ where
             })
             .collect();
         
+        // --- Debug output ----------------------------------------------------
+        #[cfg(test)]
+        {
+            for (idx, f) in two_electron_forces.iter().enumerate() {
+                println!("[DEBUG] Step3-2e atom {}: [{:.6}, {:.6}, {:.6}]", idx, f.x, f.y, f.z);
+            }
+        }
+
         for (atom_idx, force_contrib) in two_electron_forces.into_iter().enumerate() {
             forces[atom_idx] += force_contrib;
         }
@@ -527,11 +549,11 @@ where
                         // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
                         let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                         let w_ij = w_matrix[(i, j)];
-                        force_atom -= w_ij * ds_dr;
+                        force_atom += w_ij * ds_dr;
 
                         // Kinetic energy derivatives
                         let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
-                        force_atom -= p_ij * dt_dr;
+                        force_atom += p_ij * dt_dr;
 
                         // Nuclear attraction Pulay forces
                         for k in 0..self.num_atoms {
@@ -542,7 +564,7 @@ where
                                 self.elems[k].get_atomic_number() as u32,
                                 atom_idx,
                             );
-                            force_atom -= p_ij * dv_dr_basis;
+                            force_atom += p_ij * dv_dr_basis;
                         }
                     }
                 }
@@ -550,6 +572,14 @@ where
             })
             .collect();
         
+        // --- Debug output ----------------------------------------------------
+        #[cfg(test)]
+        {
+            for (idx, f) in pulay_forces.iter().enumerate() {
+                println!("[DEBUG] Step4-Pulay atom {}: [{:.6}, {:.6}, {:.6}]", idx, f.x, f.y, f.z);
+            }
+        }
+
         for (atom_idx, force_contrib) in pulay_forces.into_iter().enumerate() {
             forces[atom_idx] += force_contrib;
         }

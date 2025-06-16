@@ -83,28 +83,35 @@ mod tests {
             0.01 // Two-electron integral
         }
 
-        fn dVab_dR(_: &Self, _: &Self, _: Vector3<f64>, _: u32) -> Vector3<f64> {
-            Vector3::new(0.1, 0.1, 0.1) // Mock derivative of nuclear attraction integral
+        fn dVab_dR(_: &Self, _: &Self, r_nuc: Vector3<f64>, _: u32) -> Vector3<f64> {
+            // Give opposite contributions for nuclei on opposite sides of the origin
+            let sign = if r_nuc.z >= 0.7 { 1.0 } else { -1.0 };
+            Vector3::new(0.0, 0.0, 0.1 * sign)
         }
 
-        fn dJKabcd_dR(_: &Self, _: &Self, _: &Self, _: &Self, _: Vector3<f64>) -> Vector3<f64> {
-            Vector3::new(0.01, 0.01, 0.01) // Mock derivative of two-electron integral
+        fn dJKabcd_dR(_: &Self, _: &Self, _: &Self, _: &Self, r_nuc: Vector3<f64>) -> Vector3<f64> {
+            let sign = if r_nuc.z >= 0.7 { 1.0 } else { -1.0 };
+            Vector3::new(0.0, 0.0, 0.01 * sign)
         }
 
-        fn dSab_dR(_: &Self, _: &Self, _: usize) -> Vector3<f64> {
-            Vector3::new(0.05, 0.05, 0.05) // Mock derivative of overlap integral w.r.t. basis center
+        fn dSab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
+            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.05 * sign)
         }
 
-        fn dTab_dR(_: &Self, _: &Self, _: usize) -> Vector3<f64> {
-            Vector3::new(0.02, 0.02, 0.02) // Mock derivative of kinetic integral w.r.t. basis center
+        fn dTab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
+            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.02 * sign)
         }
 
-        fn dVab_dRbasis(_: &Self, _: &Self, _: Vector3<f64>, _: u32, _: usize) -> Vector3<f64> {
-            Vector3::new(0.03, 0.03, 0.03) // Mock derivative of nuclear attraction w.r.t. basis center
+        fn dVab_dRbasis(_: &Self, _: &Self, _: Vector3<f64>, _: u32, atom_idx: usize) -> Vector3<f64> {
+            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.03 * sign)
         }
 
-        fn dJKabcd_dRbasis(_: &Self, _: &Self, _: &Self, _: &Self, _: usize) -> Vector3<f64> {
-            Vector3::new(0.001, 0.001, 0.001) // Mock derivative of two-electron integral w.r.t. basis center
+        fn dJKabcd_dRbasis(_: &Self, _: &Self, _: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
+            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.001 * sign)
         }
     }
 
