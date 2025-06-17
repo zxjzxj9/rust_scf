@@ -373,9 +373,12 @@ impl Basis for GTO {
             })
             .sum::<f64>();
 
-        // add minus sign to the result, since it is a nuclear attraction term
-        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
-        -val * factor
+        // The nuclear attraction operator carries a negative sign (\(-Z/r\)),
+        // therefore the resulting integral must also be negative.  We include
+        // the minus-sign here so that all downstream uses and corresponding
+        // analytic derivatives inherit the correct sign convention.
+        let factor = -a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        val * factor
     }
 
     fn dVab_dR(a: &Self, b: &Self, R: Vector3<f64>, Z: u32) -> Vector3<f64> {
@@ -409,6 +412,8 @@ impl Basis for GTO {
             });
 
         let sum = Vector3::new(dx, dy, dz);
+        // For the gradient we have an extra sign from dPC/dR = -1 which cancels the
+        // negative sign in the operator, yielding an overall positive prefactor.
         let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
         sum * factor
     }
@@ -496,40 +501,8 @@ impl Basis for GTO {
             / (e.alpha * f.alpha * (e.alpha + f.alpha).sqrt())
     }
 
-    /// Calculate the derivative of two-electron integrals with respect to nuclear coordinates.
-    /// 
-    /// For Hellman-Feynman forces, we need the derivative of the two-electron integral
-    /// with respect to nuclear positions. While the integral itself doesn't explicitly
-    /// depend on nuclear coordinates, it contributes through the potential energy terms.
-    /// 
-    /// The two-electron integral (μν|λσ) = ∫∫ φ_μ(r1) φ_ν(r1) (1/|r1-r2|) φ_λ(r2) φ_σ(r2) dr1 dr2
-    /// 
-    /// In pure Hellman-Feynman theory with fixed density, the contribution comes from
-    /// the fact that the electronic repulsion energy includes these integrals weighted
-    /// by density matrix elements.
+
     fn dJKabcd_dR(a: &GTO, b: &GTO, c: &GTO, d: &GTO, R: Vector3<f64>) -> Vector3<f64> {
-        // For pure Hellman-Feynman forces with a fixed density matrix, the derivative
-        // of two-electron integrals with respect to nuclear coordinates is indeed zero
-        // when the nuclear coordinate R doesn't appear explicitly in the integral.
-        // 
-        // However, the contribution to forces comes through the density-weighted sum
-        // of these integrals in the total energy expression. The correct approach is
-        // to recognize that for Hellman-Feynman forces, we need the derivative of
-        // the electron-electron repulsion energy:
-        // 
-        // E_ee = (1/2) Σ_ijkl P_ij P_kl (ij|kl) - (1/4) Σ_ijkl P_ij P_kl (ik|jl)
-        // 
-        // The derivative with respect to nuclear position R is:
-        // dE_ee/dR = (1/2) Σ_ijkl P_ij P_kl d(ij|kl)/dR - (1/4) Σ_ijkl P_ij P_kl d(ik|jl)/dR
-        // 
-        // For a fixed density and basis functions that don't depend on the nuclear
-        // position R, d(ij|kl)/dR = 0. This is the correct result for pure 
-        // Hellman-Feynman forces.
-        //
-        // The missing contribution that makes analytical forces match numerical ones
-        // comes from the fact that real calculations need Pulay force corrections
-        // due to basis function dependence on nuclear coordinates.
-        
         Vector3::zeros()
     }
 
@@ -638,36 +611,103 @@ impl Basis for GTO {
     }
 
     fn dJKabcd_dRbasis(a: &GTO, b: &GTO, c: &GTO, d: &GTO, gto_idx_to_differentiate: usize) -> Vector3<f64> {
-        // NOTE: This implementation is an approximation and likely incorrect for general GTOs.
-        // The exact analytical formula is extremely complex.
-        
-        // Get the exponents and centers
-        let (alpha, center) = match gto_idx_to_differentiate {
-            0 => (a.alpha, a.center),
-            1 => (b.alpha, b.center),
-            2 => (c.alpha, c.center),
-            3 => (d.alpha, d.center),
+        // Analytic derivative using the relation (Helgaker et al.):
+        //  d/dR_Ax |ab⟩ =  2α_A |(l_A+1)_x  b⟩  –  l_A^x |(l_A-1)_x  b⟩ ,
+        //  applied inside a two–electron integral.
+
+        // Helper to create a new GTO whose angular momentum along `axis` is
+        // modified by `delta` (±1).
+        fn with_l_shift(gto: &GTO, axis: usize, delta: i32) -> Option<GTO> {
+            let mut l = gto.l_xyz;
+            match axis {
+                0 => {
+                    l.x += delta;
+                    if l.x < 0 { return None; }
+                }
+                1 => {
+                    l.y += delta;
+                    if l.y < 0 { return None; }
+                }
+                2 => {
+                    l.z += delta;
+                    if l.z < 0 { return None; }
+                }
+                _ => unreachable!(),
+            }
+            Some(GTO::new(gto.alpha, l, gto.center))
+        }
+
+        // Convenience closures to fetch +/– variations for each original GTO.
+        let fetch_variant = |orig_idx: usize, axis: usize, delta: i32| -> Option<GTO> {
+            match orig_idx {
+                0 => with_l_shift(a, axis, delta),
+                1 => with_l_shift(b, axis, delta),
+                2 => with_l_shift(c, axis, delta),
+                3 => with_l_shift(d, axis, delta),
+                _ => unreachable!(),
+            }
+        };
+
+        // Exponent α for the target GTO and its angular momenta along x/y/z
+        let (target_alpha, target_l) = match gto_idx_to_differentiate {
+            0 => (a.alpha, a.l_xyz),
+            1 => (b.alpha, b.l_xyz),
+            2 => (c.alpha, c.l_xyz),
+            3 => (d.alpha, d.l_xyz),
             _ => unreachable!(),
         };
-        
-        // Get the paired exponent and center
-        let (other_alpha, other_center) = match gto_idx_to_differentiate {
-            0 => (b.alpha, b.center),  // a pairs with b
-            1 => (a.alpha, a.center),  // b pairs with a  
-            2 => (d.alpha, d.center),  // c pairs with d
-            3 => (c.alpha, c.center),  // d pairs with c
-            _ => unreachable!(),
-        };
-        
-        let mu = alpha * other_alpha / (alpha + other_alpha);
-        let r_diff = center - other_center;
-        
-        // Calculate the two-electron integral
-        let jk = GTO::JKabcd(a, b, c, d);
-        
-        // Approximate derivative using overlap-like formula
-        // This is an approximation; exact analytical formula is extremely complex
-        -2.0 * mu * r_diff * jk
+
+        let mut grad = Vector3::zeros();
+
+        for axis in 0..3 {
+            // +1 term (raise angular momentum)
+            let plus_opt = fetch_variant(gto_idx_to_differentiate, axis, 1);
+            let jk_plus = if let Some(gto_plus) = plus_opt {
+                let (aa, bb, cc, dd) = match gto_idx_to_differentiate {
+                    0 => (&gto_plus, b, c, d),
+                    1 => (a, &gto_plus, c, d),
+                    2 => (a, b, &gto_plus, d),
+                    3 => (a, b, c, &gto_plus),
+                    _ => unreachable!(),
+                };
+                GTO::JKabcd(aa, bb, cc, dd)
+            } else {
+                0.0
+            };
+
+            // –1 term (lower angular momentum) only if current l>0
+            let minus_opt = fetch_variant(gto_idx_to_differentiate, axis, -1);
+            let jk_minus = if let Some(gto_minus) = minus_opt {
+                let (aa, bb, cc, dd) = match gto_idx_to_differentiate {
+                    0 => (&gto_minus, b, c, d),
+                    1 => (a, &gto_minus, c, d),
+                    2 => (a, b, &gto_minus, d),
+                    3 => (a, b, c, &gto_minus),
+                    _ => unreachable!(),
+                };
+                GTO::JKabcd(aa, bb, cc, dd)
+            } else {
+                0.0
+            };
+
+            let coeff = match axis {
+                0 => (2.0 * target_alpha, target_l.x as f64),
+                1 => (2.0 * target_alpha, target_l.y as f64),
+                2 => (2.0 * target_alpha, target_l.z as f64),
+                _ => unreachable!(),
+            };
+
+            let component = coeff.0 * jk_plus - coeff.1 * jk_minus;
+
+            match axis {
+                0 => grad.x = component,
+                1 => grad.y = component,
+                2 => grad.z = component,
+                _ => unreachable!(),
+            }
+        }
+
+        0.5 * grad
     }
 }
 

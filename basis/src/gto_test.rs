@@ -1129,7 +1129,7 @@ mod tests {
         deriv_numerical.z = (GTO::JKabcd(&a_plus, &b, &c, &d) - GTO::JKabcd(&a_minus, &b, &c, &d)) / (2.0 * h);
         
         // Use looser tolerance since this is an approximation, not exact analytical formula
-        let tol = 0.5; // 50% tolerance for approximation
+        let tol = 1e-3; // 1% tolerance for approximation
         let relative_error = (deriv_analytical - deriv_numerical).norm() / deriv_numerical.norm().max(1e-10);
         assert!(
             relative_error < tol,
