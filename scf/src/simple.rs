@@ -405,7 +405,7 @@ where
         let c_occ = self.coeffs.columns(0, n_occ);
         let e_occ_vec = self.e_level.rows(0, n_occ);
         let e_occ_diag = DMatrix::from_diagonal(&e_occ_vec);
-        let w_matrix = &c_occ * e_occ_diag * c_occ.transpose();
+        let w_matrix = 2.0 * (&c_occ * e_occ_diag * c_occ.transpose());
 
         // Step 1: Calculate nuclear-nuclear repulsion forces
         info!("  Step 1: Nuclear-nuclear repulsion forces...");
@@ -512,9 +512,9 @@ where
                                     self.coords[atom_idx],
                                 );
 
-                                //  +½ P P ( J' – ½ K' )
-                                force_atom += 0.5 * p_ij * p_kl * coulomb_deriv;
-                                force_atom -= 0.25 * p_ij * p_kl * exchange_deriv;
+                                //  −½ P P J'  + ¼ P P K'
+                                force_atom -= 0.5 * p_ij * p_kl * coulomb_deriv;
+                                force_atom += 0.25 * p_ij * p_kl * exchange_deriv;
                             }
                         }
                     }
@@ -553,7 +553,7 @@ where
 
                         // Kinetic energy derivatives
                         let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
-                        force_atom += p_ij * dt_dr;
+                        force_atom -= p_ij * dt_dr;
 
                         // Nuclear attraction Pulay forces
                         for k in 0..self.num_atoms {
@@ -564,7 +564,7 @@ where
                                 self.elems[k].get_atomic_number() as u32,
                                 atom_idx,
                             );
-                            force_atom += p_ij * dv_dr_basis;
+                            force_atom -= p_ij * dv_dr_basis;
                         }
                     }
                 }
