@@ -461,8 +461,8 @@ where
                             self.elems[atom_idx].get_atomic_number() as u32,
                         );
 
-                        // Electron–nuclear Hellmann–Feynman term
-                        force_atom += p_ij * dv_dr;
+                        // Electron–nuclear Hellmann–Feynman term ( − P_ij dV/dR )
+                        force_atom -= p_ij * dv_dr;
                     }
                 }
                 force_atom
@@ -549,7 +549,8 @@ where
                         // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
                         let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                         let w_ij = w_matrix[(i, j)];
-                        force_atom += w_ij * ds_dr;
+                        // Pulay overlap term ( − W_ij dS/dR )
+                        force_atom -= w_ij * ds_dr;
 
                         // Kinetic energy derivatives
                         let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
