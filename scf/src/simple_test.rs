@@ -72,11 +72,11 @@ mod tests {
         }
 
         fn Tab(_: &Self, _: &Self) -> f64 {
-            0.1 // Kinetic energy integral
+            0.5 // Kinetic energy integral
         }
 
         fn Vab(_: &Self, _: &Self, _: Vector3<f64>, charge: u32) -> f64 {
-            -0.2 * charge as f64 // Potential energy integral
+            -1.2 * charge as f64 // Potential energy integral (more attractive)
         }
 
         fn JKabcd(_: &Self, _: &Self, _: &Self, _: &Self) -> f64 {
@@ -269,7 +269,7 @@ mod tests {
     fn test_simple_scf() {
         let mut scf = SimpleSCF::<MockAOBasis>::new();
         let elems = vec![Element::Hydrogen, Element::Hydrogen];
-        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.5, 0.0, 0.0)];
         let mut basis = HashMap::new();
         let mock_basis = create_mock_basis();
 
