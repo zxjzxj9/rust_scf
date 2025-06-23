@@ -517,7 +517,7 @@ impl Basis for GTO {
         
         // Calculate the derivative using finite differences for now
         // This is more stable than the complex analytical formulation
-        let delta = 1e-8;
+        let _delta = 1e-8;
         let mut grad = Vector3::zeros();
         
         // For the two-electron integral, the nuclear position only affects the 
@@ -633,24 +633,23 @@ impl Basis for GTO {
     }
 
     fn dTab_dR(a: &GTO, b: &GTO, atom_idx_to_differentiate: usize) -> Vector3<f64> {
-        // Simplified approximation for test compatibility
-        // Note: This is a placeholder - the actual implementation would be more complex
+        // NOTE: This implementation is an approximation and only correct for s-orbitals.
+        // A full implementation requires recurrence relations for kinetic energy derivatives.
         let alpha_a = a.alpha;
         let alpha_b = b.alpha;
         let mu = alpha_a * alpha_b / (alpha_a + alpha_b);
         
         let r_diff = if atom_idx_to_differentiate == 0 {
-            a.center - b.center
+            a.center - b.center  // Derivative w.r.t. center of function a
         } else {
-            b.center - a.center
+            b.center - a.center  // Derivative w.r.t. center of function b
         };
         
         let sab = GTO::Sab(a, b);
         let q2 = r_diff.norm_squared();
         
-        // Approximation that roughly matches expected test values
-        let scale_factor = 4.0; // Empirical scaling for test compatibility
-        scale_factor * mu * mu * (2.0 - mu * q2) * r_diff * sab
+        // Derivative of kinetic energy: more complex due to second derivatives
+        -2.0 * mu * mu * (5.0 - 2.0 * mu * q2) * r_diff * sab
     }
 
     fn dVab_dRbasis(a: &GTO, b: &GTO, R_nucl: Vector3<f64>, Z: u32, atom_idx_to_differentiate: usize) -> Vector3<f64> {
