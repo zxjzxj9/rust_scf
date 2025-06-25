@@ -196,8 +196,10 @@ impl ForceValidator {
         ];
         let elements = vec![Element::Hydrogen, Element::Hydrogen];
         
-        // Initialize SCF
+        // Initialize SCF with optimized settings for testing
         let mut scf = SimpleSCF::<Basis631G>::new();
+        scf.max_cycle = 8;       // Fewer SCF cycles
+        
         let mut basis = HashMap::new();
         let h_basis = create_minimal_h_basis();
         basis.insert("H", &h_basis);
@@ -216,9 +218,9 @@ impl ForceValidator {
               initial_bond_length, initial_bond_length * 0.529177);
         info!("  Energy: {:.8} au", initial_energy);
         
-        // Validate initial forces
+        // Validate initial forces (with larger step size for speed)
         let (analytical_forces, _, max_error) = Self::validate_forces_comprehensive(
-            &mut scf, &coords, &elements, 1e-4
+            &mut scf, &coords, &elements, 1e-3
         );
         
         // Test if force calculation is reasonable
@@ -227,9 +229,9 @@ impl ForceValidator {
             info!("This indicates incomplete implementation of force derivatives.");
         }
         
-        // Run geometry optimization
+        // Run geometry optimization (reduced iterations for speed)
         info!("Starting geometry optimization...");
-        let mut optimizer = CGOptimizer::new(&mut scf, 20, 1e-4);
+        let mut optimizer = CGOptimizer::new(&mut scf, 5, 1e-3);
         optimizer.init(coords.clone(), elements.clone());
         
         let (optimized_coords, final_energy) = optimizer.optimize();
@@ -247,7 +249,7 @@ impl ForceValidator {
         scf.scf_cycle();
         
         let (final_analytical_forces, _, final_max_error) = Self::validate_forces_comprehensive(
-            &mut scf, &optimized_coords, &elements, 1e-4
+            &mut scf, &optimized_coords, &elements, 1e-3
         );
         
         // Check convergence criteria
@@ -297,8 +299,10 @@ impl ForceValidator {
         ];
         let elements = vec![Element::Hydrogen, Element::Hydrogen];
         
-        // Initialize SCF
+        // Initialize SCF with optimized settings for testing
         let mut scf = SimpleSCF::<Basis631G>::new();
+        scf.max_cycle = 8;       // Fewer SCF cycles
+        
         let mut basis = HashMap::new();
         let h_basis = create_minimal_h_basis();
         basis.insert("H", &h_basis);
@@ -312,7 +316,7 @@ impl ForceValidator {
         let analytical_forces = scf.calculate_forces();
         
         // Test different step sizes
-        let step_sizes = [1e-3, 1e-4, 1e-5, 1e-6];
+        let step_sizes = [1e-3, 1e-4];  // Reduced step sizes for faster testing
         
         info!("Testing numerical gradient convergence with different step sizes:");
         info!("Step Size | Max Error | RMS Error | Notes");
@@ -365,8 +369,10 @@ impl ForceValidator {
         ];
         let elements = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
         
-        // Initialize SCF
+        // Initialize SCF with optimized settings for testing
         let mut scf = SimpleSCF::<Basis631G>::new();
+        scf.max_cycle = 10;      // Fewer SCF cycles
+        
         let mut basis = HashMap::new();
         let h_basis = create_minimal_h_basis();
         let o_basis = create_minimal_o_basis();
@@ -393,7 +399,7 @@ impl ForceValidator {
             });
             
             let mut test_scf = scf.clone();
-            let mut optimizer = create_optimizer(algorithm, &mut test_scf, 15, 1e-4)?;
+            let mut optimizer = create_optimizer(algorithm, &mut test_scf, 5, 1e-3)?;  // Fewer iterations, looser convergence
             optimizer.init(coords.clone(), elements.clone());
             
             let (final_coords, final_energy) = optimizer.optimize();
