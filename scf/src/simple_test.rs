@@ -84,14 +84,15 @@ mod tests {
         }
 
         fn dVab_dR(_: &Self, _: &Self, r_nuc: Vector3<f64>, _: u32) -> Vector3<f64> {
-            // Give opposite contributions for nuclei on opposite sides of the origin
-            let sign = if r_nuc.z >= 0.7 { 1.0 } else { -1.0 };
-            Vector3::new(0.0, 0.0, 0.1 * sign)
+            // TEST: Return a distinctive value to confirm this is being called
+            Vector3::new(0.12345, 0.23456, 0.34567)
         }
 
         fn dJKabcd_dR(_: &Self, _: &Self, _: &Self, _: &Self, r_nuc: Vector3<f64>) -> Vector3<f64> {
-            let sign = if r_nuc.z >= 0.7 { 1.0 } else { -1.0 };
-            Vector3::new(0.0, 0.0, 0.01 * sign)
+            // Consistent with dVab_dR: attractive potential around 1.4 bohr
+            let r_eq = 1.4;
+            let distance_from_eq = r_nuc.z - r_eq;
+            Vector3::new(0.0, 0.0, -0.01 * distance_from_eq)
         }
 
         fn dSab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
@@ -1028,10 +1029,11 @@ mod tests {
         fn Vab(_a: &Self, _b: &Self, _r_nuc: Vector3<f64>, _z: u32) -> f64 { 0.0 }
         fn JKabcd(_a: &Self, _b: &Self, _c: &Self, _d: &Self) -> f64 { 0.0 }
 
-        // Electron–nuclear attraction derivative: ±0.1 e_z depending on z-position
+        // Electron–nuclear attraction derivative: attractive potential around 1.4 bohr
         fn dVab_dR(_a: &Self, _b: &Self, r_nuc: Vector3<f64>, _z: u32) -> Vector3<f64> {
-            let sign = if r_nuc.z >= 0.7 { 1.0 } else { -1.0 };
-            Vector3::new(0.0, 0.0, 0.1 * sign)
+            let r_eq = 1.4;
+            let distance_from_eq = r_nuc.z - r_eq;
+            Vector3::new(0.0, 0.0, -0.05 * distance_from_eq)
         }
 
         // All other derivatives set to zero so they do not contribute
@@ -1132,8 +1134,9 @@ mod tests {
         fn JKabcd(_a:&Self,_b:&Self,_c:&Self,_d:&Self)->f64{0.0}
         fn dVab_dR(_a:&Self,_b:&Self,_r_nuc:Vector3<f64>,_z:u32)->Vector3<f64>{Vector3::zeros()}
         fn dJKabcd_dR(_a:&Self,_b:&Self,_c:&Self,_d:&Self,r_nuc:Vector3<f64>)->Vector3<f64>{
-            let sign = if r_nuc.z>=0.7 { 1.0 } else { -1.0 };
-            Vector3::new(0.0,0.0,0.1*sign)
+            let r_eq = 1.4;
+            let distance_from_eq = r_nuc.z - r_eq;
+            Vector3::new(0.0,0.0,-0.01*distance_from_eq)
         }
         fn dSab_dR(_a:&Self,_b:&Self,_atom_idx:usize)->Vector3<f64>{Vector3::zeros()}
         fn dTab_dR(_a:&Self,_b:&Self,_atom_idx:usize)->Vector3<f64>{Vector3::zeros()}
