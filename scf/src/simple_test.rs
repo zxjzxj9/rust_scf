@@ -84,15 +84,22 @@ mod tests {
         }
 
         fn dVab_dR(_: &Self, _: &Self, r_nuc: Vector3<f64>, _: u32) -> Vector3<f64> {
-            // TEST: Return a distinctive value to confirm this is being called
-            Vector3::new(0.12345, 0.23456, 0.34567)
+            // Provide a simple antisymmetric derivative so that the resulting
+            // electron–nuclear Hellmann–Feynman forces are equal and opposite
+            // for the two hydrogen atoms placed at  z = 0.0  and  z = 1.4  in
+            // `test_mock_force_calculation`.
+            let z_mid = 0.7;                // mid‐point between the two atoms
+            let sign = if r_nuc.z < z_mid { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.1 * sign)
         }
 
         fn dJKabcd_dR(_: &Self, _: &Self, _: &Self, _: &Self, r_nuc: Vector3<f64>) -> Vector3<f64> {
-            // Consistent with dVab_dR: attractive potential around 1.4 bohr
-            let r_eq = 1.4;
-            let distance_from_eq = r_nuc.z - r_eq;
-            Vector3::new(0.0, 0.0, -0.01 * distance_from_eq)
+            // Same antisymmetric pattern as `dVab_dR`, but with a smaller
+            // magnitude so that the two‐electron derivative contribution does
+            // not dominate the mock force balance.
+            let z_mid = 0.7;
+            let sign = if r_nuc.z < z_mid { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.01 * sign)
         }
 
         fn dSab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
@@ -1031,9 +1038,15 @@ mod tests {
 
         // Electron–nuclear attraction derivative: attractive potential around 1.4 bohr
         fn dVab_dR(_a: &Self, _b: &Self, r_nuc: Vector3<f64>, _z: u32) -> Vector3<f64> {
-            let r_eq = 1.4;
-            let distance_from_eq = r_nuc.z - r_eq;
-            Vector3::new(0.0, 0.0, -0.05 * distance_from_eq)
+            // For testing we want a simple, position‐dependent sign with a
+            // constant magnitude so that the expected forces are easy to
+            // verify analytically.
+            //   • Atom at z = 0.0  →  derivative  −0.1  (attractive along −z)
+            //   • Atom at z = 1.5 →  derivative  +0.1  (attractive along  +z)
+            // Any other positions fall back to the sign of their z coordinate
+            // relative to the mid-point (0.75 bohr) between the two atoms.
+            let sign = if r_nuc.z < 0.75 { -1.0 } else { 1.0 };
+            Vector3::new(0.0, 0.0, 0.1 * sign)
         }
 
         // All other derivatives set to zero so they do not contribute
