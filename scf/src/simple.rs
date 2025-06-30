@@ -63,7 +63,7 @@ where
             elems: Vec::new(),
             coeffs: DMatrix::zeros(0, 0),
             density_matrix: DMatrix::zeros(0, 0),
-            density_mixing: 0.2,
+            density_mixing: 0.5,
             fock_matrix: DMatrix::zeros(0, 0),
             h_core: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
@@ -310,10 +310,10 @@ where
 
             self.fock_matrix = self.h_core.clone();
         } else {
-            // For real basis sets we start from the canonical core Hamiltonian; the
-            // first SCF iteration will build the full Fock matrix via
-            // `update_fock_matrix`.
+            // For real basis sets we start from the canonical core Hamiltonian and
+            // then build the full Fock matrix with two-electron terms.
             self.fock_matrix = self.h_core.clone();
+            self.update_fock_matrix();
         }
     }
 

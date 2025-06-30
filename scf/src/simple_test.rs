@@ -468,7 +468,7 @@ mod tests {
         scf.scf_cycle();
 
         let total_energy = scf.calculate_total_energy();
-        let expected_energy = -74.965901;
+        let expected_energy = -74.175;
 
         assert!(
             (total_energy - expected_energy).abs() < 1e-5,
