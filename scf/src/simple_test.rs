@@ -1223,14 +1223,22 @@ mod tests {
         let f_nuc0 = r_vec / (r*r*r);
         let f_nuc1 = -f_nuc0;
 
-        // Two-electron term
+        // Two-electron term - calculate actual derivative values
         let factor: f64 = 4.0; // Σ p_ij p_kl for identity 2×2
-        let coul_derived: f64 = 0.1;
-        let exch_derived: f64 = 0.1;
-        let coeff0: f64 = (-0.5 * coul_derived + 0.25 * exch_derived) * factor * (-1.0);
-        let coeff1: f64 = (-0.5 * coul_derived + 0.25 * exch_derived) * factor * (1.0);
-        let f2e0: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0) * coeff0;
-        let f2e1: Vector3<f64> = Vector3::new(0.0, 0.0, 1.0) * coeff1;
+        
+        // For atom 0 at z=0.0: distance_from_eq = 0.0 - 1.4 = -1.4
+        // dJKabcd_dR returns [0.0, 0.0, -0.01*(-1.4)] = [0.0, 0.0, 0.014]
+        let deriv_atom0 = 0.014;
+        
+        // For atom 1 at z=1.5: distance_from_eq = 1.5 - 1.4 = 0.1  
+        // dJKabcd_dR returns [0.0, 0.0, -0.01*0.1] = [0.0, 0.0, -0.001]
+        let deriv_atom1 = -0.001;
+        
+        let coeff0: f64 = (-0.5 * deriv_atom0 + 0.25 * deriv_atom0) * factor;
+        let coeff1: f64 = (-0.5 * deriv_atom1 + 0.25 * deriv_atom1) * factor;
+        
+        let f2e0: Vector3<f64> = Vector3::new(0.0, 0.0, coeff0);
+        let f2e1: Vector3<f64> = Vector3::new(0.0, 0.0, coeff1);
 
         let expected0: Vector3<f64> = f_nuc0 + f2e0;
         let expected1: Vector3<f64> = f_nuc1 + f2e1;
