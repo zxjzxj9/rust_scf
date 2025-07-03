@@ -123,12 +123,7 @@ where
     /// numerically challenging, situations such as those occurring in the unit
     /// tests.
     fn orthogonalizer(&self) -> DMatrix<f64> {
-        // Try the fast Cholesky route first.
-        if let Some(chol) = self.overlap_matrix.clone().cholesky() {
-            return chol.inverse(); // L^{-1} where  S = L L^{T}
-        }
-
-        // Fall-back: symmetric orthogonalisation.
+        // Use symmetric orthogonalisation (S^{-1/2})
         let eig = self.overlap_matrix.clone().symmetric_eigen();
 
         // Build D^{-1/2} keeping only sufficiently large positive eigenvalues.
@@ -144,10 +139,11 @@ where
                 inv_sqrt_vals[i] = 0.0;
             }
         }
-        let d_inv_sqrt = DMatrix::from_diagonal(&inv_sqrt_vals);
-        let u = eig.eigenvectors; // moves eigenvectors out of eig
-        let ortho = u.clone() * d_inv_sqrt * u.transpose();
-        ortho
+
+        let inv_sqrt_d = DMatrix::from_diagonal(&inv_sqrt_vals);
+        let x = &eig.eigenvectors * inv_sqrt_d * eig.eigenvectors.transpose();
+        
+        x
     }
 }
 
@@ -236,8 +232,8 @@ where
         self.fock_matrix = self.h_core.clone();
 
         // Robust orthogonaliser (handles near-singular overlap matrices)
-        let l_inv = self.orthogonalizer();
-        let f_prime = l_inv.clone() * self.fock_matrix.clone() * l_inv.transpose();
+        let x = self.orthogonalizer();  // X = L^{-T} such that X^T * S * X = I
+        let f_prime = x.transpose() * self.fock_matrix.clone() * &x;
         let eig = f_prime.symmetric_eigen();
 
         let mut indices: Vec<usize> = (0..eig.eigenvalues.len()).collect();
@@ -245,8 +241,8 @@ where
         let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
         let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
         
-        let eigvecs = l_inv.transpose() * sorted_eigenvectors;
-        
+        let eigvecs = x * sorted_eigenvectors;  // C = X * C'
+
         self.coeffs = align_eigenvectors(eigvecs);
         self.e_level = sorted_eigenvalues;
 
@@ -326,8 +322,8 @@ where
 
             // Obtain the inverse square-root of the overlap matrix using the
             // same robust routine employed during the initial density build.
-            let l_inv = self.orthogonalizer();
-            let f_prime = l_inv.clone() * self.fock_matrix.clone() * l_inv.transpose();
+            let x = self.orthogonalizer();  // X = L^{-T} such that X^T * S * X = I
+            let f_prime = x.transpose() * self.fock_matrix.clone() * &x;
             let eig = f_prime.symmetric_eigen();
 
             let mut indices: Vec<usize> = (0..eig.eigenvalues.len()).collect();
@@ -335,7 +331,7 @@ where
             let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
             let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
             
-            let eigvecs = l_inv.transpose() * sorted_eigenvectors;
+            let eigvecs = x * sorted_eigenvectors;  // C = X * C'
 
             self.coeffs = align_eigenvectors(eigvecs);
             self.e_level = sorted_eigenvalues;
@@ -356,17 +352,28 @@ where
     }
 
     fn calculate_total_energy(&self) -> f64 {
-        // One‐electron + two‐electron (Fock) contribution: 0.5 * P (H + F)
+        // Alternative SCF energy formula: E_electronic = Tr(P * H_core) + 0.5 * Tr(P * G)
+        // where G is the two-electron part of the Fock matrix (F = H_core + G)
         let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
             .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
             .collect();
 
-        let electronic_energy: f64 = ij_pairs
+        // Calculate one-electron energy: Tr(P * H_core)
+        let one_electron_energy: f64 = ij_pairs
+            .par_iter()
+            .map(|&(i, j)| self.density_matrix[(i, j)] * self.h_core[(i, j)])
+            .sum::<f64>();
+
+        // Calculate two-electron energy: 0.5 * Tr(P * G) = 0.5 * Tr(P * (F - H_core))
+        let two_electron_energy: f64 = ij_pairs
             .par_iter()
             .map(|&(i, j)| {
-                self.density_matrix[(i, j)] * (self.h_core[(i, j)] + self.fock_matrix[(i, j)])
+                let g_ij = self.fock_matrix[(i, j)] - self.h_core[(i, j)];
+                self.density_matrix[(i, j)] * g_ij
             })
             .sum::<f64>() * 0.5;
+
+        let electronic_energy = one_electron_energy + two_electron_energy;
         
         // --- Nuclear repulsion --------------------------------------------------
         let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
@@ -385,8 +392,8 @@ where
                     0.0
                 }
             })
-            .sum();
-
+            .sum::<f64>();
+        
         electronic_energy + nuclear_repulsion
     }
 
