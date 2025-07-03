@@ -412,9 +412,11 @@ impl Basis for GTO {
             });
 
         let sum = Vector3::new(dx, dy, dz);
-        // For the gradient we have an extra sign from dPC/dR = -1 which cancels the
-        // negative sign in the operator, yielding an overall positive prefactor.
-        let factor = a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
+        // FIXED: The derivative of nuclear attraction should maintain the negative sign
+        // The gradient introduces dPC/dR = -1, but we still have the -Z/r operator
+        // So: d/dR(-Z/r) with dPC/dR = -1 gives: Z * dPC/dR / r^2 = -Z/r^2 
+        // The overall sign should remain negative to be consistent with Vab
+        let factor = -a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
         sum * factor
     }
 
@@ -502,71 +504,22 @@ impl Basis for GTO {
     }
 
 
-    fn dJKabcd_dR(a: &GTO, b: &GTO, c: &GTO, d: &GTO, R_nucl: Vector3<f64>) -> Vector3<f64> {
-        // Calculate derivative of two-electron integral w.r.t. nuclear position R_nucl
-        // This uses the fact that the derivative acts on the 1/r12 operator
-        // For details see: Helgaker et al. "Molecular Electronic-Structure Theory" Ch. 9
+    fn dJKabcd_dR(_a: &GTO, _b: &GTO, _c: &GTO, _d: &GTO, _R_nucl: Vector3<f64>) -> Vector3<f64> {
+        // For two-electron integrals, the derivative w.r.t. nuclear position R_nucl
+        // is zero unless the nuclear position affects the integral directly.
+        // In the context of electronic structure theory, this derivative represents
+        // the change in electron-electron repulsion due to nuclear motion.
+        // 
+        // For GTOs that don't explicitly depend on nuclear coordinates in their
+        // electron-electron interaction terms, this derivative is typically zero.
+        // The nuclear coordinates only enter through the basis function centers,
+        // which are handled by dJKabcd_dRbasis (Pulay forces).
+        //
+        // This simplified implementation is consistent with many quantum chemistry
+        // codes where nuclear position derivatives of two-electron integrals
+        // are either zero or negligible for standard basis sets.
         
-        // First, calculate the standard two-electron integral for reference
-        let base_integral = GTO::JKabcd(a, b, c, d);
-        
-        // If the integral is essentially zero, derivative is also zero
-        if base_integral.abs() < 1e-12 {
-            return Vector3::zeros();
-        }
-        
-        // Calculate the derivative using finite differences for now
-        // This is more stable than the complex analytical formulation
-        let _delta = 1e-8;
-        let mut grad = Vector3::zeros();
-        
-        // For the two-electron integral, the nuclear position only affects the 
-        // calculation if one of the GTOs is centered at that nucleus
-        // Check if any of the GTOs are at the nuclear position
-        let tolerance = 1e-10;
-        let gto_at_nucleus = [
-            (a.center - R_nucl).norm() < tolerance,
-            (b.center - R_nucl).norm() < tolerance,
-            (c.center - R_nucl).norm() < tolerance,
-            (d.center - R_nucl).norm() < tolerance,
-        ];
-        
-        // If no GTO is at this nuclear position, derivative is zero
-        if !gto_at_nucleus.iter().any(|&x| x) {
-            return Vector3::zeros();
-        }
-        
-        // For GTOs centered at the nucleus, use the fact that:
-        // d/dR_nucl JK(abcd) = sum_i δ(R_i - R_nucl) * d/dR_i JK(abcd)
-        // where δ is the Dirac delta (implemented as equality check above)
-        
-        for axis in 0..3 {
-            let mut derivative = 0.0;
-            
-            // Apply derivative to each GTO that's at the nuclear position
-            for (gto_idx, &is_at_nucleus) in gto_at_nucleus.iter().enumerate() {
-                if is_at_nucleus {
-                    // Use the existing dJKabcd_dRbasis function which correctly
-                    // calculates derivatives w.r.t. basis function centers
-                    let basis_deriv = GTO::dJKabcd_dRbasis(a, b, c, d, gto_idx);
-                    derivative += match axis {
-                        0 => basis_deriv.x,
-                        1 => basis_deriv.y,
-                        2 => basis_deriv.z,
-                        _ => unreachable!(),
-                    };
-                }
-            }
-            
-            match axis {
-                0 => grad.x = derivative,
-                1 => grad.y = derivative,
-                2 => grad.z = derivative,
-                _ => unreachable!(),
-            }
-        }
-        
-        grad
+        Vector3::zeros()
     }
 
     // Pulay forces: derivatives w.r.t. basis function centers

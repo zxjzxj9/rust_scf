@@ -80,6 +80,10 @@ where
         self.density_matrix = density_matrix;
     }
 
+    pub fn get_mo_basis(&self) -> &Vec<Arc<B::BasisType>> {
+        &self.mo_basis
+    }
+
     pub fn update_fock_matrix(&mut self) {
         let mut g_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
@@ -519,9 +523,9 @@ where
                                     self.coords[atom_idx],
                                 );
 
-                                //  −½ P P J'  + ¼ P P K'
+                                //  −½ P P J'  + ½ P P K' (corrected exchange coefficient)
                                 force_atom -= 0.5 * p_ij * p_kl * coulomb_deriv;
-                                force_atom += 0.25 * p_ij * p_kl * exchange_deriv;
+                                force_atom += 0.5 * p_ij * p_kl * exchange_deriv;
                             }
                         }
                     }

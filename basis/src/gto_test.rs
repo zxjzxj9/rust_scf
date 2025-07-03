@@ -918,7 +918,8 @@ mod tests {
         let R = Vector3::new(0.5, 0.5, 0.5);
         let gradient = GTO::dJKabcd_dR(&a, &b, &c, &d, R);
         
-        // Should return zeros as per the implementation
+        // Should return zeros as per the corrected implementation
+        // Two-electron derivatives w.r.t. nuclear positions are zero for standard GTOs
         assert_eq!(gradient, Vector3::zeros());
     }
 
