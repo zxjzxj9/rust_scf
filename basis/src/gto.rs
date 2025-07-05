@@ -412,12 +412,11 @@ impl Basis for GTO {
             });
 
         let sum = Vector3::new(dx, dy, dz);
-        // FIXED: The derivative of nuclear attraction should maintain the negative sign
-        // The gradient introduces dPC/dR = -1, but we still have the -Z/r operator
-        // So: d/dR(-Z/r) with dPC/dR = -1 gives: Z * dPC/dR / r^2 = -Z/r^2 
-        // The overall sign should remain negative to be consistent with Vab
+        // Chain rule: ∂Vab/∂R = ∂Vab/∂(dr) × ∂(dr)/∂R
+        // Since dr = c.center - R, we have ∂(dr)/∂R = -1
+        // The dhermite_coulomb functions compute ∂/∂(dr), so we need to multiply by -1
         let factor = -a.norm * b.norm * 2.0 * PI * (Z as f64) / c.alpha;
-        sum * factor
+        -sum * factor  // Additional negative sign for chain rule: ∂(dr)/∂R = -1
     }
 
     fn JKabcd(a: &GTO, b: &GTO, c: &GTO, d: &GTO) -> f64 {
