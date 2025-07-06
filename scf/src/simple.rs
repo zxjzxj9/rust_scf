@@ -580,6 +580,40 @@ where
                         }
                     }
                 }
+
+                // --- Two–electron Pulay contribution ------------------------------------
+                for i1 in 0..self.num_basis {
+                    for j1 in 0..self.num_basis {
+                        let p_i1j1 = self.density_matrix[(i1, j1)];
+                        for k1 in 0..self.num_basis {
+                            for l1 in 0..self.num_basis {
+                                let p_k1l1 = self.density_matrix[(k1, l1)];
+
+                                // Coulomb term derivative w.r.t. basis centers
+                                let coulomb_deriv_basis = B::BasisType::dJKabcd_dRbasis(
+                                    &self.mo_basis[i1],
+                                    &self.mo_basis[j1],
+                                    &self.mo_basis[k1],
+                                    &self.mo_basis[l1],
+                                    atom_idx,
+                                );
+
+                                // Exchange term derivative w.r.t. basis centers
+                                let exchange_deriv_basis = B::BasisType::dJKabcd_dRbasis(
+                                    &self.mo_basis[i1],
+                                    &self.mo_basis[k1],
+                                    &self.mo_basis[j1],
+                                    &self.mo_basis[l1],
+                                    atom_idx,
+                                );
+
+                                //  −½ P P J'  + ½ P P K'
+                                force_atom -= 0.5 * p_i1j1 * p_k1l1 * coulomb_deriv_basis;
+                                force_atom += 0.5 * p_i1j1 * p_k1l1 * exchange_deriv_basis;
+                            }
+                        }
+                    }
+                }
                 force_atom
             })
             .collect();
