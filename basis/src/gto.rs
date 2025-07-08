@@ -721,7 +721,7 @@ impl Basis for GTO {
             }
         }
 
-        0.5 * grad
+        grad
     }
 }
 
