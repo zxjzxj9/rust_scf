@@ -279,15 +279,7 @@ where
                         //  belongs to the current atom.  Use derivative index 1.
                         // ------------------------------------------------------
                         if self.basis_atom_map[j] == atom_idx {
-                            // dS/dR (owner-j)
-                            let ds_dr_j = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
-                            force_atom -= w_ij * ds_dr_j;
-
-                            // dT/dR (owner-j)
-                            let dt_dr_j = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
-                            force_atom -= p_ij * dt_dr_j;
-
-                            // Skip owner-j dVab/dRbasis to avoid double counting
+                            // Skip owner-j dS/dR, dT/dR, dVab/dRbasis to avoid double-counting.
                         }
                     }
                 }
