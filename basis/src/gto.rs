@@ -663,12 +663,23 @@ impl Basis for GTO {
         };
 
         // Exponent α for the target GTO and its angular momenta along x/y/z
-        let (target_alpha, target_l) = match gto_idx_to_differentiate {
-            0 => (a.alpha, a.l_xyz),
-            1 => (b.alpha, b.l_xyz),
-            2 => (c.alpha, c.l_xyz),
-            3 => (d.alpha, d.l_xyz),
+        let (target_alpha, target_l, target_gto) = match gto_idx_to_differentiate {
+            0 => (a.alpha, a.l_xyz, a),
+            1 => (b.alpha, b.l_xyz, b),
+            2 => (c.alpha, c.l_xyz, c),
+            3 => (d.alpha, d.l_xyz, d),
             _ => unreachable!(),
+        };
+
+        // Helper closure to compute normalization ratio N_parent / N_variant for the affected axis only
+        let norm_ratio = |axis_idx: usize, variant: &GTO| -> f64 {
+            let parent_norm = target_gto.gto1d[axis_idx].norm;
+            let var_norm = variant.gto1d[axis_idx].norm;
+            if var_norm.abs() < 1e-14 {
+                0.0
+            } else {
+                parent_norm / var_norm
+            }
         };
 
         let mut grad = Vector3::zeros();
@@ -676,7 +687,7 @@ impl Basis for GTO {
         for axis in 0..3 {
             // +1 term (raise angular momentum)
             let plus_opt = fetch_variant(gto_idx_to_differentiate, axis, 1);
-            let jk_plus = if let Some(gto_plus) = plus_opt {
+            let (jk_plus, norm_ratio_plus) = if let Some(gto_plus) = plus_opt {
                 let (aa, bb, cc, dd) = match gto_idx_to_differentiate {
                     0 => (&gto_plus, b, c, d),
                     1 => (a, &gto_plus, c, d),
@@ -684,14 +695,18 @@ impl Basis for GTO {
                     3 => (a, b, c, &gto_plus),
                     _ => unreachable!(),
                 };
-                GTO::JKabcd(aa, bb, cc, dd)
+                // Integral value with raised angular momentum
+                let val = GTO::JKabcd(aa, bb, cc, dd);
+                // Normalization ratio N(l)/N(l+1)
+                let ratio = norm_ratio(axis, &gto_plus);
+                (val, ratio)
             } else {
-                0.0
+                (0.0, 0.0)
             };
 
             // –1 term (lower angular momentum) only if current l>0
             let minus_opt = fetch_variant(gto_idx_to_differentiate, axis, -1);
-            let jk_minus = if let Some(gto_minus) = minus_opt {
+            let (jk_minus, norm_ratio_minus) = if let Some(gto_minus) = minus_opt {
                 let (aa, bb, cc, dd) = match gto_idx_to_differentiate {
                     0 => (&gto_minus, b, c, d),
                     1 => (a, &gto_minus, c, d),
@@ -699,19 +714,22 @@ impl Basis for GTO {
                     3 => (a, b, c, &gto_minus),
                     _ => unreachable!(),
                 };
-                GTO::JKabcd(aa, bb, cc, dd)
+                let val = GTO::JKabcd(aa, bb, cc, dd);
+                let ratio = norm_ratio(axis, &gto_minus);
+                (val, ratio)
             } else {
-                0.0
+                (0.0, 0.0)
             };
 
-            let coeff = match axis {
-                0 => (2.0 * target_alpha, target_l.x as f64),
-                1 => (2.0 * target_alpha, target_l.y as f64),
-                2 => (2.0 * target_alpha, target_l.z as f64),
+            // Coefficients considering normalization ratios
+            let coeffs = match axis {
+                0 => (2.0 * target_alpha * norm_ratio_plus, target_l.x as f64 * norm_ratio_minus),
+                1 => (2.0 * target_alpha * norm_ratio_plus, target_l.y as f64 * norm_ratio_minus),
+                2 => (2.0 * target_alpha * norm_ratio_plus, target_l.z as f64 * norm_ratio_minus),
                 _ => unreachable!(),
             };
 
-            let component = coeff.0 * jk_plus - coeff.1 * jk_minus;
+            let component = coeffs.0 * jk_plus - coeffs.1 * jk_minus;
 
             match axis {
                 0 => grad.x = component,
