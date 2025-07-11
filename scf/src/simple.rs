@@ -253,12 +253,12 @@ where
                         let p_ij = self.density_matrix[(i, j)];
                         let w_ij = w_matrix[(i, j)];
 
-                        // Overlap derivative  − W_ij dS/dR
-                        let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        // Overlap derivative  − W_ij dS/dR (use current `atom_idx`)
+                        let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                         force_atom -= w_ij * ds_dr;
 
                         // Kinetic derivative  − P_ij dT/dR
-                        let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                         force_atom -= p_ij * dt_dr;
 
                         // Nuclear attraction derivative w.r.t basis centre (owner-i)
@@ -269,7 +269,7 @@ where
                                 &self.mo_basis[j],
                                 self.coords[k],
                                 self.elems[k].get_atomic_number() as u32,
-                                0,
+                                atom_idx,
                             );
                         }
                         force_atom -= p_ij * dv_dr_basis;
@@ -314,7 +314,7 @@ where
                                     &self.mo_basis[j],
                                     &self.mo_basis[k],
                                     &self.mo_basis[l],
-                                    0,
+                                    atom_idx,
                                 );
 
                                 // Exchange derivative ∂K/∂R (d/dR of ⟨ik|jl⟩)
@@ -323,7 +323,7 @@ where
                                     &self.mo_basis[k],
                                     &self.mo_basis[j],
                                     &self.mo_basis[l],
-                                    0,
+                                    atom_idx,
                                 );
 
                                 // Contribution:  −½ P_ij P_kl J' + ½ P_ij P_kl K'
