@@ -487,6 +487,16 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         // Move in the direction to minimize energy
         for (i, direction) in self.directions.iter().enumerate() {
             self.coords[i] += current_step * direction;
+
+            // Ensure coordinates remain finite to avoid propagating NaN/Inf
+            if !self.coords[i].x.is_finite() { self.coords[i].x = 0.0; }
+            if !self.coords[i].y.is_finite() { self.coords[i].y = 0.0; }
+            if !self.coords[i].z.is_finite() { self.coords[i].z = 0.0; }
+
+            // Clamp to reasonable bounds
+            self.coords[i].x = self.coords[i].x.clamp(-50.0, 50.0);
+            self.coords[i].y = self.coords[i].y.clamp(-50.0, 50.0);
+            self.coords[i].z = self.coords[i].z.clamp(-50.0, 50.0);
         }
 
         // Update SCF with new geometry and recalculate
@@ -513,6 +523,13 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
             if self.is_direction_uphill() {
                 tracing::info!("    Restarting CG: direction became uphill");
                 self.directions = self.forces.clone();
+            }
+
+            // Sanitize directions to avoid NaN/Inf propagation
+            for dir in &mut self.directions {
+                if !dir.x.is_finite() { dir.x = 0.0; }
+                if !dir.y.is_finite() { dir.y = 0.0; }
+                if !dir.z.is_finite() { dir.z = 0.0; }
             }
         }
     }
@@ -547,6 +564,16 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
                            self.max_iterations);
                 tracing::info!("-----------------------------------------------------\n");
             }
+        }
+
+        // Final sanitization to ensure coordinates are finite
+        for coord in &mut self.coords {
+            if !coord.x.is_finite() { coord.x = 0.0; }
+            if !coord.y.is_finite() { coord.y = 0.0; }
+            if !coord.z.is_finite() { coord.z = 0.0; }
+            coord.x = coord.x.clamp(-50.0, 50.0);
+            coord.y = coord.y.clamp(-50.0, 50.0);
+            coord.z = coord.z.clamp(-50.0, 50.0);
         }
 
         // Return optimized coordinates and final energy

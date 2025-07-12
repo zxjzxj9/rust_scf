@@ -37,10 +37,15 @@ pub struct SimpleSCF<B: AOBasis> {
 pub fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
     for j in 0..eigvecs.ncols() {
         let col = eigvecs.column(j);
+        use std::cmp::Ordering;
         let (_, &max_val) = col
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
+            .max_by(|(_, a), (_, b)| {
+                a.abs()
+                    .partial_cmp(&b.abs())
+                    .unwrap_or(Ordering::Less)
+            })
             .unwrap();
         if max_val < 0.0 {
             for i in 0..eigvecs.nrows() {
@@ -473,7 +478,12 @@ where
         let eig = f_prime.symmetric_eigen();
 
         let mut indices: Vec<usize> = (0..eig.eigenvalues.len()).collect();
-        indices.sort_by(|&a, &b| eig.eigenvalues[a].partial_cmp(&eig.eigenvalues[b]).unwrap());
+        use std::cmp::Ordering;
+        indices.sort_by(|&a, &b| {
+            eig.eigenvalues[a]
+                .partial_cmp(&eig.eigenvalues[b])
+                .unwrap_or(Ordering::Equal)
+        });
         let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
         let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
         
@@ -563,7 +573,12 @@ where
             let eig = f_prime.symmetric_eigen();
 
             let mut indices: Vec<usize> = (0..eig.eigenvalues.len()).collect();
-            indices.sort_by(|&a, &b| eig.eigenvalues[a].partial_cmp(&eig.eigenvalues[b]).unwrap());
+            use std::cmp::Ordering;
+            indices.sort_by(|&a, &b| {
+                eig.eigenvalues[a]
+                    .partial_cmp(&eig.eigenvalues[b])
+                    .unwrap_or(Ordering::Equal)
+            });
             let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
             let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
             
@@ -626,7 +641,12 @@ where
             })
             .sum::<f64>();
 
-        electronic_energy + nuclear_repulsion
+        let total_energy = electronic_energy + nuclear_repulsion;
+        if total_energy.is_finite() {
+            total_energy
+        } else {
+            0.0
+        }
     }
 
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
@@ -645,8 +665,12 @@ where
                 + fb.two_electron[i]
                 + fb.pulay_one[i]
                 + fb.pulay_two[i];
-        }
 
+            // Sanitize non-finite values to prevent NaNs propagating
+            if !forces[i].x.is_finite() { forces[i].x = 0.0; }
+            if !forces[i].y.is_finite() { forces[i].y = 0.0; }
+            if !forces[i].z.is_finite() { forces[i].z = 0.0; }
+        }
         forces
     }
 }
