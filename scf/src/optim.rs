@@ -584,20 +584,23 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
 impl<S: SCF + Clone> CGOptimizer<S> {
     /// Simplified adaptive line search for CG
     fn adaptive_line_search(&mut self) -> f64 {
-        let _initial_energy = self.energy;
         let mut step = self.step_size;
-        
-        // Try reducing step size if energy increased in previous step
+
+        // Energy went up → shrink step drastically.
         if self.energy > self.previous_energy {
             step *= 0.5;
-            tracing::info!("    Reducing step size to {:.6}", step);
-        } else if self.energy < self.previous_energy - 0.001 {
-            // If good progress, slightly increase step size
-            step = (step * 1.2).min(0.5);
+        // Energy dropped a lot → only grow a bit.
+        } else if self.previous_energy - self.energy > 1e-3 {
+            step *= 1.05;
         }
-        
-        // Clamp step size to reasonable bounds
-        step.clamp(0.001, 0.5)
+
+        // Hard limits to avoid runaway geometries.
+        step = step.clamp(0.001, 0.05);
+
+        // Persist for next iteration so growth/decay is cumulative.
+        self.step_size = step;
+
+        step
     }
     
     /// Calculate beta using Polak-Ribière+ formula with restart capability
