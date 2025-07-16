@@ -67,7 +67,9 @@ mod tests {
             if a.center == b.center {
                 1.0
             } else {
-                0.0
+                // Non-zero overlap between different centers to make the problem non-trivial
+                let distance = (a.center - b.center).norm();
+                (-0.1 * distance).exp()
             }
         }
 
@@ -99,19 +101,58 @@ mod tests {
             Vector3::zeros()
         }
 
-        fn dSab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
-            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
-            Vector3::new(0.0, 0.0, 0.05 * sign)
+        fn dSab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64> {
+            // Return non-zero derivatives for basis functions on different atoms
+            if a.center == b.center {
+                // For same-center overlap, derivative is zero
+                Vector3::zeros()
+            } else {
+                // For different centers, return non-zero derivative
+                let distance = (a.center - b.center).norm();
+                let direction = (a.center - b.center) / distance;
+                let overlap = (-0.1 * distance).exp();
+                let derivative_magnitude = 0.1 * overlap;
+                
+                if atom_idx == 0 {
+                    derivative_magnitude * direction
+                } else {
+                    -derivative_magnitude * direction
+                }
+            }
         }
 
-        fn dTab_dR(_: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
-            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
-            Vector3::new(0.0, 0.0, 0.02 * sign)
+        fn dTab_dR(a: &Self, b: &Self, atom_idx: usize) -> Vector3<f64> {
+            // Return non-zero kinetic energy derivatives
+            if a.center == b.center {
+                Vector3::zeros()
+            } else {
+                let distance = (a.center - b.center).norm();
+                let direction = (a.center - b.center) / distance;
+                let derivative_magnitude = 0.05;
+                
+                if atom_idx == 0 {
+                    derivative_magnitude * direction
+                } else {
+                    -derivative_magnitude * direction
+                }
+            }
         }
 
-        fn dVab_dRbasis(_: &Self, _: &Self, _: Vector3<f64>, _: u32, atom_idx: usize) -> Vector3<f64> {
-            let sign = if atom_idx == 0 { -1.0 } else { 1.0 };
-            Vector3::new(0.0, 0.0, 0.03 * sign)
+        fn dVab_dRbasis(a: &Self, b: &Self, _: Vector3<f64>, _: u32, atom_idx: usize) -> Vector3<f64> {
+            // Return non-zero nuclear attraction derivatives
+            if a.center == b.center {
+                Vector3::zeros()
+            } else {
+                let distance = (a.center - b.center).norm();
+                let direction = (a.center - b.center) / distance;
+                let derivative_magnitude = 0.1;
+                
+                if atom_idx == 0 {
+                    derivative_magnitude * direction
+                } else {
+                    -derivative_magnitude * direction
+                }
+            }
         }
 
         fn dJKabcd_dRbasis(_: &Self, _: &Self, _: &Self, _: &Self, atom_idx: usize) -> Vector3<f64> {
@@ -1110,14 +1151,16 @@ mod tests {
         scf.init_basis(&elems, basis_map);
         scf.init_geometry(&coords, &elems);
         scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
 
         let fb = scf.force_breakdown();
         let f0 = fb.pulay_one[0];
         let f1 = fb.pulay_one[1];
 
         // Should not be zero because derivatives are non-zero
-        assert!(f0.norm() > 1e-6, "Pulay-one force should be non-zero");
-        assert!(f1.norm() > 1e-6, "Pulay-one force should be non-zero");
+        assert!(f0.norm() > 1e-6, "Pulay-one force should be non-zero: f0 = {:?}, norm = {:.8}", f0, f0.norm());
+        assert!(f1.norm() > 1e-6, "Pulay-one force should be non-zero: f1 = {:?}, norm = {:.8}", f1, f1.norm());
 
         // Direction check: along z-axis only
         assert!(f0.x.abs() < 1e-12 && f0.y.abs() < 1e-12, "Force not along z: {:?}", f0);
