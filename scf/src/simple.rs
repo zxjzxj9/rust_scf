@@ -148,7 +148,7 @@ where
     /// or negative eigenvalues.  This avoids panicking in legitimate, if
     /// numerically challenging, situations such as those occurring in the unit
     /// tests.
-    fn orthogonalizer(&self) -> DMatrix<f64> {
+    pub fn orthogonalizer(&self) -> DMatrix<f64> {
         // Use symmetric orthogonalisation (S^{-1/2})
         let eig = self.overlap_matrix.clone().symmetric_eigen();
 
@@ -377,7 +377,7 @@ where
                                         );
 
                                         force_atom -= 0.5 * p_ij * p_kl * coulomb_deriv;
-                                        force_atom += 0.5 * p_ij * p_kl * exchange_deriv;
+                                        force_atom += 0.25 * p_ij * p_kl * exchange_deriv;
                                     }
                                 };
 

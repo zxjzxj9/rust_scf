@@ -1204,4 +1204,147 @@ mod tests {
         println!("  f0 = {:?}  f1 = {:?}", f0, f1);
         println!("🎉 Two-electron Pulay force test passed");
     }
+
+    #[test]
+    fn test_forces_without_pulay_terms() {
+        println!("=== Forces without Pulay terms ===");
+        
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.4), 
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+
+        let mut scf = SimpleSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+        
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+
+        scf.init_basis(&elems, basis_map.clone());
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.init_fock_matrix();
+        scf.scf_cycle();
+        
+        let fb = scf.force_breakdown();
+        
+        // Calculate forces with only nuclear + electron-nuclear (Hellmann-Feynman only)
+        let hf_only_forces = fb.nuclear.iter()
+            .zip(fb.elec_nuclear.iter())
+            .zip(fb.two_electron.iter())
+            .map(|((n,e),t)| *n + *e + *t)
+            .collect::<Vec<_>>();
+            
+        // Calculate numerical forces for comparison
+        let numerical_forces = calculate_numerical_force(&elems, &coords, Some(scf.density_matrix.clone()), &basis_map);
+
+        println!("Force breakdown:");
+        for i in 0..coords.len() {
+            println!("Atom {}: Nuclear={:?} ElecNuclear={:?} HF_only={:?} Numerical={:?}",
+                     i, fb.nuclear[i], fb.elec_nuclear[i], hf_only_forces[i], numerical_forces[i]);
+            
+            let hf_error = (hf_only_forces[i] - numerical_forces[i]).norm();
+            println!("  HF-only error: {:.6}", hf_error);
+        }
+        
+        // Check if HF-only forces are closer to numerical
+        for (i, (hf_force, numerical)) in hf_only_forces.iter().zip(numerical_forces.iter()).enumerate() {
+            let hf_error = (hf_force - numerical).norm();
+            // This should be much smaller than 1e-3 if Pulay forces are the main problem
+            println!("Atom {} HF-only vs numerical error: {:.6}", i, hf_error);
+        }
+    }
+
+    #[test]
+    fn test_scf_convergence_effect_on_forces() {
+        println!("=== Testing SCF convergence effect on forces ===");
+        
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.4), 
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+
+        // Test with different convergence thresholds
+        let thresholds = vec![1e-5, 1e-6, 1e-8, 1e-10];
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        // Calculate numerical forces once for comparison
+        let mut scf_ref = SimpleSCF::<Basis631G>::new();
+        scf_ref.init_basis(&elems, basis_map.clone());
+        scf_ref.init_geometry(&coords, &elems);
+        scf_ref.init_density_matrix();
+        scf_ref.init_fock_matrix();
+        scf_ref.scf_cycle();
+        let numerical_forces = calculate_numerical_force(&elems, &coords, Some(scf_ref.density_matrix.clone()), &basis_map);
+
+        for &threshold in &thresholds {
+            println!("\n--- SCF convergence threshold: {:.0e} ---", threshold);
+            
+            let mut scf = SimpleSCF::<Basis631G>::new();
+            scf.init_basis(&elems, basis_map.clone());
+            scf.init_geometry(&coords, &elems);
+            scf.init_density_matrix();
+            scf.init_fock_matrix();
+            
+            // Custom SCF cycle with tighter convergence
+            let mut old_energy = 0.0;
+            for cycle in 0..100 {  // More cycles allowed
+                scf.update_fock_matrix();
+                
+                                 let x = scf.orthogonalizer();
+                let f_prime = x.transpose() * scf.fock_matrix.clone() * &x;
+                let eig = f_prime.symmetric_eigen();
+
+                let mut indices: Vec<usize> = (0..eig.eigenvalues.len()).collect();
+                indices.sort_by(|&a, &b| {
+                    eig.eigenvalues[a].partial_cmp(&eig.eigenvalues[b]).unwrap_or(std::cmp::Ordering::Equal)
+                });
+                let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
+                let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
+                
+                let eigvecs = x * sorted_eigenvectors;
+                scf.coeffs = crate::simple::align_eigenvectors(eigvecs);
+                scf.e_level = sorted_eigenvalues;
+
+                scf.update_density_matrix();
+
+                let total_energy = scf.calculate_total_energy();
+                let energy_change = total_energy - old_energy;
+
+                if energy_change.abs() < threshold {
+                    println!("  SCF converged in {} cycles", cycle + 1);
+                    break;
+                }
+                old_energy = total_energy;
+            }
+            
+            let fb = scf.force_breakdown();
+            let analytical_forces = fb.nuclear.iter()
+                .zip(fb.elec_nuclear.iter())
+                .zip(fb.two_electron.iter())
+                .zip(fb.pulay_one.iter())
+                .zip(fb.pulay_two.iter())
+                .map(|((((n,e),t),p1),p2)| *n + *e + *t + *p1 + *p2)
+                .collect::<Vec<_>>();
+
+            let hf_only_forces = fb.nuclear.iter()
+                .zip(fb.elec_nuclear.iter())
+                .zip(fb.two_electron.iter())
+                .map(|((n,e),t)| *n + *e + *t)
+                .collect::<Vec<_>>();
+                
+            // Calculate errors
+            let full_error = (analytical_forces[0] - numerical_forces[0]).norm();
+            let hf_error = (hf_only_forces[0] - numerical_forces[0]).norm();
+            
+            println!("  Full force error:  {:.6}", full_error);
+            println!("  HF-only error:     {:.6}", hf_error);
+            println!("  Final energy:      {:.10}", scf.calculate_total_energy());
+        }
+    }
 }
