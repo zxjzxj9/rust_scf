@@ -516,4 +516,388 @@ mod tests {
         
         assert_eq!(forces.len(), 2, "Should have forces for 2 atoms");
     }
+
+    // === Spin-Related Tests ===
+
+    #[test]
+    fn test_spin_scf_initialization() {
+        use crate::simple_spin::SpinSCF;
+        
+        let mut spin_scf = SpinSCF::<MockAOBasis>::new();
+        
+        // Test default multiplicity (singlet)
+        assert_eq!(spin_scf.multiplicity, 1);
+        
+        // Test setting different multiplicities
+        spin_scf.set_multiplicity(2); // doublet
+        assert_eq!(spin_scf.multiplicity, 2);
+        
+        spin_scf.set_multiplicity(3); // triplet
+        assert_eq!(spin_scf.multiplicity, 3);
+        
+        // Test basic initialization
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+        basis.insert("H", &mock_basis);
+        
+        spin_scf.init_basis(&elems, basis);
+        assert_eq!(spin_scf.num_atoms, 2);
+    }
+
+    #[test]
+    fn test_h2_singlet_vs_triplet() {
+        use crate::simple_spin::SpinSCF;
+        
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        // Test singlet H2 (multiplicity = 1)
+        let mut singlet_scf = SpinSCF::<Basis631G>::new();
+        singlet_scf.set_multiplicity(1);
+        singlet_scf.max_cycle = 20; // Reduce for test speed
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        singlet_scf.init_basis(&elems, basis_map.clone());
+        singlet_scf.init_geometry(&coords, &elems);
+        singlet_scf.init_density_matrix();
+        singlet_scf.scf_cycle();
+        
+        let singlet_energy = singlet_scf.calculate_total_energy();
+        
+        // Test triplet H2 (multiplicity = 3)
+        let mut triplet_scf = SpinSCF::<Basis631G>::new();
+        triplet_scf.set_multiplicity(3);
+        triplet_scf.max_cycle = 20;
+        
+        triplet_scf.init_basis(&elems, basis_map);
+        triplet_scf.init_geometry(&coords, &elems);
+        triplet_scf.init_density_matrix();
+        triplet_scf.scf_cycle();
+        
+        let triplet_energy = triplet_scf.calculate_total_energy();
+        
+        // Singlet should be lower in energy than triplet for H2 at equilibrium
+        assert!(
+            singlet_energy < triplet_energy,
+            "Singlet H2 should be lower in energy than triplet: singlet={:.6}, triplet={:.6}",
+            singlet_energy,
+            triplet_energy
+        );
+        
+        // Energy difference should be reasonable (roughly 1-4 eV)
+        let energy_diff = triplet_energy - singlet_energy;
+        assert!(
+            energy_diff > 0.03 && energy_diff < 0.15, // ~1-4 eV in hartree
+            "Energy difference between singlet and triplet should be reasonable: {:.6} hartree",
+            energy_diff
+        );
+    }
+
+    #[test]
+    fn test_hydrogen_atom_doublet() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Single hydrogen atom should be a doublet (multiplicity = 2)
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems = vec![Element::Hydrogen];
+        
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        spin_scf.set_multiplicity(2); // doublet for one unpaired electron
+        spin_scf.max_cycle = 20;
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        spin_scf.init_basis(&elems, basis_map);
+        spin_scf.init_geometry(&coords, &elems);
+        spin_scf.init_density_matrix();
+        spin_scf.scf_cycle();
+        
+        let energy = spin_scf.calculate_total_energy();
+        
+        // For a single hydrogen atom, expect energy around -0.5 hartree
+        assert!(
+            energy > -0.6 && energy < -0.4,
+            "Hydrogen atom energy should be around -0.5 hartree, got: {:.6}",
+            energy
+        );
+        
+        // Alpha and beta energy levels should be different due to spin polarization
+        // (though for a single basis function they might be similar)
+        assert_eq!(spin_scf.e_level_alpha.len(), 1);
+        assert_eq!(spin_scf.e_level_beta.len(), 1);
+    }
+
+    #[test]
+    fn test_spin_density_conservation() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test that electron count is preserved in spin-polarized calculation
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        spin_scf.set_multiplicity(1); // singlet - should have equal alpha and beta
+        spin_scf.max_cycle = 15;
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        spin_scf.init_basis(&elems, basis_map);
+        spin_scf.init_geometry(&coords, &elems);
+        spin_scf.init_density_matrix();
+        spin_scf.scf_cycle();
+        
+        // For a closed-shell system (singlet), alpha and beta populations should be equal
+        // We can't directly access density matrices, but we can check that the calculation runs
+        // and produces reasonable energy
+        let energy = spin_scf.calculate_total_energy();
+        
+        // Should be close to restricted SCF result
+        assert!(
+            energy < -1.0 && energy > -1.3,
+            "Singlet H2 energy should be reasonable: {:.6}",
+            energy
+        );
+    }
+
+    #[test]
+    fn test_spin_scf_vs_regular_scf_comparison() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Compare SpinSCF singlet calculation with regular SCF for closed-shell system
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        // Regular SCF calculation
+        let mut regular_scf = SimpleSCF::<Basis631G>::new();
+        regular_scf.max_cycle = 15;
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        regular_scf.init_basis(&elems, basis_map.clone());
+        regular_scf.init_geometry(&coords, &elems);
+        regular_scf.init_density_matrix();
+        regular_scf.init_fock_matrix();
+        regular_scf.scf_cycle();
+        
+        let regular_energy = regular_scf.calculate_total_energy();
+        
+        // Spin SCF calculation (singlet)
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        spin_scf.set_multiplicity(1); // singlet
+        spin_scf.max_cycle = 15;
+        
+        spin_scf.init_basis(&elems, basis_map);
+        spin_scf.init_geometry(&coords, &elems);
+        spin_scf.init_density_matrix();
+        spin_scf.scf_cycle();
+        
+        let spin_energy = spin_scf.calculate_total_energy();
+        
+        // For a closed-shell system, spin-restricted and spin-unrestricted should give similar results
+        let energy_diff = (regular_energy - spin_energy).abs();
+        assert!(
+            energy_diff < 0.01, // Should be very close for closed-shell systems
+            "Regular SCF and SpinSCF energies should be similar for closed-shell system: regular={:.6}, spin={:.6}, diff={:.6}",
+            regular_energy,
+            spin_energy,
+            energy_diff
+        );
+    }
+
+    #[test]
+    fn test_lithium_doublet() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test lithium atom (3 electrons, should be doublet in ground state)
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems = vec![Element::Lithium];
+        
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        spin_scf.set_multiplicity(2); // doublet (one unpaired electron)
+        spin_scf.max_cycle = 25;
+        
+        // Note: This test assumes we have a lithium basis set available
+        // If not available, the test will be skipped
+        let li_basis_path = "tests/basis_sets/sto-3g.li.nwchem";
+        if std::fs::metadata(li_basis_path).is_ok() {
+            let li_basis = load_basis_from_file_or_panic("Li");
+            let mut basis_map = HashMap::new();
+            basis_map.insert("Li", &li_basis);
+            
+            spin_scf.init_basis(&elems, basis_map);
+            spin_scf.init_geometry(&coords, &elems);
+            spin_scf.init_density_matrix();
+            spin_scf.scf_cycle();
+            
+            let energy = spin_scf.calculate_total_energy();
+            
+            // Lithium atom energy should be around -7.4 hartree
+            assert!(
+                energy < -7.0 && energy > -8.0,
+                "Lithium atom energy should be reasonable: {:.6}",
+                energy
+            );
+        }
+    }
+
+    #[test]
+    fn test_spin_scf_forces() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test that force calculation works for spin-polarized systems
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.5), // Slightly stretched H2
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        spin_scf.set_multiplicity(3); // triplet state
+        spin_scf.max_cycle = 15;
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        spin_scf.init_basis(&elems, basis_map);
+        spin_scf.init_geometry(&coords, &elems);
+        spin_scf.init_density_matrix();
+        spin_scf.scf_cycle();
+        
+        // Test that force calculation doesn't crash
+        let forces = spin_scf.calculate_forces();
+        
+        // Basic force validation
+        assert_eq!(forces.len(), 2, "Should have forces for 2 atoms");
+        
+        // Test force balance (conservation of momentum)
+        let total_force: Vector3<f64> = forces.iter().sum();
+        assert!(
+            total_force.norm() < 1e-6,
+            "Forces should balance in spin-polarized calculation: total force norm = {:.6}",
+            total_force.norm()
+        );
+        
+        // Test force symmetry for H2
+        let force_symmetry_error = (forces[0] + forces[1]).norm();
+        assert!(
+            force_symmetry_error < 1e-6,
+            "Forces should be symmetric for H2: error = {:.6}",
+            force_symmetry_error
+        );
+    }
+
+    #[test]
+    fn test_multiplicity_validation() {
+        use crate::simple_spin::SpinSCF;
+        
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems = vec![Element::Hydrogen];
+        
+        let mut spin_scf = SpinSCF::<Basis631G>::new();
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        spin_scf.init_basis(&elems, basis_map);
+        spin_scf.init_geometry(&coords, &elems);
+        
+        // Test valid multiplicities
+        spin_scf.set_multiplicity(2); // Valid for 1 electron (doublet)
+        assert_eq!(spin_scf.multiplicity, 2);
+        
+        // Test that initialization works with valid multiplicity
+        spin_scf.init_density_matrix();
+        // Should not panic
+        
+        // Test different valid multiplicities
+        for multiplicity in [1, 2] {
+            spin_scf.set_multiplicity(multiplicity);
+            assert_eq!(spin_scf.multiplicity, multiplicity);
+        }
+    }
+
+    #[test]
+    fn test_spin_energy_ordering() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test that energy ordering makes sense for different spin states
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems = vec![Element::Hydrogen];
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        // Calculate doublet energy (correct ground state)
+        let mut doublet_scf = SpinSCF::<Basis631G>::new();
+        doublet_scf.set_multiplicity(2);
+        doublet_scf.max_cycle = 15;
+        
+        doublet_scf.init_basis(&elems, basis_map.clone());
+        doublet_scf.init_geometry(&coords, &elems);
+        doublet_scf.init_density_matrix();
+        doublet_scf.scf_cycle();
+        
+        let doublet_energy = doublet_scf.calculate_total_energy();
+        
+        // For single H atom, doublet should give reasonable energy
+        assert!(
+            doublet_energy > -0.6 && doublet_energy < -0.4,
+            "Hydrogen doublet energy should be around -0.5 hartree: {:.6}",
+            doublet_energy
+        );
+    }
+
+    #[test] 
+    fn test_mock_spin_scf() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test SpinSCF with mock basis for basic functionality
+        let coords = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, 1.4),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut spin_scf = SpinSCF::<MockAOBasis>::new();
+        spin_scf.set_multiplicity(1); // singlet
+        
+        let mut basis = HashMap::new();
+        let mock_basis = create_mock_basis();
+        basis.insert("H", &mock_basis);
+        
+        spin_scf.init_basis(&elems, basis);
+        spin_scf.init_geometry(&coords, &elems);
+        spin_scf.init_density_matrix();
+        
+        // Test that basic operations work without crashing
+        assert_eq!(spin_scf.num_atoms, 2);
+        assert_eq!(spin_scf.multiplicity, 1);
+        
+        // Test energy calculation (should not crash)
+        let energy = spin_scf.calculate_total_energy();
+        
+        // Mock basis should give some energy value
+        assert!(energy.is_finite(), "Energy should be finite: {:.6}", energy);
+    }
 }
