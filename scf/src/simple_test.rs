@@ -567,6 +567,7 @@ mod tests {
         singlet_scf.init_basis(&elems, basis_map.clone());
         singlet_scf.init_geometry(&coords, &elems);
         singlet_scf.init_density_matrix();
+        singlet_scf.init_fock_matrix();
         singlet_scf.scf_cycle();
         
         let singlet_energy = singlet_scf.calculate_total_energy();
@@ -579,6 +580,7 @@ mod tests {
         triplet_scf.init_basis(&elems, basis_map);
         triplet_scf.init_geometry(&coords, &elems);
         triplet_scf.init_density_matrix();
+        triplet_scf.init_fock_matrix();
         triplet_scf.scf_cycle();
         
         let triplet_energy = triplet_scf.calculate_total_energy();
@@ -619,6 +621,7 @@ mod tests {
         spin_scf.init_basis(&elems, basis_map);
         spin_scf.init_geometry(&coords, &elems);
         spin_scf.init_density_matrix();
+        spin_scf.init_fock_matrix();
         spin_scf.scf_cycle();
         
         let energy = spin_scf.calculate_total_energy();
@@ -658,6 +661,7 @@ mod tests {
         spin_scf.init_basis(&elems, basis_map);
         spin_scf.init_geometry(&coords, &elems);
         spin_scf.init_density_matrix();
+        spin_scf.init_fock_matrix();
         spin_scf.scf_cycle();
         
         // For a closed-shell system (singlet), alpha and beta populations should be equal
@@ -708,6 +712,7 @@ mod tests {
         spin_scf.init_basis(&elems, basis_map);
         spin_scf.init_geometry(&coords, &elems);
         spin_scf.init_density_matrix();
+        spin_scf.init_fock_matrix();
         spin_scf.scf_cycle();
         
         let spin_energy = spin_scf.calculate_total_energy();
@@ -746,6 +751,7 @@ mod tests {
             spin_scf.init_basis(&elems, basis_map);
             spin_scf.init_geometry(&coords, &elems);
             spin_scf.init_density_matrix();
+            spin_scf.init_fock_matrix();
             spin_scf.scf_cycle();
             
             let energy = spin_scf.calculate_total_energy();
@@ -781,6 +787,7 @@ mod tests {
         spin_scf.init_basis(&elems, basis_map);
         spin_scf.init_geometry(&coords, &elems);
         spin_scf.init_density_matrix();
+        spin_scf.init_fock_matrix();
         spin_scf.scf_cycle();
         
         // Test that force calculation doesn't crash
@@ -856,6 +863,7 @@ mod tests {
         doublet_scf.init_basis(&elems, basis_map.clone());
         doublet_scf.init_geometry(&coords, &elems);
         doublet_scf.init_density_matrix();
+        doublet_scf.init_fock_matrix();
         doublet_scf.scf_cycle();
         
         let doublet_energy = doublet_scf.calculate_total_energy();
