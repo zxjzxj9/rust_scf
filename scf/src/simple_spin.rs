@@ -341,15 +341,9 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                             &self.mo_basis[k],
                             &self.mo_basis[l],
                         );
-                        let integral_ikjl = B::BasisType::JKabcd(
-                            &self.mo_basis[i],
-                            &self.mo_basis[k],
-                            &self.mo_basis[j],
-                            &self.mo_basis[l],
-                        );
                         let row = i * self.num_basis + j;
                         let col = k * self.num_basis + l;
-                        self.integral_matrix[(row, col)] = integral_ijkl - 0.5 * integral_ikjl;
+                        self.integral_matrix[(row, col)] = integral_ijkl;
                     }
                 }
             }
@@ -378,36 +372,47 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 cycle
             );
 
-            // Step 1: Flatten density matrices
-            info!("  Step 1: Flattening Density Matrices...");
-            let density_alpha_flattened = self
-                .density_matrix_alpha
-                .clone()
-                .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
-
-            let density_beta_flattened = self
-                .density_matrix_beta
-                .clone()
-                .reshape_generic(Dyn(self.num_basis * self.num_basis), Dyn(1));
-
-            let total_density_flattened =
-                density_alpha_flattened.clone() + density_beta_flattened.clone();
+            // Skip flattening - we'll build matrices directly
 
             // Step 2: Build G matrices
             info!("  Step 2: Building G Matrices from Density Matrices and Integrals...");
 
-            // Coulomb terms (same for both spins)
-            let j_matrix_flattened = &self.integral_matrix * &total_density_flattened;
-            let j_matrix =
-                j_matrix_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
+            // Build Coulomb and Exchange matrices directly
+            let mut j_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+            let mut k_alpha = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+            let mut k_beta = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
 
-            // Exchange terms (different for alpha and beta)
-            let k_alpha_flattened = &self.integral_matrix * &density_alpha_flattened;
-            let k_alpha =
-                k_alpha_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
+                            let coulomb = B::BasisType::JKabcd(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                &self.mo_basis[k],
+                                &self.mo_basis[l],
+                            );
+                            let exchange = B::BasisType::JKabcd(
+                                &self.mo_basis[i],
+                                &self.mo_basis[k],
+                                &self.mo_basis[j],
+                                &self.mo_basis[l],
+                            );
 
-            let k_beta_flattened = &self.integral_matrix * &density_beta_flattened;
-            let k_beta = k_beta_flattened.reshape_generic(Dyn(self.num_basis), Dyn(self.num_basis));
+                            let p_total_kl = self.density_matrix_alpha[(k, l)] + self.density_matrix_beta[(k, l)];
+                            let p_alpha_kl = self.density_matrix_alpha[(k, l)];
+                            let p_beta_kl = self.density_matrix_beta[(k, l)];
+
+                            // Coulomb contribution (from all electrons)
+                            j_matrix[(i, j)] += coulomb * p_total_kl;
+
+                            // Exchange contributions (same-spin only)
+                            k_alpha[(i, j)] += exchange * p_alpha_kl;
+                            k_beta[(i, j)] += exchange * p_beta_kl;
+                        }
+                    }
+                }
+            }
 
             // Step 3: Build Fock matrices
             info!("  Step 3: Building Fock Matrices...");
@@ -567,21 +572,12 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
     }
 
     fn calculate_total_energy(&self) -> f64 {
-        // Calculate number of alpha and beta electrons
-        let total_electrons: usize = self
-            .elems
-            .iter()
-            .map(|e| e.get_atomic_number() as usize)
-            .sum();
+        // Use efficient energy formula similar to SimpleSCF
+        // E = Tr(P_alpha * H_core) + Tr(P_beta * H_core) + 
+        //     0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
+        // where G = F - H_core
 
-        let unpaired_electrons = self.multiplicity - 1;
-        let _n_alpha = (total_electrons + unpaired_electrons) / 2;
-        let _n_beta = (total_electrons - unpaired_electrons) / 2;
-
-        // Calculate one-electron energy contribution
-        let mut one_electron_energy = 0.0;
-
-        // Core hamiltonian
+        // Build core Hamiltonian
         let mut h_core = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
@@ -597,47 +593,24 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             }
         }
 
-        // One-electron contribution
+        // One-electron energy: Tr(P_total * H_core)
+        let mut one_electron_energy = 0.0;
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
-                one_electron_energy += h_core[(i, j)]
-                    * (self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)]);
+                let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                one_electron_energy += h_core[(i, j)] * p_total_ij;
             }
         }
 
-        // Two-electron contribution
+        // Two-electron energy: 0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
         let mut two_electron_energy = 0.0;
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
-                for k in 0..self.num_basis {
-                    for l in 0..self.num_basis {
-                        let coulomb = B::BasisType::JKabcd(
-                            &self.mo_basis[i],
-                            &self.mo_basis[j],
-                            &self.mo_basis[k],
-                            &self.mo_basis[l],
-                        );
-                        let exchange = B::BasisType::JKabcd(
-                            &self.mo_basis[i],
-                            &self.mo_basis[k],
-                            &self.mo_basis[j],
-                            &self.mo_basis[l],
-                        );
-
-                        let p_alpha_ij = self.density_matrix_alpha[(i, j)];
-                        let p_beta_ij = self.density_matrix_beta[(i, j)];
-                        let p_alpha_kl = self.density_matrix_alpha[(k, l)];
-                        let p_beta_kl = self.density_matrix_beta[(k, l)];
-
-                        // Coulomb contribution
-                        two_electron_energy +=
-                            0.5 * coulomb * ((p_alpha_ij + p_beta_ij) * (p_alpha_kl + p_beta_kl));
-
-                        // Exchange contribution
-                        two_electron_energy -=
-                            0.5 * exchange * (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl);
-                    }
-                }
+                let g_alpha_ij = self.fock_matrix_alpha[(i, j)] - h_core[(i, j)];
+                let g_beta_ij = self.fock_matrix_beta[(i, j)] - h_core[(i, j)];
+                
+                two_electron_energy += 0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij;
+                two_electron_energy += 0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij;
             }
         }
 
@@ -648,11 +621,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = (self.coords[i] - self.coords[j]).norm();
-                nuclear_repulsion += z_i * z_j / r_ij;
+                if r_ij > 1e-10 {
+                    nuclear_repulsion += z_i * z_j / r_ij;
+                }
             }
         }
 
-        one_electron_energy + two_electron_energy + nuclear_repulsion
+        let total_energy = one_electron_energy + two_electron_energy + nuclear_repulsion;
+        if total_energy.is_finite() {
+            total_energy
+        } else {
+            0.0
+        }
     }
 
     fn calculate_forces(&self) -> Vec<Vector3<f64>> {
