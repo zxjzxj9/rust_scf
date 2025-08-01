@@ -204,8 +204,8 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         let n_beta = (total_electrons - unpaired_electrons) / 2;
 
         info!(
-            "  Total electrons: {}, Alpha: {}, Beta: {}",
-            total_electrons, n_alpha, n_beta
+            "  Total electrons: {}, Alpha: {}, Beta: {}, Basis size: {}",
+            total_electrons, n_alpha, n_beta, self.num_basis
         );
 
         // Diagonalize initial Fock matrices (same for alpha and beta at this point)
