@@ -572,6 +572,10 @@ mod tests {
         
         let singlet_energy = singlet_scf.calculate_total_energy();
         
+        // Debug: print electron distribution for singlet
+        println!("Singlet - Alpha eigenvalues: {:?}", singlet_scf.e_level_alpha);
+        println!("Singlet - Beta eigenvalues: {:?}", singlet_scf.e_level_beta);
+        
         // Test triplet H2 (multiplicity = 3)
         let mut triplet_scf = SpinSCF::<Basis631G>::new();
         triplet_scf.set_multiplicity(3);
@@ -584,6 +588,10 @@ mod tests {
         triplet_scf.scf_cycle();
         
         let triplet_energy = triplet_scf.calculate_total_energy();
+        
+        // Debug: print electron distribution
+        println!("Triplet - Alpha eigenvalues: {:?}", triplet_scf.e_level_alpha);
+        println!("Triplet - Beta eigenvalues: {:?}", triplet_scf.e_level_beta);
         
         // Singlet should be lower in energy than triplet for H2 at equilibrium
         assert!(
