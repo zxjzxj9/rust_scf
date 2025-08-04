@@ -81,8 +81,53 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
     }
 
     pub fn set_multiplicity(&mut self, multiplicity: usize) {
+        if multiplicity < 1 {
+            panic!("Multiplicity must be at least 1");
+        }
         self.multiplicity = multiplicity;
         info!("Spin multiplicity set to {}", self.multiplicity);
+    }
+
+    /// Validates that the multiplicity is consistent with the number of electrons
+    pub fn validate_multiplicity(&self) -> Result<(), String> {
+        if self.elems.is_empty() {
+            return Ok(()); // Cannot validate without atoms
+        }
+
+        let total_electrons: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+
+        let unpaired_electrons = self.multiplicity - 1;
+        
+        // Check if we have enough electrons for the requested unpaired electrons
+        if total_electrons < unpaired_electrons {
+            return Err(format!(
+                "Invalid multiplicity {}: only {} electrons available, but {} unpaired electrons requested",
+                self.multiplicity, total_electrons, unpaired_electrons
+            ));
+        }
+        
+        // Check if the remaining electrons can be paired
+        let remaining_electrons = total_electrons - unpaired_electrons;
+        if remaining_electrons % 2 != 0 {
+            return Err(format!(
+                "Invalid multiplicity {}: after {} unpaired electrons, {} electrons remain which cannot be paired",
+                self.multiplicity, unpaired_electrons, remaining_electrons
+            ));
+        }
+
+        // Additional checks for common physical constraints
+        if unpaired_electrons > total_electrons {
+            return Err(format!(
+                "Invalid multiplicity {}: cannot have more unpaired electrons ({}) than total electrons ({})",
+                self.multiplicity, unpaired_electrons, total_electrons
+            ));
+        }
+
+        Ok(())
     }
 }
 
@@ -192,13 +237,12 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             .map(|e| e.get_atomic_number() as usize)
             .sum();
 
+        // Validate multiplicity before proceeding
+        if let Err(err_msg) = self.validate_multiplicity() {
+            panic!("Multiplicity validation failed: {}", err_msg);
+        }
+
         let unpaired_electrons = self.multiplicity - 1;
-        assert!(
-            total_electrons >= unpaired_electrons,
-            "Invalid multiplicity: not enough electrons"
-        );
-        assert_eq!((total_electrons - unpaired_electrons) % 2, 0, 
-                   "Invalid electron count for given multiplicity");
 
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
@@ -238,38 +282,31 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         self.coeffs_alpha = eigvecs_alpha;
         self.e_level_alpha = sorted_eigenvalues_alpha;
 
-        // For beta electrons - use same orbitals as alpha for triplet H2 (ROHF-like approach)
-        if self.multiplicity == 3 && total_electrons == 2 {
-            // For triplet H2, use the same spatial orbitals as alpha
-            self.coeffs_beta = self.coeffs_alpha.clone();
-            self.e_level_beta = self.e_level_alpha.clone();
-        } else {
-            // Normal UHF for other cases
-            let f_beta_prime =
-                l_inv.clone() * self.fock_matrix_beta.clone() * l_inv.clone().transpose();
-            let eig_beta = f_beta_prime
-                .clone()
-                .try_symmetric_eigen(1e-6, 1000)
-                .unwrap();
+        // For beta electrons - always use UHF (independent alpha and beta orbitals)
+        let f_beta_prime =
+            l_inv.clone() * self.fock_matrix_beta.clone() * l_inv.clone().transpose();
+        let eig_beta = f_beta_prime
+            .clone()
+            .try_symmetric_eigen(1e-6, 1000)
+            .unwrap();
 
-            // Sort beta eigenvalues and eigenvectors
-            let eigenvalues_beta = eig_beta.eigenvalues.clone();
-            let eigenvectors_beta = eig_beta.eigenvectors.clone();
-            let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
-            indices_beta.sort_by(|&a, &b| {
-                eigenvalues_beta[a]
-                    .partial_cmp(&eigenvalues_beta[b])
-                    .unwrap()
-            });
+        // Sort beta eigenvalues and eigenvectors
+        let eigenvalues_beta = eig_beta.eigenvalues.clone();
+        let eigenvectors_beta = eig_beta.eigenvectors.clone();
+        let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
+        indices_beta.sort_by(|&a, &b| {
+            eigenvalues_beta[a]
+                .partial_cmp(&eigenvalues_beta[b])
+                .unwrap()
+        });
 
-            let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
-                eigenvalues_beta[indices_beta[i]]
-            });
-            let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
-            let eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
-            self.coeffs_beta = eigvecs_beta;
-            self.e_level_beta = sorted_eigenvalues_beta;
-        }
+        let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
+            eigenvalues_beta[indices_beta[i]]
+        });
+        let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
+        let eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
+        self.coeffs_beta = eigvecs_beta;
+        self.e_level_beta = sorted_eigenvalues_beta;
 
         info!("  Initial Energy Levels:");
         info!("    Alpha electrons:");
@@ -300,28 +337,13 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
 
-        // Update alpha density matrix
-        // Special case for triplet with 2 electrons: put one in bonding, one in antibonding
-        if self.multiplicity == 3 && total_electrons == 2 && n_alpha == 2 && n_beta == 0 {
-            // For triplet H2: occupy orbitals 0 and 1 with single electrons (not double occupancy)
-            let mut new_density_alpha = DMatrix::zeros(self.num_basis, self.num_basis);
-            
-            // Add contribution from first alpha electron in orbital 0 (bonding)
-            let c0 = self.coeffs_alpha.column(0);
-            new_density_alpha += &c0 * c0.transpose();
-            
-            // Add contribution from second alpha electron in orbital 1 (antibonding) 
-            let c1 = self.coeffs_alpha.column(1);
-            new_density_alpha += &c1 * c1.transpose();
-            
-            if self.density_matrix_alpha.shape() == (0, 0) {
-                self.density_matrix_alpha = new_density_alpha;
-            } else {
-                self.density_matrix_alpha = self.density_mixing * new_density_alpha
-                    + (1.0 - self.density_mixing) * self.density_matrix_alpha.clone();
+        // Update alpha density matrix - standard UHF approach
+        // Fill lowest n_alpha orbitals (Aufbau principle with UHF)
+        if n_alpha > 0 {
+            if n_alpha > self.coeffs_alpha.ncols() {
+                panic!("Not enough alpha orbitals ({}) for {} alpha electrons", 
+                       self.coeffs_alpha.ncols(), n_alpha);
             }
-        } else {
-            // Normal case: fill lowest n_alpha orbitals  
             let occupied_coeffs_alpha = self.coeffs_alpha.columns(0, n_alpha);
             if self.density_matrix_alpha.shape() == (0, 0) {
                 self.density_matrix_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
@@ -330,16 +352,28 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 self.density_matrix_alpha = self.density_mixing * new_density_alpha
                     + (1.0 - self.density_mixing) * self.density_matrix_alpha.clone();
             }
+        } else {
+            // No alpha electrons - zero density matrix
+            self.density_matrix_alpha = DMatrix::zeros(self.num_basis, self.num_basis);
         }
 
         // Update beta density matrix
-        let occupied_coeffs_beta = self.coeffs_beta.columns(0, n_beta);
-        if self.density_matrix_beta.shape() == (0, 0) {
-            self.density_matrix_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
+        if n_beta > 0 {
+            if n_beta > self.coeffs_beta.ncols() {
+                panic!("Not enough beta orbitals ({}) for {} beta electrons", 
+                       self.coeffs_beta.ncols(), n_beta);
+            }
+            let occupied_coeffs_beta = self.coeffs_beta.columns(0, n_beta);
+            if self.density_matrix_beta.shape() == (0, 0) {
+                self.density_matrix_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
+            } else {
+                let new_density_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
+                self.density_matrix_beta = self.density_mixing * new_density_beta
+                    + (1.0 - self.density_mixing) * self.density_matrix_beta.clone();
+            }
         } else {
-            let new_density_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
-            self.density_matrix_beta = self.density_mixing * new_density_beta
-                + (1.0 - self.density_mixing) * self.density_matrix_beta.clone();
+            // No beta electrons - zero density matrix
+            self.density_matrix_beta = DMatrix::zeros(self.num_basis, self.num_basis);
         }
 
         info!(
@@ -517,33 +551,26 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             self.coeffs_alpha = eigvecs_alpha;
             let current_e_level_alpha = sorted_eigenvalues_alpha;
 
-            // Diagonalize beta Fock matrix - use same orbitals as alpha for triplet H2
-            let current_e_level_beta = if self.multiplicity == 3 && self.elems.len() == 2 {
-                // For triplet H2, use the same spatial orbitals as alpha
-                self.coeffs_beta = self.coeffs_alpha.clone();
-                current_e_level_alpha.clone()
-            } else {
-                // Normal UHF for other cases
-                let f_beta_prime = l_inv.clone() * &fock_beta * l_inv.transpose();
-                let eig_beta = f_beta_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
+            // Diagonalize beta Fock matrix - always use independent UHF orbitals
+            let f_beta_prime = l_inv.clone() * &fock_beta * l_inv.transpose();
+            let eig_beta = f_beta_prime.try_symmetric_eigen(1e-6, 1000).unwrap();
 
-                let eigenvalues_beta = eig_beta.eigenvalues.clone();
-                let eigenvectors_beta = eig_beta.eigenvectors.clone();
-                let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
-                indices_beta.sort_by(|&a, &b| {
-                    eigenvalues_beta[a]
-                        .partial_cmp(&eigenvalues_beta[b])
-                        .unwrap()
-                });
+            let eigenvalues_beta = eig_beta.eigenvalues.clone();
+            let eigenvectors_beta = eig_beta.eigenvectors.clone();
+            let mut indices_beta: Vec<usize> = (0..eigenvalues_beta.len()).collect();
+            indices_beta.sort_by(|&a, &b| {
+                eigenvalues_beta[a]
+                    .partial_cmp(&eigenvalues_beta[b])
+                    .unwrap()
+            });
 
-                let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
-                    eigenvalues_beta[indices_beta[i]]
-                });
-                let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
-                let eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
-                self.coeffs_beta = eigvecs_beta;
-                sorted_eigenvalues_beta
-            };
+            let sorted_eigenvalues_beta = DVector::from_fn(eigenvalues_beta.len(), |i, _| {
+                eigenvalues_beta[indices_beta[i]]
+            });
+            let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
+            let eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
+            self.coeffs_beta = eigvecs_beta;
+            let current_e_level_beta = sorted_eigenvalues_beta;
 
             // Update energy levels
             info!("  Step 6: Energy Levels obtained:");
@@ -685,9 +712,11 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             .map(|e| e.get_atomic_number() as usize)
             .sum();
         let unpaired_electrons = self.multiplicity - 1;
-        // These assertions should ideally be present or ensure multiplicity is always valid
-        // assert!(total_electrons >= unpaired_electrons, "Invalid multiplicity for force calculation");
-        // assert_eq!((total_electrons - unpaired_electrons) % 2, 0, "Invalid electron count for multiplicity in force calculation");
+        
+        // Validate multiplicity for force calculation
+        if let Err(err_msg) = self.validate_multiplicity() {
+            panic!("Multiplicity validation failed during force calculation: {}", err_msg);
+        }
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
 

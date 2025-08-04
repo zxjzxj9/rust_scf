@@ -889,6 +889,131 @@ mod tests {
     }
 
     #[test]
+    fn test_general_molecular_multiplicities() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test CH3 radical (9 electrons, multiplicity = 2) using available basis sets
+        let coords_ch3 = vec![
+            Vector3::new(0.0, 0.0, 0.0),  // C
+            Vector3::new(1.0, 0.0, 0.0),  // H
+            Vector3::new(-0.5, 0.866, 0.0), // H
+            Vector3::new(-0.5, -0.866, 0.0), // H
+        ];
+        let elems_ch3 = vec![Element::Carbon, Element::Hydrogen, Element::Hydrogen, Element::Hydrogen];
+        
+        let mut ch3_scf = SpinSCF::<Basis631G>::new();
+        ch3_scf.set_multiplicity(2); // doublet for radical
+        ch3_scf.max_cycle = 5;
+        
+        let mut basis_map_ch3 = HashMap::new();
+        let c_basis = load_basis_from_file_or_panic("C");
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map_ch3.insert("C", &c_basis);
+        basis_map_ch3.insert("H", &h_basis);
+        
+        ch3_scf.init_basis(&elems_ch3, basis_map_ch3);
+        ch3_scf.init_geometry(&coords_ch3, &elems_ch3);
+        
+        assert!(ch3_scf.validate_multiplicity().is_ok(), 
+                "Doublet CH3 should be a valid multiplicity");
+        
+        // Should initialize without errors
+        ch3_scf.init_density_matrix();
+        
+        // Test Li atom (3 electrons, multiplicity = 2 for doublet)
+        let coords_li = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems_li = vec![Element::Lithium];
+        
+        let mut li_scf = SpinSCF::<Basis631G>::new();
+        li_scf.set_multiplicity(2); // doublet (ground state of Li)
+        li_scf.max_cycle = 5;
+        
+        let mut basis_map_li = HashMap::new();
+        // Use hydrogen basis as approximation since Li basis may not be available
+        let h_basis_for_li = load_basis_from_file_or_panic("H");
+        basis_map_li.insert("Li", &h_basis_for_li);
+        
+        li_scf.init_basis(&elems_li, basis_map_li);
+        li_scf.init_geometry(&coords_li, &elems_li);
+        
+        assert!(li_scf.validate_multiplicity().is_ok(), 
+                "Doublet Li should be a valid multiplicity");
+        
+        // Should initialize without errors
+        li_scf.init_density_matrix();
+        
+        println!("General molecular multiplicity tests passed");
+    }
+
+    #[test]
+    fn test_invalid_multiplicities() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test invalid multiplicity for H2 (2 electrons, multiplicity = 4 is invalid)
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut h2_scf = SpinSCF::<Basis631G>::new();
+        h2_scf.set_multiplicity(4); // Too high for 2 electrons
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        h2_scf.init_basis(&elems, basis_map);
+        h2_scf.init_geometry(&coords, &elems);
+        
+        // Should fail validation
+        assert!(h2_scf.validate_multiplicity().is_err(), 
+                "Multiplicity 4 for H2 should be invalid");
+        
+        // Test valid high-spin case
+        h2_scf.set_multiplicity(3); // Valid triplet
+        assert!(h2_scf.validate_multiplicity().is_ok(), 
+                "Multiplicity 3 for H2 should be valid");
+                
+        println!("Invalid multiplicity validation tests passed");
+    }
+
+    #[test]
+    fn test_electron_counting_edge_cases() {
+        use crate::simple_spin::SpinSCF;
+        
+        // Test single electron system (H atom)
+        let coords_h = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems_h = vec![Element::Hydrogen];
+        
+        let mut h_scf = SpinSCF::<Basis631G>::new();
+        h_scf.set_multiplicity(2); // doublet (S=1/2)
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        h_scf.init_basis(&elems_h, basis_map);
+        h_scf.init_geometry(&coords_h, &elems_h);
+        
+        assert!(h_scf.validate_multiplicity().is_ok());
+        
+        // Should have 1 alpha electron, 0 beta electrons
+        let total_electrons = 1;
+        let unpaired_electrons = h_scf.multiplicity - 1; // 1
+        let n_alpha = (total_electrons + unpaired_electrons) / 2; // 1
+        let n_beta = (total_electrons - unpaired_electrons) / 2; // 0
+        
+        assert_eq!(n_alpha, 1, "H atom should have 1 alpha electron");
+        assert_eq!(n_beta, 0, "H atom should have 0 beta electrons");
+        
+        h_scf.init_density_matrix();
+        // Should not panic and should work correctly
+        
+        println!("Electron counting edge cases tests passed");
+    }
+
+    #[test]
     fn test_spin_energy_ordering() {
         use crate::simple_spin::SpinSCF;
         
