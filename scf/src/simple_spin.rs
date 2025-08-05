@@ -4,7 +4,7 @@ extern crate nalgebra as na;
 
 use crate::scf::{SCF, DIIS};
 use basis::basis::{AOBasis, Basis};
-use na::{DMatrix, DVector, Vector3, Dyn};
+use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
