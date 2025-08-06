@@ -1023,6 +1023,213 @@ mod tests {
     }
 
     #[test]
+    fn test_open_shell_calculation_validation() {
+        use crate::simple_spin::SpinSCF;
+        
+        println!("\n=== Open Shell Calculation Validation ===");
+        
+        // Test H2 with detailed validation
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        // Singlet H2 calculation
+        let mut singlet_scf = SpinSCF::<Basis631G>::new();
+        singlet_scf.set_multiplicity(1);
+        singlet_scf.max_cycle = 50;
+        
+        singlet_scf.init_basis(&elems, basis_map.clone());
+        singlet_scf.init_geometry(&coords, &elems);
+        singlet_scf.init_density_matrix();
+        singlet_scf.init_fock_matrix();
+        singlet_scf.scf_cycle();
+        
+        let singlet_energy = singlet_scf.calculate_total_energy();
+        println!("Singlet H2 energy: {:.8} hartree", singlet_energy);
+        
+        // Validate singlet has equal alpha and beta populations
+        let total_electrons = 2;
+        let n_alpha_singlet = 1;
+        let n_beta_singlet = 1;
+        
+        println!("Singlet: α={}, β={} electrons", n_alpha_singlet, n_beta_singlet);
+        
+        // Triplet H2 calculation
+        let mut triplet_scf = SpinSCF::<Basis631G>::new();
+        triplet_scf.set_multiplicity(3);
+        triplet_scf.max_cycle = 50;
+        
+        triplet_scf.init_basis(&elems, basis_map);
+        triplet_scf.init_geometry(&coords, &elems);
+        triplet_scf.init_density_matrix();
+        triplet_scf.init_fock_matrix();
+        triplet_scf.scf_cycle();
+        
+        let triplet_energy = triplet_scf.calculate_total_energy();
+        println!("Triplet H2 energy: {:.8} hartree", triplet_energy);
+        
+        // Validate triplet has 2 alpha, 0 beta electrons
+        let n_alpha_triplet = 2;
+        let n_beta_triplet = 0;
+        
+        println!("Triplet: α={}, β={} electrons", n_alpha_triplet, n_beta_triplet);
+        
+        // Energy comparison
+        let energy_diff = triplet_energy - singlet_energy;
+        println!("Energy difference (triplet - singlet): {:.8} hartree", energy_diff);
+        
+        // Validation: Singlet should be lower energy (more stable)
+        if energy_diff > 0.0 {
+            println!("✓ CORRECT: Singlet is lower energy than triplet");
+        } else {
+            println!("✗ WRONG: Triplet appears lower energy - calculation issue!");
+            
+            // Diagnostic output
+            println!("\nDiagnostic Information:");
+            println!("Singlet density matrices:");
+            println!("  Alpha density trace: {:.6}", singlet_scf.get_density_matrix_alpha().trace());
+            println!("  Beta density trace: {:.6}", singlet_scf.get_density_matrix_beta().trace());
+            
+            println!("Triplet density matrices:");
+            println!("  Alpha density trace: {:.6}", triplet_scf.get_density_matrix_alpha().trace());
+            println!("  Beta density trace: {:.6}", triplet_scf.get_density_matrix_beta().trace());
+            
+            println!("Singlet energy levels:");
+            println!("  Alpha: {:?}", singlet_scf.get_e_level_alpha());
+            println!("  Beta: {:?}", singlet_scf.get_e_level_beta());
+            
+            println!("Triplet energy levels:");
+            println!("  Alpha: {:?}", triplet_scf.get_e_level_alpha());
+            println!("  Beta: {:?}", triplet_scf.get_e_level_beta());
+        }
+        
+        // Additional validation: Check electron counts
+        let singlet_alpha_trace = singlet_scf.get_density_matrix_alpha().trace();
+        let singlet_beta_trace = singlet_scf.get_density_matrix_beta().trace();
+        let triplet_alpha_trace = triplet_scf.get_density_matrix_alpha().trace();
+        let triplet_beta_trace = triplet_scf.get_density_matrix_beta().trace();
+        
+        println!("\nElectron count validation:");
+        println!("Singlet: α={:.3}, β={:.3}, total={:.3}", 
+                 singlet_alpha_trace, singlet_beta_trace, 
+                 singlet_alpha_trace + singlet_beta_trace);
+        println!("Triplet: α={:.3}, β={:.3}, total={:.3}", 
+                 triplet_alpha_trace, triplet_beta_trace, 
+                 triplet_alpha_trace + triplet_beta_trace);
+        
+        // Verify correct electron counts
+        assert!((singlet_alpha_trace - 1.0).abs() < 0.1, "Singlet should have ~1 alpha electron");
+        assert!((singlet_beta_trace - 1.0).abs() < 0.1, "Singlet should have ~1 beta electron");
+        assert!((triplet_alpha_trace - 2.0).abs() < 0.1, "Triplet should have ~2 alpha electrons");
+        assert!((triplet_beta_trace - 0.0).abs() < 0.1, "Triplet should have ~0 beta electrons");
+        
+        println!("Open shell calculation validation completed");
+    }
+
+    #[test]
+    fn test_spin_contamination_check() {
+        use crate::simple_spin::SpinSCF;
+        
+        println!("\n=== Spin Contamination Check ===");
+        
+        // Test single hydrogen atom (doublet)
+        let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let elems = vec![Element::Hydrogen];
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        let mut h_scf = SpinSCF::<Basis631G>::new();
+        h_scf.set_multiplicity(2); // doublet (S = 1/2)
+        h_scf.max_cycle = 20;
+        
+        h_scf.init_basis(&elems, basis_map);
+        h_scf.init_geometry(&coords, &elems);
+        h_scf.init_density_matrix();
+        h_scf.init_fock_matrix();
+        h_scf.scf_cycle();
+        
+        let h_energy = h_scf.calculate_total_energy();
+        println!("H atom doublet energy: {:.8} hartree", h_energy);
+        
+        // Validate electron counts for H atom
+        let alpha_trace = h_scf.get_density_matrix_alpha().trace();
+        let beta_trace = h_scf.get_density_matrix_beta().trace();
+        
+        println!("H atom: α={:.3}, β={:.3}, total={:.3}", 
+                 alpha_trace, beta_trace, alpha_trace + beta_trace);
+        
+        // Should have 1 alpha, 0 beta electrons
+        assert!((alpha_trace - 1.0).abs() < 0.1, "H atom should have ~1 alpha electron");
+        assert!((beta_trace - 0.0).abs() < 0.1, "H atom should have ~0 beta electrons");
+        
+        // Energy should be reasonable (negative for bound system)
+        assert!(h_energy < 0.0, "H atom energy should be negative: {:.6}", h_energy);
+        assert!(h_energy > -1.0, "H atom energy should be > -1 hartree: {:.6}", h_energy);
+        
+        println!("Spin contamination check completed");
+    }
+
+    #[test]
+    fn test_uhf_orbital_differences() {
+        use crate::simple_spin::SpinSCF;
+        
+        println!("\n=== UHF Orbital Differences Test ===");
+        
+        // Test that UHF produces different alpha and beta orbitals for open shell
+        let coords = vec![
+            Vector3::new(0.0, 0.0, -0.7),
+            Vector3::new(0.0, 0.0, 0.7),
+        ];
+        let elems = vec![Element::Hydrogen, Element::Hydrogen];
+        
+        let mut basis_map = HashMap::new();
+        let h_basis = load_basis_from_file_or_panic("H");
+        basis_map.insert("H", &h_basis);
+        
+        let mut triplet_scf = SpinSCF::<Basis631G>::new();
+        triplet_scf.set_multiplicity(3);
+        triplet_scf.max_cycle = 30;
+        
+        triplet_scf.init_basis(&elems, basis_map);
+        triplet_scf.init_geometry(&coords, &elems);
+        triplet_scf.init_density_matrix();
+        triplet_scf.init_fock_matrix();
+        triplet_scf.scf_cycle();
+        
+        // Check that alpha and beta orbitals are different (UHF characteristic)
+        let alpha_orbitals = triplet_scf.get_coeffs_alpha();
+        let beta_orbitals = triplet_scf.get_coeffs_beta();
+        
+        let orbital_diff = (alpha_orbitals - beta_orbitals).norm();
+        println!("Orbital coefficient difference (UHF): {:.6}", orbital_diff);
+        
+        // For triplet H2, alpha and beta orbitals should be significantly different
+        assert!(orbital_diff > 1e-6, "UHF orbitals should be different for open shell: {:.8}", orbital_diff);
+        
+        // Check energy level differences
+        let alpha_energies = triplet_scf.get_e_level_alpha();
+        let beta_energies = triplet_scf.get_e_level_beta();
+        
+        let energy_diff = (alpha_energies - beta_energies).norm();
+        println!("Energy level difference (UHF): {:.6}", energy_diff);
+        
+        assert!(energy_diff > 1e-6, "UHF energy levels should be different for open shell: {:.8}", energy_diff);
+        
+        println!("Alpha energy levels: {:?}", alpha_energies);
+        println!("Beta energy levels: {:?}", beta_energies);
+        
+        println!("UHF orbital differences test completed");
+    }
+
+    #[test]
     fn test_spin_energy_ordering() {
         use crate::simple_spin::SpinSCF;
         

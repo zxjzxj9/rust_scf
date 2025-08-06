@@ -88,6 +88,36 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         info!("Spin multiplicity set to {}", self.multiplicity);
     }
 
+    /// Get reference to alpha density matrix for validation
+    pub fn get_density_matrix_alpha(&self) -> &DMatrix<f64> {
+        &self.density_matrix_alpha
+    }
+
+    /// Get reference to beta density matrix for validation
+    pub fn get_density_matrix_beta(&self) -> &DMatrix<f64> {
+        &self.density_matrix_beta
+    }
+
+    /// Get reference to alpha molecular orbital coefficients
+    pub fn get_coeffs_alpha(&self) -> &DMatrix<f64> {
+        &self.coeffs_alpha
+    }
+
+    /// Get reference to beta molecular orbital coefficients
+    pub fn get_coeffs_beta(&self) -> &DMatrix<f64> {
+        &self.coeffs_beta
+    }
+
+    /// Get reference to alpha energy levels
+    pub fn get_e_level_alpha(&self) -> &DVector<f64> {
+        &self.e_level_alpha
+    }
+
+    /// Get reference to beta energy levels
+    pub fn get_e_level_beta(&self) -> &DVector<f64> {
+        &self.e_level_beta
+    }
+
     /// Validates that the multiplicity is consistent with the number of electrons
     pub fn validate_multiplicity(&self) -> Result<(), String> {
         if self.elems.is_empty() {
