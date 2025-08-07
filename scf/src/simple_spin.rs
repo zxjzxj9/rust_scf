@@ -308,7 +308,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             eigenvalues_alpha[indices_alpha[i]]
         });
         let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
-        let eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
+        let mut eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
+        
+        // Normalize the molecular orbitals to ensure orthonormality
+        for j in 0..eigvecs_alpha.ncols() {
+            let mut col = eigvecs_alpha.column_mut(j);
+            let norm_squared = (&col).transpose() * &self.overlap_matrix * &col;
+            let norm = norm_squared[(0, 0)].sqrt();
+            if norm > 1e-12 {
+                col /= norm;
+            }
+        }
+        
         self.coeffs_alpha = eigvecs_alpha;
         self.e_level_alpha = sorted_eigenvalues_alpha;
 
@@ -334,7 +345,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             eigenvalues_beta[indices_beta[i]]
         });
         let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
-        let eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
+        let mut eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
+        
+        // Normalize the molecular orbitals to ensure orthonormality
+        for j in 0..eigvecs_beta.ncols() {
+            let mut col = eigvecs_beta.column_mut(j);
+            let norm_squared = (&col).transpose() * &self.overlap_matrix * &col;
+            let norm = norm_squared[(0, 0)].sqrt();
+            if norm > 1e-12 {
+                col /= norm;
+            }
+        }
+        
         self.coeffs_beta = eigvecs_beta;
         self.e_level_beta = sorted_eigenvalues_beta;
 
@@ -577,7 +599,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 eigenvalues_alpha[indices_alpha[i]]
             });
             let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
-            let eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
+            let mut eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
+            
+            // Normalize the molecular orbitals to ensure orthonormality
+            for j in 0..eigvecs_alpha.ncols() {
+                let mut col = eigvecs_alpha.column_mut(j);
+                let norm_squared = (&col).transpose() * &self.overlap_matrix * &col;
+                let norm = norm_squared[(0, 0)].sqrt();
+                if norm > 1e-12 {
+                    col /= norm;
+                }
+            }
+            
             self.coeffs_alpha = eigvecs_alpha;
             let current_e_level_alpha = sorted_eigenvalues_alpha;
 
@@ -598,7 +631,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 eigenvalues_beta[indices_beta[i]]
             });
             let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
-            let eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
+            let mut eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
+            
+            // Normalize the molecular orbitals to ensure orthonormality
+            for j in 0..eigvecs_beta.ncols() {
+                let mut col = eigvecs_beta.column_mut(j);
+                let norm_squared = (&col).transpose() * &self.overlap_matrix * &col;
+                let norm = norm_squared[(0, 0)].sqrt();
+                if norm > 1e-12 {
+                    col /= norm;
+                }
+            }
+            
             self.coeffs_beta = eigvecs_beta;
             let current_e_level_beta = sorted_eigenvalues_beta;
 
