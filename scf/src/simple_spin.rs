@@ -35,6 +35,8 @@ pub struct SpinSCF<B: AOBasis> {
     pub max_cycle: usize,
     // Spin multiplicity (2S+1)
     pub multiplicity: usize,
+    // Molecular charge
+    pub charge: i32,
 }
 
 /// Helper function to align eigenvectors
@@ -77,7 +79,13 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             e_level_beta: DVector::zeros(0),
             max_cycle: 1000,
             multiplicity: 1, // Default to singlet (no unpaired electrons)
+            charge: 0, // Default to neutral molecule
         }
+    }
+
+    pub fn set_charge(&mut self, charge: i32) {
+        self.charge = charge;
+        info!("Molecular charge set to {}", self.charge);
     }
 
     pub fn set_multiplicity(&mut self, multiplicity: usize) {
@@ -124,11 +132,14 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             return Ok(()); // Cannot validate without atoms
         }
 
-        let total_electrons: usize = self
+        let nuclear_charge: usize = self
             .elems
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
+        
+        // Account for molecular charge
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
         let unpaired_electrons = self.multiplicity - 1;
         
@@ -261,11 +272,14 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("  Diagonalizing Fock matrices to get initial coefficients...");
 
         // Calculate number of alpha and beta electrons based on multiplicity
-        let total_electrons: usize = self
+        let nuclear_charge: usize = self
             .elems
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
+        
+        // Account for molecular charge
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
         // Validate multiplicity before proceeding
         if let Err(err_msg) = self.validate_multiplicity() {
@@ -379,11 +393,14 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("  Updating Density Matrices...");
 
         // Calculate number of alpha and beta electrons based on multiplicity
-        let total_electrons: usize = self
+        let nuclear_charge: usize = self
             .elems
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
+        
+        // Account for molecular charge
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
         let unpaired_electrons = self.multiplicity - 1;
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
@@ -780,11 +797,14 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         let mut forces = vec![Vector3::zeros(); self.num_atoms];
 
         // Calculate n_alpha and n_beta for W matrix construction
-        let total_electrons: usize = self
+        let nuclear_charge: usize = self
             .elems
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
+        
+        // Account for molecular charge
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
         let unpaired_electrons = self.multiplicity - 1;
         
         // Validate multiplicity for force calculation
