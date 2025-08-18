@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+#[derive(Clone)]
 pub struct SpinSCF<B: AOBasis> {
     pub(crate) num_atoms: usize,
     pub(crate) num_basis: usize,
