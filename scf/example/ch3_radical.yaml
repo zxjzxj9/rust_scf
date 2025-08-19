@@ -1,0 +1,25 @@
+# Methyl radical (CH3•) - doublet state
+geometry:
+  - element: C
+    coords: [0.000000,  0.000000,  0.000000]
+  - element: H
+    coords: [1.079000,  0.000000,  0.000000]
+  - element: H
+    coords: [-0.539500,  0.934000,  0.000000]
+  - element: H
+    coords: [-0.539500, -0.934000,  0.000000]
+
+basis_sets:
+  C: "6-31g"
+  H: "6-31g"
+
+scf_params:
+  density_mixing: 0.4
+  max_cycle: 150
+  diis_subspace_size: 8
+  convergence_threshold: 1e-6
+
+# Methyl radical: 7 electrons (6 from C + 3 from 3H - 1 for radical)
+# Spin multiplicity = 2 for doublet state (1 unpaired electron)
+multiplicity: 2
+charge: 0

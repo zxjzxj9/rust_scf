@@ -1,0 +1,26 @@
+# Hydronium cation (H3O+) - closed shell singlet
+geometry:
+  - element: O
+    coords: [0.000000,  0.000000,  0.000000]
+  - element: H
+    coords: [0.943000,  0.000000,  0.240000]
+  - element: H
+    coords: [-0.471500,  0.816500,  0.240000]
+  - element: H
+    coords: [-0.471500, -0.816500,  0.240000]
+
+basis_sets:
+  O: "6-31g"
+  H: "6-31g"
+
+scf_params:
+  density_mixing: 0.5
+  max_cycle: 100
+  diis_subspace_size: 8
+  convergence_threshold: 1e-6
+
+# H3O+: Total nuclear charge = 11 (8 from O + 3 from 3H)
+# With charge +1, we have 10 electrons
+# Closed shell singlet (all electrons paired)
+multiplicity: 1
+charge: 1

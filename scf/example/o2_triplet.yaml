@@ -1,0 +1,20 @@
+# Oxygen molecule in triplet state (ground state)
+geometry:
+  - element: O
+    coords: [0.000000,  0.000000,  0.000000]
+  - element: O
+    coords: [0.000000,  0.000000,  1.200000]  # O-O bond length ~1.2 Å
+
+basis_sets:
+  O: "6-31g"
+
+scf_params:
+  density_mixing: 0.3
+  max_cycle: 200
+  diis_subspace_size: 8
+  convergence_threshold: 1e-6
+
+# Spin multiplicity = 3 for triplet state (2 unpaired electrons)
+# This is the ground state of O2
+multiplicity: 3
+charge: 0
