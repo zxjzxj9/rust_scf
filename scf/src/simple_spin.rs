@@ -254,7 +254,7 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 self.overlap_matrix[(i, j)] =
                     B::BasisType::Sab(&self.mo_basis[i], &self.mo_basis[j]);
 
-                // Initial Fock matrices are the same for both spins (before SCF)
+                // Build core Hamiltonian (kinetic + nuclear attraction)
                 let t_ij = B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
                 let mut v_ij = 0.0;
                 for k in 0..self.num_atoms {
@@ -265,8 +265,19 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                         self.elems[k].get_atomic_number() as u32,
                     );
                 }
-                self.fock_matrix_alpha[(i, j)] = t_ij + v_ij;
-                self.fock_matrix_beta[(i, j)] = t_ij + v_ij;
+                let h_core_ij = t_ij + v_ij;
+                
+                // For open-shell systems, add symmetry breaking to initial guess
+                if self.multiplicity > 1 {
+                    // Add small perturbation to break alpha-beta symmetry
+                    let perturbation = 0.1 * (((i + j + 1) as f64).sin());
+                    self.fock_matrix_alpha[(i, j)] = h_core_ij + perturbation;
+                    self.fock_matrix_beta[(i, j)] = h_core_ij - perturbation;
+                } else {
+                    // For closed-shell systems, start with identical matrices
+                    self.fock_matrix_alpha[(i, j)] = h_core_ij;
+                    self.fock_matrix_beta[(i, j)] = h_core_ij;
+                }
             }
         }
 
@@ -296,6 +307,12 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             "  Total electrons: {}, Alpha: {}, Beta: {}, Basis size: {}",
             total_electrons, n_alpha, n_beta, self.num_basis
         );
+        
+        if self.multiplicity > 1 {
+            info!("  Symmetry breaking applied for open-shell system (multiplicity = {})", self.multiplicity);
+        } else {
+            info!("  Closed-shell system detected (multiplicity = 1)");
+        }
 
         // Diagonalize initial Fock matrices (same for alpha and beta at this point)
         let l = self.overlap_matrix.clone().cholesky().unwrap();
