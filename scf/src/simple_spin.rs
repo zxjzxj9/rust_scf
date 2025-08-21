@@ -185,7 +185,7 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 
         self.num_basis = 0;
         for elem in elems {
-            let b = *basis.get(elem.get_symbol()).unwrap();
+            let b: &Self::BasisType = *basis.get(elem.get_symbol()).unwrap();
             info!(
                 "  Element: {}, Basis Size: {}",
                 elem.get_symbol(),
@@ -314,8 +314,28 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             info!("  Closed-shell system detected (multiplicity = 1)");
         }
 
-        // Diagonalize initial Fock matrices (same for alpha and beta at this point)
-        let l = self.overlap_matrix.clone().cholesky().unwrap();
+        // Diagonalize initial Fock matrices with numerical stability checks
+        info!("  Checking overlap matrix conditioning...");
+        let overlap_det = self.overlap_matrix.determinant();
+        let overlap_condition = self.calculate_condition_number(&self.overlap_matrix);
+        
+        info!("    Overlap determinant: {:.2e}", overlap_det);
+        info!("    Overlap condition number: {:.2e}", overlap_condition);
+        
+        if overlap_det.abs() < 1e-12 {
+            panic!("Overlap matrix is nearly singular (det = {:.2e}). Check basis set linear dependence.", overlap_det);
+        }
+        
+        if overlap_condition > 1e12 {
+            info!("    ⚠️  Warning: Poor overlap matrix conditioning ({:.2e})", overlap_condition);
+        }
+
+        let l = match self.overlap_matrix.clone().cholesky() {
+            Some(chol) => chol,
+            None => {
+                panic!("Cholesky decomposition failed. Overlap matrix is not positive definite.");
+            }
+        };
         let l_inv = l.inverse();
 
         // For alpha electrons
@@ -510,9 +530,22 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
 
         let mut previous_e_level_alpha = DVector::zeros(self.num_basis);
         let mut previous_e_level_beta = DVector::zeros(self.num_basis);
-        let mut diis_alpha = DIIS::new(5);
-        let mut diis_beta = DIIS::new(5);
-        const CONVERGENCE_THRESHOLD: f64 = 1e-6;
+        let mut previous_density_alpha = DMatrix::zeros(self.num_basis, self.num_basis);
+        let mut previous_density_beta = DMatrix::zeros(self.num_basis, self.num_basis);
+        let mut previous_total_energy = 0.0;
+        let mut diis_alpha = DIIS::new(12); // Increased further for difficult systems
+        let mut diis_beta = DIIS::new(12);
+        let mut diis_start_cycle = 3; // Start DIIS after a few cycles
+        let mut diis_alpha_enabled = true;
+        let mut diis_beta_enabled = true;
+        let mut diis_reset_counter = 0;
+        let mut adaptive_mixing_factor = self.density_mixing;
+        let mut level_shift = 0.0;
+        let mut consecutive_increases = 0;
+        let mut consecutive_decreases = 0;
+        const DENSITY_CONVERGENCE_THRESHOLD: f64 = 1e-6;
+        const ENERGY_CONVERGENCE_THRESHOLD: f64 = 1e-8;
+        const DIIS_RESET_THRESHOLD: f64 = 5.0; // Reset DIIS if energy change is too large
         let mut cycle = 0;
 
         for _ in 0..self.max_cycle {
@@ -587,34 +620,99 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             let mut fock_alpha = h_core.clone() + j_matrix.clone() - k_alpha;
             let mut fock_beta = h_core + j_matrix - k_beta;
 
-            // Step 4: Apply DIIS (if not first cycle)
-            if cycle > 1 {
-                info!("  Step 4: Applying DIIS acceleration...");
-
-                diis_alpha.update(
-                    fock_alpha.clone(),
-                    &self.density_matrix_alpha,
-                    &self.overlap_matrix,
-                );
-                if let Some(diis_fock_alpha) = diis_alpha.extrapolate() {
-                    fock_alpha = diis_fock_alpha;
+            // Apply level shifting for numerical stability if needed
+            if level_shift > 0.0 {
+                info!("  Applying level shifting: {:.3} au", level_shift);
+                
+                // Add level shift to diagonal elements (virtual orbitals will be shifted up)
+                for i in 0..self.num_basis {
+                    fock_alpha[(i, i)] += level_shift;
+                    fock_beta[(i, i)] += level_shift;
                 }
-
-                diis_beta.update(
-                    fock_beta.clone(),
-                    &self.density_matrix_beta,
-                    &self.overlap_matrix,
-                );
-                if let Some(diis_fock_beta) = diis_beta.extrapolate() {
-                    fock_beta = diis_fock_beta;
-                }
-
-                info!("  DIIS extrapolation applied.");
             }
 
-            // Step 5: Diagonalize Fock matrices
+            // Step 4: Apply enhanced DIIS acceleration
+            if cycle >= diis_start_cycle {
+                info!("  Step 4: Applying enhanced DIIS acceleration...");
+
+                // Check if DIIS should be reset due to poor performance
+                if cycle > 1 {
+                    let current_total_energy = self.calculate_total_energy();
+                    let energy_change = (current_total_energy - previous_total_energy).abs();
+                    
+                    if energy_change > DIIS_RESET_THRESHOLD {
+                        diis_reset_counter += 1;
+                        info!("    DIIS reset triggered (energy change: {:.2e})", energy_change);
+                        
+                        if diis_reset_counter >= 3 {
+                            info!("    Resetting DIIS after {} poor cycles", diis_reset_counter);
+                            diis_alpha = DIIS::new(12);
+                            diis_beta = DIIS::new(12);
+                            diis_reset_counter = 0;
+                            diis_start_cycle = cycle + 2; // Delay restart
+                        }
+                    } else {
+                        diis_reset_counter = 0; // Reset counter on good convergence
+                    }
+                }
+
+                // Apply DIIS for alpha if enabled
+                if diis_alpha_enabled {
+                    diis_alpha.update(
+                        fock_alpha.clone(),
+                        &self.density_matrix_alpha,
+                        &self.overlap_matrix,
+                    );
+                    if let Some(diis_fock_alpha) = diis_alpha.extrapolate() {
+                        fock_alpha = diis_fock_alpha;
+                        info!("    DIIS extrapolation applied to alpha");
+                    } else {
+                        info!("    DIIS extrapolation failed for alpha, using regular Fock");
+                    }
+                }
+
+                // Apply DIIS for beta if enabled  
+                if diis_beta_enabled {
+                    diis_beta.update(
+                        fock_beta.clone(),
+                        &self.density_matrix_beta,
+                        &self.overlap_matrix,
+                    );
+                    if let Some(diis_fock_beta) = diis_beta.extrapolate() {
+                        fock_beta = diis_fock_beta;
+                        info!("    DIIS extrapolation applied to beta");
+                    } else {
+                        info!("    DIIS extrapolation failed for beta, using regular Fock");
+                    }
+                }
+            } else {
+                info!("  Step 4: DIIS delayed until cycle {}", diis_start_cycle);
+            }
+
+            // Step 5: Diagonalize Fock matrices with stability checks
             info!("  Step 5: Diagonalizing Fock matrices...");
-            let l = self.overlap_matrix.clone().cholesky().unwrap();
+            
+            // Calculate electron counts for sanity checks
+            let nuclear_charge: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+            let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
+            let unpaired_electrons = self.multiplicity - 1;
+            let n_alpha = (total_electrons + unpaired_electrons) / 2;
+            let n_beta = (total_electrons - unpaired_electrons) / 2;
+            
+            // Check for NaN or infinite values in Fock matrices
+            if !fock_alpha.iter().all(|x| x.is_finite()) {
+                panic!("Alpha Fock matrix contains NaN or infinite values at cycle {}", cycle);
+            }
+            if !fock_beta.iter().all(|x| x.is_finite()) {
+                panic!("Beta Fock matrix contains NaN or infinite values at cycle {}", cycle);
+            }
+
+            let l = match self.overlap_matrix.clone().cholesky() {
+                Some(chol) => chol,
+                None => {
+                    panic!("Cholesky decomposition failed at cycle {}. SCF may have diverged.", cycle);
+                }
+            };
             let l_inv = l.inverse();
 
             // Diagonalize alpha Fock matrix
@@ -648,6 +746,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             
             self.coeffs_alpha = eigvecs_alpha;
             let current_e_level_alpha = sorted_eigenvalues_alpha;
+            
+            // Sanity checks for alpha orbital energies
+            if !current_e_level_alpha.iter().all(|x| x.is_finite()) {
+                panic!("Alpha orbital energies contain NaN or infinite values at cycle {}", cycle);
+            }
+            
+            let alpha_homo_energy = if n_alpha > 0 { current_e_level_alpha[n_alpha-1] } else { 0.0 };
+            let alpha_lumo_energy = if n_alpha < current_e_level_alpha.len() { current_e_level_alpha[n_alpha] } else { 0.0 };
+            
+            if cycle > 5 && alpha_homo_energy > 10.0 {
+                info!("    ⚠️  Warning: Alpha HOMO energy suspiciously high: {:.3} au", alpha_homo_energy);
+            }
 
             // Diagonalize beta Fock matrix - always use independent UHF orbitals
             let f_beta_prime = l_inv.clone() * &fock_beta * l_inv.transpose();
@@ -680,6 +790,18 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             
             self.coeffs_beta = eigvecs_beta;
             let current_e_level_beta = sorted_eigenvalues_beta;
+            
+            // Sanity checks for beta orbital energies
+            if !current_e_level_beta.iter().all(|x| x.is_finite()) {
+                panic!("Beta orbital energies contain NaN or infinite values at cycle {}", cycle);
+            }
+            
+            let beta_homo_energy = if n_beta > 0 { current_e_level_beta[n_beta-1] } else { 0.0 };
+            let beta_lumo_energy = if n_beta < current_e_level_beta.len() { current_e_level_beta[n_beta] } else { 0.0 };
+            
+            if cycle > 5 && beta_homo_energy > 10.0 {
+                info!("    ⚠️  Warning: Beta HOMO energy suspiciously high: {:.3} au", beta_homo_energy);
+            }
 
             // Update energy levels
             info!("  Step 6: Energy Levels obtained:");
@@ -692,36 +814,95 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 info!("      Level {}: {:.8} au", i + 1, current_e_level_beta[i]);
             }
 
-            // Update density matrices
-            self.update_density_matrix();
+            // Update density matrices with adaptive mixing
+            self.update_density_matrix_with_mixing(adaptive_mixing_factor);
 
-            // Check convergence
+            // Check convergence using multiple criteria
             if cycle > 1 {
                 info!("  Step 7: Checking for Convergence...");
-                let energy_change_alpha =
-                    (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
-                let energy_change_beta =
-                    (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
-                let total_energy_change = energy_change_alpha + energy_change_beta;
+                
+                // Calculate current total energy
+                let current_total_energy = self.calculate_total_energy();
+                
+                // Density matrix RMSD convergence
+                let density_change_alpha = (&self.density_matrix_alpha - &previous_density_alpha)
+                    .iter().map(|x| x * x).sum::<f64>().sqrt() / (self.num_basis as f64);
+                let density_change_beta = (&self.density_matrix_beta - &previous_density_beta)
+                    .iter().map(|x| x * x).sum::<f64>().sqrt() / (self.num_basis as f64);
+                let max_density_change = density_change_alpha.max(density_change_beta);
+                
+                // Total energy change
+                let energy_change = (current_total_energy - previous_total_energy).abs();
+                
+                // Legacy energy level change for comparison
+                let energy_level_change_alpha = (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
+                let energy_level_change_beta = (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
 
-                info!("    Alpha energy change: {:.8} au", energy_change_alpha);
-                info!("    Beta energy change: {:.8} au", energy_change_beta);
-                info!("    Total energy change: {:.8} au", total_energy_change);
+                info!("    Density RMSD (Alpha): {:.2e}", density_change_alpha);
+                info!("    Density RMSD (Beta):  {:.2e}", density_change_beta);
+                info!("    Max Density RMSD:     {:.2e}", max_density_change);
+                info!("    Total Energy Change:   {:.2e} au", energy_change);
+                info!("    Total Energy:          {:.8} au", current_total_energy);
+                                    info!("    Legacy Energy Levels:  {:.2e} au", energy_level_change_alpha + energy_level_change_beta);
 
-                if total_energy_change < CONVERGENCE_THRESHOLD {
-                    info!("  SCF converged early at cycle {}.", cycle);
+                // Adaptive parameter adjustment based on convergence behavior
+                if energy_change > previous_total_energy.abs() * 0.1 {
+                    // Energy is increasing or oscillating - be more conservative
+                    consecutive_increases += 1;
+                    consecutive_decreases = 0;
+                    
+                    if consecutive_increases > 2 {
+                        adaptive_mixing_factor = (adaptive_mixing_factor * 0.7).max(0.1);
+                        level_shift += 0.5; // Add level shifting to stabilize
+                        info!("    🔧 Adaptive: Reduced mixing to {:.3}, level shift: {:.3}", 
+                              adaptive_mixing_factor, level_shift);
+                    }
+                } else {
+                    // Energy is decreasing - can be more aggressive
+                    consecutive_decreases += 1;
+                    consecutive_increases = 0;
+                    
+                    if consecutive_decreases > 3 && adaptive_mixing_factor < 0.8 {
+                        adaptive_mixing_factor = (adaptive_mixing_factor * 1.2).min(0.8);
+                        level_shift = (level_shift - 0.1).max(0.0); // Reduce level shift
+                        info!("    🚀 Adaptive: Increased mixing to {:.3}, level shift: {:.3}", 
+                              adaptive_mixing_factor, level_shift);
+                    }
+                }
+
+                // Multi-criteria convergence
+                let density_converged = max_density_change < DENSITY_CONVERGENCE_THRESHOLD;
+                let energy_converged = energy_change < ENERGY_CONVERGENCE_THRESHOLD;
+                
+                if density_converged && energy_converged {
+                    info!("  ✅ SCF CONVERGED at cycle {} ✅", cycle);
+                    info!("    Density RMSD: {:.2e} < {:.2e}", max_density_change, DENSITY_CONVERGENCE_THRESHOLD);
+                    info!("    Energy Change: {:.2e} < {:.2e}", energy_change, ENERGY_CONVERGENCE_THRESHOLD);
                     info!("-------------------- SCF Converged ---------------------\n");
                     break;
                 } else {
-                    info!("    SCF not yet converged.");
+                    info!("    SCF not yet converged:");
+                    if !density_converged {
+                        info!("      Density RMSD: {:.2e} >= {:.2e}", max_density_change, DENSITY_CONVERGENCE_THRESHOLD);
+                    }
+                    if !energy_converged {
+                        info!("      Energy Change: {:.2e} >= {:.2e}", energy_change, ENERGY_CONVERGENCE_THRESHOLD);
+                    }
                 }
+                
+                // Store current values for next iteration
+                previous_total_energy = current_total_energy;
             } else {
                 info!("  Convergence check not performed for the first cycle.");
+                // Initialize for first iteration
+                previous_total_energy = self.calculate_total_energy();
             }
 
-            // Store current energy levels for the next cycle
+            // Store current energy levels and density matrices for the next cycle
             previous_e_level_alpha = current_e_level_alpha.clone();
             previous_e_level_beta = current_e_level_beta.clone();
+            previous_density_alpha = self.density_matrix_alpha.clone();
+            previous_density_beta = self.density_matrix_beta.clone();
             self.e_level_alpha = current_e_level_alpha.clone();
             self.e_level_beta = current_e_level_beta.clone();
 
@@ -969,5 +1150,85 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("-----------------------------------------------------\n");
 
         forces
+    }
+
+}
+
+impl<B: AOBasis + Clone> SpinSCF<B> {
+    /// Update density matrices with custom mixing factor (for adaptive SCF)
+    pub fn update_density_matrix_with_mixing(&mut self, mixing_factor: f64) {
+        info!("  Updating Density Matrices with adaptive mixing factor {:.3}...", mixing_factor);
+
+        // Calculate number of alpha and beta electrons based on multiplicity
+        let nuclear_charge: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+        
+        // Account for molecular charge
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
+
+        let unpaired_electrons = self.multiplicity - 1;
+        let n_alpha = (total_electrons + unpaired_electrons) / 2;
+        let n_beta = (total_electrons - unpaired_electrons) / 2;
+
+        // Update alpha density matrix with adaptive mixing
+        if n_alpha > 0 {
+            if n_alpha > self.coeffs_alpha.ncols() {
+                panic!("Not enough alpha orbitals ({}) for {} alpha electrons", 
+                       self.coeffs_alpha.ncols(), n_alpha);
+            }
+            let occupied_coeffs_alpha = self.coeffs_alpha.columns(0, n_alpha);
+            if self.density_matrix_alpha.shape() == (0, 0) {
+                self.density_matrix_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
+            } else {
+                let new_density_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
+                self.density_matrix_alpha = mixing_factor * new_density_alpha
+                    + (1.0 - mixing_factor) * self.density_matrix_alpha.clone();
+            }
+        } else {
+            self.density_matrix_alpha = DMatrix::zeros(self.num_basis, self.num_basis);
+        }
+
+        // Update beta density matrix with adaptive mixing
+        if n_beta > 0 {
+            if n_beta > self.coeffs_beta.ncols() {
+                panic!("Not enough beta orbitals ({}) for {} beta electrons", 
+                       self.coeffs_beta.ncols(), n_beta);
+            }
+            let occupied_coeffs_beta = self.coeffs_beta.columns(0, n_beta);
+            if self.density_matrix_beta.shape() == (0, 0) {
+                self.density_matrix_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
+            } else {
+                let new_density_beta = &occupied_coeffs_beta * occupied_coeffs_beta.transpose();
+                self.density_matrix_beta = mixing_factor * new_density_beta
+                    + (1.0 - mixing_factor) * self.density_matrix_beta.clone();
+            }
+        } else {
+            self.density_matrix_beta = DMatrix::zeros(self.num_basis, self.num_basis);
+        }
+
+        info!("  Density Matrices updated with adaptive mixing factor {:.3}.", mixing_factor);
+    }
+
+    /// Calculate condition number of a matrix (ratio of largest to smallest eigenvalue)
+    pub fn calculate_condition_number(&self, matrix: &DMatrix<f64>) -> f64 {
+        match matrix.clone().try_symmetric_eigen(1e-10, 1000) {
+            Some(eigen) => {
+                let eigenvalues = eigen.eigenvalues;
+                let max_eigenvalue = eigenvalues.max();
+                let min_eigenvalue = eigenvalues.min();
+                
+                if min_eigenvalue.abs() < 1e-15 {
+                    1e15 // Return very large condition number for near-singular matrix
+                } else {
+                    (max_eigenvalue / min_eigenvalue).abs()
+                }
+            }
+            None => {
+                1e15 // Return very large condition number if eigenvalue decomposition fails
+            }
+        }
     }
 }
