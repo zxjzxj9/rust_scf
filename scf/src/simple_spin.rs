@@ -30,6 +30,8 @@ pub struct SpinSCF<B: AOBasis> {
     pub(crate) fock_matrix_alpha: DMatrix<f64>,
     pub(crate) fock_matrix_beta: DMatrix<f64>,
     pub(crate) overlap_matrix: DMatrix<f64>,
+    // Core Hamiltonian (kinetic + nuclear attraction)
+    pub h_core: DMatrix<f64>,
     // Separate energy levels for alpha and beta
     pub e_level_alpha: DVector<f64>,
     pub e_level_beta: DVector<f64>,
@@ -76,6 +78,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             fock_matrix_alpha: DMatrix::zeros(0, 0),
             fock_matrix_beta: DMatrix::zeros(0, 0),
             overlap_matrix: DMatrix::zeros(0, 0),
+            h_core: DMatrix::zeros(0, 0),
             e_level_alpha: DVector::zeros(0),
             e_level_beta: DVector::zeros(0),
             max_cycle: 1000,
@@ -246,6 +249,7 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         self.fock_matrix_alpha = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.fock_matrix_beta = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
         self.overlap_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+        self.h_core = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
 
         // Build one-electron matrices
         for i in 0..self.num_basis {
@@ -266,6 +270,9 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                     );
                 }
                 let h_core_ij = t_ij + v_ij;
+                
+                // Store core Hamiltonian
+                self.h_core[(i, j)] = h_core_ij;
                 
                 // For open-shell systems, add symmetry breaking to initial guess
                 if self.multiplicity > 1 {
@@ -930,28 +937,12 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         //     0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
         // where G = F - H_core
 
-        // Build core Hamiltonian
-        let mut h_core = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
-        for i in 0..self.num_basis {
-            for j in 0..self.num_basis {
-                h_core[(i, j)] = B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
-                for k in 0..self.num_atoms {
-                    h_core[(i, j)] += B::BasisType::Vab(
-                        &self.mo_basis[i],
-                        &self.mo_basis[j],
-                        self.coords[k],
-                        self.elems[k].get_atomic_number() as u32,
-                    );
-                }
-            }
-        }
-
         // One-electron energy: Tr(P_total * H_core)
         let mut one_electron_energy = 0.0;
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
-                one_electron_energy += h_core[(i, j)] * p_total_ij;
+                one_electron_energy += self.h_core[(i, j)] * p_total_ij;
             }
         }
 
@@ -959,8 +950,8 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         let mut two_electron_energy = 0.0;
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
-                let g_alpha_ij = self.fock_matrix_alpha[(i, j)] - h_core[(i, j)];
-                let g_beta_ij = self.fock_matrix_beta[(i, j)] - h_core[(i, j)];
+                let g_alpha_ij = self.fock_matrix_alpha[(i, j)] - self.h_core[(i, j)];
+                let g_beta_ij = self.fock_matrix_beta[(i, j)] - self.h_core[(i, j)];
                 
                 two_electron_energy += 0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij;
                 two_electron_energy += 0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij;
