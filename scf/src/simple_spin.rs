@@ -274,9 +274,9 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                 // Store core Hamiltonian
                 self.h_core[(i, j)] = h_core_ij;
                 
-                // For open-shell systems, add symmetry breaking to initial guess
+                // Add symmetry breaking to help convergence for both open and closed shell
                 if self.multiplicity > 1 {
-                    // Add small perturbation to break alpha-beta symmetry
+                    // Add larger perturbation for open-shell systems
                     let perturbation = 0.1 * (((i + j + 1) as f64).sin());
                     self.fock_matrix_alpha[(i, j)] = h_core_ij + perturbation;
                     self.fock_matrix_beta[(i, j)] = h_core_ij - perturbation;
