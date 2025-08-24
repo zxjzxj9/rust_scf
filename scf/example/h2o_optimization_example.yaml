@@ -1,0 +1,44 @@
+# H2O Geometry Optimization Example Configuration
+# This file demonstrates a complete setup for optimizing water molecule geometry
+
+# Molecular geometry - starting from a distorted structure
+# to demonstrate the optimization process
+geometry:
+  - element: O
+    coords: [0.0, 0.0, 0.0]        # Oxygen at origin
+  - element: H  
+    coords: [0.0, 1.0, 0.8]        # H1 - distorted from equilibrium
+  - element: H
+    coords: [0.0, -1.0, 0.8]       # H2 - distorted from equilibrium
+
+# Basis sets - using 6-31G for both oxygen and hydrogen
+# This provides a good balance between accuracy and computational cost
+basis_sets:
+  O: "6-31g"
+  H: "6-31g"
+
+# SCF calculation parameters
+# Optimized for H2O convergence
+scf_params:
+  density_mixing: 0.3              # Lower mixing for better stability
+  max_cycle: 150                   # More cycles for reliable convergence
+  diis_subspace_size: 8            # DIIS acceleration
+  convergence_threshold: 1.0e-6    # Energy convergence criterion
+
+# Geometry optimization parameters
+optimization:
+  enabled: true                    # Enable geometry optimization
+  algorithm: cg                    # Conjugate gradient method
+  max_iterations: 50               # Maximum optimization steps
+  convergence_threshold: 1.0e-4    # Force convergence threshold (au/bohr)
+  step_size: 0.1                   # Initial step size
+
+# Molecular properties
+charge: 0                          # Neutral molecule
+multiplicity: 1                    # Singlet state (closed shell)
+
+# Additional notes:
+# - The initial geometry is intentionally distorted to demonstrate optimization
+# - Expected final O-H distance: ~1.8 bohr (~0.96 Å)
+# - Expected final H-O-H angle: ~104.5°
+# - Force convergence threshold of 1e-4 au/bohr is reasonable for molecular systems

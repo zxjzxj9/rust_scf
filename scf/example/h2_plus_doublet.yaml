@@ -1,0 +1,21 @@
+# Hydrogen molecular ion H2+ in doublet state (ground state)
+# Simple test case for spin-polarized SCF without network dependency
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]  # H-H bond length ~1.4 bohr
+
+basis_sets:
+  H: "sto-3g"  # Use minimal basis set
+
+scf_params:
+  density_mixing: 0.5  # Higher mixing for simple system
+  max_cycle: 50        # Fewer cycles needed
+  diis_subspace_size: 8
+  convergence_threshold: 1e-6
+
+# H2+ has 2 protons and 1 electron (cation)
+# Spin multiplicity = 2 for doublet state (1 unpaired electron)
+multiplicity: 2
+charge: 1
