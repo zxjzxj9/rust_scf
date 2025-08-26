@@ -6,6 +6,7 @@ use crate::scf::{SCF, DIIS};
 use basis::basis::{AOBasis, Basis};
 use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
+use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
@@ -176,7 +177,10 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
     }
 }
 
-impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
+impl<B: AOBasis + Clone + Send> SCF for SpinSCF<B> 
+where
+    B::BasisType: Send + Sync,
+{
     type BasisType = B;
 
     fn init_basis(&mut self, elems: &Vec<Element>, basis: HashMap<&str, &Self::BasisType>) {
@@ -500,7 +504,7 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         info!("#####################################################");
         info!("------------- Initializing Fock Matrix -------------");
         info!("#####################################################");
-        info!("  Building Integral Matrix (Two-electron integrals)...");
+        info!("  Building Integral Matrix with 8-fold symmetry optimization...");
 
         self.integral_matrix = DMatrix::from_element(
             self.num_basis * self.num_basis,
@@ -508,27 +512,74 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             0.0,
         );
 
+        // Generate unique integral indices exploiting 8-fold symmetry
+        // (ij|kl) = (ji|lk) = (kl|ij) = (lk|ji) = (ik|jl) = (ki|lj) = (jl|ik) = (lj|ki)
+        let mut unique_integrals = Vec::new();
+        let mut computed = std::collections::HashSet::new();
+
         for i in 0..self.num_basis {
             for j in 0..self.num_basis {
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
-                        let integral_ijkl = B::BasisType::JKabcd(
-                            &self.mo_basis[i],
-                            &self.mo_basis[j],
-                            &self.mo_basis[k],
-                            &self.mo_basis[l],
-                        );
-                        let row = i * self.num_basis + j;
-                        let col = k * self.num_basis + l;
-                        self.integral_matrix[(row, col)] = integral_ijkl;
+                        // Create canonical ordering to identify unique integrals
+                        let mut indices = [i, j, k, l];
+                        let ij = if i <= j { (i, j) } else { (j, i) };
+                        let kl = if k <= l { (k, l) } else { (l, k) };
+                        let canonical = if ij <= kl { (ij, kl) } else { (kl, ij) };
+                        
+                        if !computed.contains(&canonical) {
+                            unique_integrals.push((i, j, k, l));
+                            computed.insert(canonical);
+                        }
                     }
                 }
             }
         }
 
-        info!("  Integral Matrix (Two-electron integrals) built.");
+        info!("  Computing {} unique integrals (8-fold symmetry reduces from {})", 
+              unique_integrals.len(), self.num_basis.pow(4));
+
+        // Parallel computation of unique two-electron integrals only
+        let integral_values: Vec<f64> = unique_integrals
+            .par_iter()
+            .map(|&(i, j, k, l)| {
+                B::BasisType::JKabcd(
+                    &self.mo_basis[i],
+                    &self.mo_basis[j],
+                    &self.mo_basis[k],
+                    &self.mo_basis[l],
+                )
+            })
+            .collect();
+
+        // Create lookup map for computed integrals
+        let mut integral_map = std::collections::HashMap::new();
+        for (idx, &(i, j, k, l)) in unique_integrals.iter().enumerate() {
+            let value = integral_values[idx];
+            integral_map.insert((i, j, k, l), value);
+        }
+
+        // Fill the full integral matrix using symmetry relationships
+        for i in 0..self.num_basis {
+            for j in 0..self.num_basis {
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        let row = i * self.num_basis + j;
+                        let col = k * self.num_basis + l;
+                        
+                        // Try to find the integral value using symmetry
+                        let value = self.get_symmetric_integral(&integral_map, i, j, k, l);
+                        self.integral_matrix[(row, col)] = value;
+                    }
+                }
+            }
+        }
+
+        info!("  Integral Matrix (Two-electron integrals) built with symmetry optimization.");
         info!("-----------------------------------------------------\n");
     }
+
+
 
     fn scf_cycle(&mut self) {
         info!("#####################################################");
@@ -567,26 +618,39 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
             // Step 2: Build G matrices
             info!("  Step 2: Building G Matrices from Density Matrices and Integrals...");
 
-            // Build Coulomb and Exchange matrices directly
+            // Build Coulomb and Exchange matrices directly using parallel computation
+            // Memory-optimized: compute integrals on-demand instead of storing full N^4 matrix
             let mut j_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
             let mut k_alpha = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
             let mut k_beta = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
 
-            for i in 0..self.num_basis {
-                for j in 0..self.num_basis {
+            // Create a vector of (i, j) pairs for parallel iteration
+            let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+                .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+                .collect();
+
+            // Memory-efficient parallel computation of G matrix elements
+            // Compute integrals on-demand with symmetry optimization
+            let g_values: Vec<(f64, f64, f64)> = ij_pairs
+                .par_iter()
+                .map(|&(i, j)| {
+                    let mut j_ij = 0.0;
+                    let mut k_alpha_ij = 0.0;
+                    let mut k_beta_ij = 0.0;
+                    
+                    // Local cache for this (i,j) pair to exploit symmetry within inner loops
+                    let mut local_integral_cache = std::collections::HashMap::new();
+                    
                     for k in 0..self.num_basis {
                         for l in 0..self.num_basis {
-                            let coulomb = B::BasisType::JKabcd(
-                                &self.mo_basis[i],
-                                &self.mo_basis[j],
-                                &self.mo_basis[k],
-                                &self.mo_basis[l],
+                            // Compute or retrieve Coulomb integral with symmetry
+                            let coulomb = self.get_or_compute_integral_cached(
+                                &mut local_integral_cache, i, j, k, l
                             );
-                            let exchange = B::BasisType::JKabcd(
-                                &self.mo_basis[i],
-                                &self.mo_basis[k],
-                                &self.mo_basis[j],
-                                &self.mo_basis[l],
+                            
+                            // Compute or retrieve Exchange integral with symmetry  
+                            let exchange = self.get_or_compute_integral_cached(
+                                &mut local_integral_cache, i, k, j, l
                             );
 
                             let p_total_kl = self.density_matrix_alpha[(k, l)] + self.density_matrix_beta[(k, l)];
@@ -594,14 +658,23 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
                             let p_beta_kl = self.density_matrix_beta[(k, l)];
 
                             // Coulomb contribution (from all electrons)
-                            j_matrix[(i, j)] += coulomb * p_total_kl;
+                            j_ij += coulomb * p_total_kl;
 
                             // Exchange contributions (same-spin only)
-                            k_alpha[(i, j)] += exchange * p_alpha_kl;
-                            k_beta[(i, j)] += exchange * p_beta_kl;
+                            k_alpha_ij += exchange * p_alpha_kl;
+                            k_beta_ij += exchange * p_beta_kl;
                         }
                     }
-                }
+                    (j_ij, k_alpha_ij, k_beta_ij)
+                })
+                .collect();
+
+            // Assign computed values back to matrices
+            for (idx, &(i, j)) in ij_pairs.iter().enumerate() {
+                let (j_val, k_alpha_val, k_beta_val) = g_values[idx];
+                j_matrix[(i, j)] = j_val;
+                k_alpha[(i, j)] = k_alpha_val;
+                k_beta[(i, j)] = k_beta_val;
             }
 
             // Step 3: Build Fock matrices
@@ -937,39 +1010,46 @@ impl<B: AOBasis + Clone> SCF for SpinSCF<B> {
         //     0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
         // where G = F - H_core
 
+        // Create (i, j) pairs for parallel computation
+        let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+            .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+            .collect();
+
         // One-electron energy: Tr(P_total * H_core)
-        let mut one_electron_energy = 0.0;
-        for i in 0..self.num_basis {
-            for j in 0..self.num_basis {
+        let one_electron_energy: f64 = ij_pairs
+            .par_iter()
+            .map(|&(i, j)| {
                 let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
-                one_electron_energy += self.h_core[(i, j)] * p_total_ij;
-            }
-        }
+                self.h_core[(i, j)] * p_total_ij
+            })
+            .sum();
 
         // Two-electron energy: 0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
-        let mut two_electron_energy = 0.0;
-        for i in 0..self.num_basis {
-            for j in 0..self.num_basis {
+        let two_electron_energy: f64 = ij_pairs
+            .par_iter()
+            .map(|&(i, j)| {
                 let g_alpha_ij = self.fock_matrix_alpha[(i, j)] - self.h_core[(i, j)];
                 let g_beta_ij = self.fock_matrix_beta[(i, j)] - self.h_core[(i, j)];
                 
-                two_electron_energy += 0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij;
-                two_electron_energy += 0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij;
-            }
-        }
+                0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij +
+                0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij
+            })
+            .sum();
 
-        // Nuclear repulsion energy
-        let mut nuclear_repulsion = 0.0;
-        for i in 0..self.num_atoms {
-            for j in (i + 1)..self.num_atoms {
+        // Nuclear repulsion energy - parallel computation
+        let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
+            .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))
+            .collect();
+
+        let nuclear_repulsion: f64 = atom_pairs
+            .par_iter()
+            .map(|&(i, j)| {
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = (self.coords[i] - self.coords[j]).norm();
-                if r_ij > 1e-10 {
-                    nuclear_repulsion += z_i * z_j / r_ij;
-                }
-            }
-        }
+                if r_ij > 1e-10 { z_i * z_j / r_ij } else { 0.0 }
+            })
+            .sum();
 
         let total_energy = one_electron_energy + two_electron_energy + nuclear_repulsion;
         if total_energy.is_finite() {
@@ -1221,5 +1301,76 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                 1e15 // Return very large condition number if eigenvalue decomposition fails
             }
         }
+    }
+
+    // Helper function to retrieve integral value using 8-fold symmetry
+    fn get_symmetric_integral(
+        &self, 
+        integral_map: &std::collections::HashMap<(usize, usize, usize, usize), f64>,
+        i: usize, j: usize, k: usize, l: usize
+    ) -> f64 {
+        // Try all symmetric permutations: (ij|kl) = (ji|lk) = (kl|ij) = (lk|ji) = ...
+        let symmetries = [
+            (i, j, k, l),
+            (j, i, l, k),
+            (k, l, i, j),
+            (l, k, j, i),
+            (i, k, j, l),
+            (k, i, l, j),
+            (j, l, i, k),
+            (l, j, k, i),
+        ];
+
+        for &indices in &symmetries {
+            if let Some(&value) = integral_map.get(&indices) {
+                return value;
+            }
+        }
+
+        // Fallback: compute if not found (shouldn't happen with correct implementation)
+        B::BasisType::JKabcd(
+            &self.mo_basis[i],
+            &self.mo_basis[j],
+            &self.mo_basis[k],
+            &self.mo_basis[l],
+        )
+    }
+
+    // Memory-efficient helper: compute integral with local caching and symmetry
+    fn get_or_compute_integral_cached(
+        &self,
+        cache: &mut std::collections::HashMap<(usize, usize, usize, usize), f64>,
+        i: usize, j: usize, k: usize, l: usize
+    ) -> f64 {
+        // Try all symmetric permutations to find cached value
+        let symmetries = [
+            (i, j, k, l),
+            (j, i, l, k),
+            (k, l, i, j),
+            (l, k, j, i),
+            (i, k, j, l),
+            (k, i, l, j),
+            (j, l, i, k),
+            (l, j, k, i),
+        ];
+
+        for &indices in &symmetries {
+            if let Some(&value) = cache.get(&indices) {
+                return value;
+            }
+        }
+
+        // Not found in cache, compute the integral
+        let value = B::BasisType::JKabcd(
+            &self.mo_basis[i],
+            &self.mo_basis[j],
+            &self.mo_basis[k],
+            &self.mo_basis[l],
+        );
+
+        // Cache the computed value
+        cache.insert((i, j, k, l), value);
+        
+        value
     }
 }
