@@ -18,7 +18,28 @@ use crate::scf::SCF;
 use crate::simple::SimpleSCF;
 use crate::simple_spin::SpinSCF;
 use tracing::info;
-use tracing_subscriber::{fmt::layer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
+use tracing_subscriber::{fmt::layer, fmt::time::FormatTime, fmt::format::Writer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
+use std::fmt;
+use std::time::SystemTime as StdSystemTime;
+
+// Custom time formatter that shows only seconds
+struct SecondPrecisionTimer;
+
+impl FormatTime for SecondPrecisionTimer {
+    fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
+        let now = StdSystemTime::now();
+        let duration = now.duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        
+        // Format as HH:MM:SS (only seconds precision)
+        let total_seconds = duration.as_secs();
+        let hours = (total_seconds / 3600) % 24;
+        let minutes = (total_seconds / 60) % 60;
+        let seconds = total_seconds % 60;
+        
+        write!(w, "{:02}:{:02}:{:02}", hours, minutes, seconds)
+    }
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 struct Config {
@@ -160,7 +181,9 @@ fn setup_output(output_path: Option<&String>) {
             info!("Output will be written to: {}", path);
             if let Ok(log) = File::create(path) {
                 let file_layer = layer()
-                    .with_writer(log);
+                    .with_writer(log)
+                    .with_timer(SecondPrecisionTimer)
+                    .with_ansi(false);
                 Registry::default().with(file_layer).init();
             } else {
                 eprintln!("Could not create output file: {}", path);
@@ -168,7 +191,10 @@ fn setup_output(output_path: Option<&String>) {
         }
         None => {
             // Initialize tracing for stdout
-            let stdout_layer = layer().with_writer(std::io::stdout);
+            let stdout_layer = layer()
+                .with_writer(std::io::stdout)
+                .with_timer(SecondPrecisionTimer)
+                .with_ansi(true);
             Registry::default().with(stdout_layer).init();
             info!("Output will be printed to stdout");
         }
