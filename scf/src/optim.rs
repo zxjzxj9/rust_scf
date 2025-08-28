@@ -338,13 +338,18 @@ impl<S: SCF  + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         tracing::info!("    Max force: {:.8} au", max_force);
         tracing::info!("    RMS force: {:.8} au", rms_force);
 
-        // Log coordinates if needed
-        if iteration == 0 || iteration % 5 == 0 {
-            tracing::info!("    Current geometry:");
-            for (i, (coord, elem)) in self.coords.iter().zip(self.elements.iter()).enumerate() {
-                tracing::info!("      Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
+        // Always log geometry and forces after each iteration
+        tracing::info!("    Current geometry (atomic units):");
+        for (i, (coord, elem)) in self.coords.iter().zip(self.elements.iter()).enumerate() {
+            tracing::info!("      Atom {}: {} at [{:10.6}, {:10.6}, {:10.6}] bohr",
+            i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
+        }
+        
+        tracing::info!("    Current forces (atomic units):");
+        for (i, (force, elem)) in self.forces.iter().zip(self.elements.iter()).enumerate() {
+            let force_magnitude = force.norm();
+            tracing::info!("      Atom {}: {} force [{:10.6}, {:10.6}, {:10.6}] au (|F| = {:10.6} au)",
+            i + 1, elem.get_symbol(), force.x, force.y, force.z, force_magnitude);
         }
     }
 
@@ -426,13 +431,18 @@ impl<S: SCF + Clone> GeometryOptimizer for CGOptimizer<S> {
         tracing::info!("    Max force: {:.8} au", max_force);
         tracing::info!("    RMS force: {:.8} au", rms_force);
 
-        // Log coordinates if needed
-        if iteration == 0 || iteration % 5 == 0 {
-            tracing::info!("    Current geometry:");
-            for (i, (coord, elem)) in self.coords.iter().zip(self.elements.iter()).enumerate() {
-                tracing::info!("      Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
+        // Always log geometry and forces after each iteration
+        tracing::info!("    Current geometry (atomic units):");
+        for (i, (coord, elem)) in self.coords.iter().zip(self.elements.iter()).enumerate() {
+            tracing::info!("      Atom {}: {} at [{:10.6}, {:10.6}, {:10.6}] bohr",
+            i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
+        }
+        
+        tracing::info!("    Current forces (atomic units):");
+        for (i, (force, elem)) in self.forces.iter().zip(self.elements.iter()).enumerate() {
+            let force_magnitude = force.norm();
+            tracing::info!("      Atom {}: {} force [{:10.6}, {:10.6}, {:10.6}] au (|F| = {:10.6} au)",
+            i + 1, elem.get_symbol(), force.x, force.y, force.z, force_magnitude);
         }
     }
 
