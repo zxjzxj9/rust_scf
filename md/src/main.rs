@@ -6,7 +6,6 @@ use rand::Rng;
 use rand_distr::StandardNormal;
 use run_md::{Integrator, NoseHooverVerlet};
 use lj_pot::LennardJones;
-use crate::run_md::ForceProvider;
 
 fn main() {
     // fcc lattice parameters
