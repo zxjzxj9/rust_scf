@@ -11,3 +11,11 @@ itertools = "0.14.0"
 
 [dev-dependencies]
 approx = "0.5"
+
+[[example]]
+name = "argon_melting"
+path = "examples/argon_melting.rs"
+
+[[example]]
+name = "argon_melting_demo"
+path = "examples/argon_melting_demo.rs"

@@ -19,7 +19,7 @@ pub struct NoseHooverVerlet<F: ForceProvider> {
     pub masses: Vec<f64>,
     inv_masses: Vec<f64>,
     pub forces: Vec<Vector3<f64>>,
-    pub(crate) provider: F,
+    pub provider: F,
     xi: f64,
     eta: f64,
     q: f64,
@@ -67,6 +67,12 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
             .zip(&self.masses)
             .map(|(v, &m)| 0.5 * m * v.dot(v))
             .sum()
+    }
+
+    /// Update the target temperature for the thermostat
+    pub fn set_target_temperature(&mut self, temp: f64) {
+        self.target_temp = temp;
+        self.gk_t = self.dof as f64 * self.k_b * temp;
     }
 }
 
