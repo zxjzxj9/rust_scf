@@ -18,7 +18,7 @@
 ## 2. Choose a basis set
 
 - Select appropriate atomic orbital basis functions (e.g., STO-3G, 3-21G, 6-31G*)
-
+ "
 - Construct the overlap matrix S and kinetic energy matrix T
 
 - Calculate nuclear-electron attraction integrals V
@@ -96,3 +96,50 @@
 - Dipole moment and other molecular properties
 
 ![](./imgs/scf_007.svg)
+
+---
+
+## Molecular Dynamics Simulations
+
+In addition to quantum chemistry calculations, this project includes molecular dynamics (MD) capabilities for classical simulations.
+
+### Argon Melting Simulation
+
+The `md/` package contains examples demonstrating argon phase transitions using the Lennard-Jones potential:
+
+**Quick Demo:**
+```bash
+cd md
+cargo run --example argon_melting_demo
+```
+
+**Full Simulation:**
+```bash
+cd md  
+cargo run --example argon_melting
+```
+
+**Features:**
+- Realistic argon parameters (ε = 120 K, σ = 3.4 Å)
+- FCC crystal lattice initialization  
+- Temperature ramping from 60K to 180K
+- Nosé-Hoover thermostat
+- Automatic melting detection via diffusion analysis
+- Beautiful formatted output with physical units
+
+**Example Output:**
+```
+┌────────┬─────────┬──────────┬──────────┬──────────┬──────────┬───────────┐
+│   Step │   T (K) │    T_red │   KE_red │   PE_red │  Total_E │ Diff(σ²/τ) │
+├────────┼─────────┼──────────┼──────────┼──────────┼──────────┼───────────┤
+│      0 │    65.2 │    0.544 │  88.0790 │ -819.6056 │ -731.5266 │  0.000000 │
+│   1300 │    96.2 │    0.801 │ 129.8143 │ -690.9616 │ -561.1473 │  0.117908 │
+│   2000 │   340.1 │    2.834 │ 459.1283 │ -415.4981 │  43.6302 │  0.104667 │
+└────────┴─────────┴──────────┴──────────┴──────────┴──────────┴───────────┘
+
+🔥 System appears to be in LIQUID state (high diffusion)
+```
+
+The simulation shows argon melting around 100-120 K, matching experimental observations.
+
+For more details, see [`md/examples/README.md`](md/examples/README.md).
