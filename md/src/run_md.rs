@@ -128,6 +128,218 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
     }
 }
 
+/// NPT (Isothermal-Isobaric) ensemble integrator
+/// Uses Nosé-Hoover thermostat + Parrinello-Rahman barostat
+pub struct NoseHooverParrinelloRahman<F: ForceProvider> {
+    pub positions: Vec<Vector3<f64>>,
+    pub velocities: Vec<Vector3<f64>>,
+    pub masses: Vec<f64>,
+    inv_masses: Vec<f64>,
+    pub forces: Vec<Vector3<f64>>,
+    pub provider: F,
+    
+    // Thermostat variables (Nosé-Hoover)
+    xi: f64,
+    eta: f64,
+    q_t: f64,
+    target_temp: f64,
+    
+    // Barostat variables (Parrinello-Rahman)
+    pub box_lengths: Vector3<f64>,
+    box_velocities: Vector3<f64>,
+    q_p: f64,
+    target_pressure: f64,
+    
+    // System parameters
+    dof: usize,
+    k_b: f64,
+    gk_t: f64,
+}
+
+impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
+    pub fn new(
+        positions: Vec<Vector3<f64>>,
+        velocities: Vec<Vector3<f64>>,
+        masses: Vec<f64>,
+        provider: F,
+        initial_box_lengths: Vector3<f64>,
+        q_t: f64,        // Thermostat coupling parameter
+        q_p: f64,        // Barostat coupling parameter  
+        target_temp: f64,
+        target_pressure: f64,
+        k_b: f64,
+    ) -> Self {
+        let dof = positions.len() * 3;
+        let gk_t = dof as f64 * k_b * target_temp;
+        let forces = provider.compute_forces(&positions);
+        let inv_masses = masses.iter().map(|&m| 1.0 / m).collect();
+        
+        NoseHooverParrinelloRahman {
+            positions,
+            velocities,
+            masses,
+            inv_masses,
+            forces,
+            provider,
+            xi: 0.0,
+            eta: 0.0,
+            q_t,
+            target_temp,
+            box_lengths: initial_box_lengths,
+            box_velocities: Vector3::zeros(),
+            q_p,
+            target_pressure,
+            dof,
+            k_b,
+            gk_t,
+        }
+    }
+
+    #[inline]
+    fn kinetic_energy(&self) -> f64 {
+        self.velocities
+            .iter()
+            .zip(&self.masses)
+            .map(|(v, &m)| 0.5 * m * v.dot(v))
+            .sum()
+    }
+
+    #[inline]
+    fn volume(&self) -> f64 {
+        self.box_lengths.x * self.box_lengths.y * self.box_lengths.z
+    }
+
+    #[inline]
+    fn pressure(&self) -> f64 {
+        let volume = self.volume();
+        let n_atoms = self.positions.len() as f64;
+        let temp = self.temperature();
+        
+        // Ideal gas contribution + virial contribution
+        let kinetic_pressure = n_atoms * self.k_b * temp / volume;
+        
+        // For 1 atom, virial is essentially zero
+        kinetic_pressure
+    }
+
+    /// Update target temperature
+    pub fn set_target_temperature(&mut self, temp: f64) {
+        self.target_temp = temp;
+        self.gk_t = self.dof as f64 * self.k_b * temp;
+    }
+
+    /// Update target pressure
+    pub fn set_target_pressure(&mut self, pressure: f64) {
+        self.target_pressure = pressure;
+    }
+
+    /// Get current volume
+    pub fn get_volume(&self) -> f64 {
+        self.volume()
+    }
+
+    /// Get current pressure
+    pub fn get_pressure(&self) -> f64 {
+        self.pressure()
+    }
+}
+
+impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
+    fn step(&mut self, dt: f64) {
+        let half_dt = 0.5 * dt;
+        
+        // Current quantities
+        let volume = self.volume();
+        let current_pressure = self.pressure();
+        let kinetic_energy = self.kinetic_energy();
+        
+        // Update thermostat variable xi (first half-step)
+        let xi_dot = (2.0 * kinetic_energy - self.gk_t) / self.q_t;
+        self.xi += xi_dot * half_dt;
+        self.xi = self.xi.clamp(-10.0, 10.0);
+        
+        // Update barostat velocities (first half-step)
+        let pressure_error = current_pressure - self.target_pressure;
+        for i in 0..3 {
+            let box_accel = (pressure_error * volume) / self.q_p;
+            self.box_velocities[i] += box_accel * half_dt;
+            // Limit box velocity to prevent runaway
+            self.box_velocities[i] = self.box_velocities[i].clamp(-0.1, 0.1);
+        }
+        
+        // Update box lengths (full step) - use linear approximation for stability
+        for i in 0..3 {
+            let old_length = self.box_lengths[i];
+            self.box_lengths[i] *= 1.0 + self.box_velocities[i] * dt;
+            // Prevent box collapse and excessive expansion
+            self.box_lengths[i] = self.box_lengths[i].clamp(0.5, 50.0);
+        }
+        
+        // Scale positions with box changes
+        let volume_change = self.volume() / volume;
+        let scale_factor = volume_change.powf(1.0/3.0);
+        for pos in &mut self.positions {
+            *pos *= scale_factor;
+        }
+        
+        // Update velocities (first half-step) - includes thermostat and barostat effects
+        let box_vel_trace = self.box_velocities.x + self.box_velocities.y + self.box_velocities.z;
+        for (v, &f, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses) {
+            let thermostat_scaling = 1.0 / (1.0 + (self.xi + box_vel_trace) * half_dt);
+            let force_contrib = f * inv_m * half_dt;
+            *v = (*v + force_contrib) * thermostat_scaling;
+        }
+
+        // Update positions (full step)
+        for (pos, &v) in self.positions.iter_mut().zip(&self.velocities) {
+            *pos += v * dt;
+        }
+
+        // Apply periodic boundary conditions
+        for pos in &mut self.positions {
+            for k in 0..3 {
+                let box_l = self.box_lengths[k];
+                pos[k] -= box_l * (pos[k] / box_l).floor();
+            }
+        }
+
+        // Recompute forces
+        self.forces = self.provider.compute_forces(&self.positions);
+
+        // Update velocities (second half-step)
+        for (v, &f_new, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses) {
+            let force_contrib = f_new * inv_m * half_dt;
+            *v += force_contrib;
+            let thermostat_scaling = 1.0 / (1.0 + (self.xi + box_vel_trace) * half_dt);
+            *v *= thermostat_scaling;
+        }
+
+        // Update thermostat variable xi (second half-step)
+        let kinetic_energy = self.kinetic_energy();
+        let xi_dot = (2.0 * kinetic_energy - self.gk_t) / self.q_t;
+        self.xi += xi_dot * half_dt;
+        self.xi = self.xi.clamp(-10.0, 10.0);
+        
+        // Update barostat velocities (second half-step)
+        let current_pressure = self.pressure();
+        let pressure_error = current_pressure - self.target_pressure;
+        let volume = self.volume();
+        for i in 0..3 {
+            let box_accel = (pressure_error * volume) / self.q_p;
+            self.box_velocities[i] += box_accel * half_dt;
+            // Limit box velocity to prevent runaway
+            self.box_velocities[i] = self.box_velocities[i].clamp(-0.1, 0.1);
+        }
+
+        // Update eta (extended coordinate)
+        self.eta += self.xi * dt;
+    }
+
+    fn temperature(&self) -> f64 {
+        2.0 * self.kinetic_energy() / (self.dof as f64 * self.k_b)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
