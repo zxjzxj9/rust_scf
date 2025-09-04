@@ -269,7 +269,6 @@ impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
         
         // Update box lengths (full step) - use linear approximation for stability
         for i in 0..3 {
-            let old_length = self.box_lengths[i];
             self.box_lengths[i] *= 1.0 + self.box_velocities[i] * dt;
             // Prevent box collapse and excessive expansion
             self.box_lengths[i] = self.box_lengths[i].clamp(0.5, 50.0);

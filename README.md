@@ -103,29 +103,46 @@
 
 In addition to quantum chemistry calculations, this project includes molecular dynamics (MD) capabilities for classical simulations.
 
-### Argon Melting Simulation
+### Molecular Dynamics Examples
 
-The `md/` package contains examples demonstrating argon phase transitions using the Lennard-Jones potential:
+The `md/` package contains several examples demonstrating different aspects of molecular dynamics simulations:
 
-**Quick Demo:**
+#### **1. Argon Phase Transitions (NVT)**
 ```bash
 cd md
+# Quick demo (10-30 seconds)
 cargo run --example argon_melting_demo
-```
 
-**Full Simulation:**
-```bash
-cd md  
+# Full simulation (~2-5 minutes)
 cargo run --example argon_melting
 ```
-
 **Features:**
-- Realistic argon parameters (ε = 120 K, σ = 3.4 Å)
-- FCC crystal lattice initialization  
-- Temperature ramping from 60K to 180K
-- Nosé-Hoover thermostat
-- Automatic melting detection via diffusion analysis
-- Beautiful formatted output with physical units
+- 256 atoms with Lennard-Jones potential
+- FCC crystal lattice → liquid transition
+- Temperature ramping 60K → 180K
+- Melting detection via diffusion analysis
+
+#### **2. Single Atom NPT Simulation**
+```bash
+cd md
+cargo run --example single_atom_npt
+```
+**Features:**
+- Demonstrates pure NPT ensemble mechanics
+- Ideal gas law behavior (PV = nkT)
+- Pressure control via Parrinello-Rahman barostat
+- Educational comparison to multi-atom systems
+
+#### **3. Multi-Atom NPT Simulation**
+```bash
+cd md
+cargo run --example multi_atom_npt
+```
+**Features:**
+- 27 atoms with inter-atomic interactions
+- Structure formation and analysis
+- Realistic pressure from virial contributions
+- Phase-like behavior and collective dynamics
 
 **Example Output:**
 ```
