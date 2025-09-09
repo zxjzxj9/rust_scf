@@ -1,0 +1,59 @@
+# NPT Simulation of Argon atoms
+# This configuration demonstrates an isothermal-isobaric ensemble simulation
+# with both temperature and pressure control using Nosé-Hoover and Parrinello-Rahman
+
+system:
+  # Initial atomic positions - simple cubic lattice
+  positions:
+    type: cubic_lattice
+    n_per_side: 3          # 3x3x3 = 27 atoms
+    spacing: 1.2           # Lattice spacing in σ units
+
+  # Initial velocities - Maxwell-Boltzmann distribution
+  velocities:
+    type: maxwell_boltzmann
+    temperature: 0.8       # Initial temperature (reduced units)
+
+  # Atomic masses (uniform for all atoms)
+  masses: 1.0             # Argon mass in reduced units
+
+  # Simulation box setup (will evolve during NPT)
+  box_setup:
+    lengths: [4.32, 4.32, 4.32]  # Initial box dimensions in σ units
+    periodic: true            # Use periodic boundary conditions
+
+simulation:
+  # NPT ensemble configuration
+  ensemble:
+    type: npt
+    target_temperature: 0.8    # Target temperature (reduced units)
+    target_pressure: 0.5       # Target pressure (reduced units)
+    thermostat_coupling: 200.0 # Nosé-Hoover coupling parameter Q_t
+    barostat_coupling: 1000.0  # Parrinello-Rahman coupling parameter Q_p
+    k_boltzmann: 1.0          # Boltzmann constant (reduced units)
+
+  # Integration parameters  
+  integration:
+    time_step: 0.002       # Time step in reduced time units
+    total_steps: 25000     # Total simulation steps
+
+  # Temperature ramping schedule (optional)
+  temperature_schedule:
+    initial_temperature: 0.8   # Start temperature
+    final_temperature: 1.2     # End temperature (heat the system)
+    ramp_steps: 15000         # Number of steps for ramping
+
+# Potential energy parameters
+potential:
+  type: lennard_jones
+  epsilon: 1.0            # LJ well depth ε (reduced units)
+  sigma: 1.0              # LJ collision diameter σ (reduced units)
+  cutoff: 2.5             # Cutoff distance in σ units
+
+# Output and analysis settings
+output:
+  output_interval: 500      # Print results every N steps
+  analysis_interval: 250    # Update analysis every N steps
+  save_trajectory: true     # Save trajectory for analysis
+  trajectory_interval: 1000 # Save trajectory every N steps
+

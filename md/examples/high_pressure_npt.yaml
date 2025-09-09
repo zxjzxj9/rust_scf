@@ -1,0 +1,55 @@
+# High-Pressure NPT Simulation
+# This demonstrates compression behavior under high pressure
+
+system:
+  # Dense initial packing
+  positions:
+    type: cubic_lattice
+    n_per_side: 4          # 4x4x4 = 64 atoms (denser system)
+    spacing: 1.1           # Tight packing
+
+  # High initial temperature
+  velocities:
+    type: maxwell_boltzmann
+    temperature: 1.5       # Hot start
+
+  masses: 1.0
+
+  # Starting box size
+  box_setup:
+    lengths: [5.0, 5.0, 5.0]
+    periodic: true
+
+simulation:
+  # NPT with high pressure
+  ensemble:
+    type: npt
+    target_temperature: 1.0    # Moderate final temperature
+    target_pressure: 2.0       # High pressure (will compress system)
+    thermostat_coupling: 150.0
+    barostat_coupling: 800.0   # Responsive barostat
+    k_boltzmann: 1.0
+
+  integration:
+    time_step: 0.001       # Small time step for stability
+    total_steps: 40000
+
+  # Cooling schedule
+  temperature_schedule:
+    initial_temperature: 1.5   # Start hot
+    final_temperature: 1.0     # Cool down
+    ramp_steps: 20000
+
+# Strong LJ interactions
+potential:
+  type: lennard_jones
+  epsilon: 1.2            # Stronger interactions
+  sigma: 1.0
+  cutoff: 3.0             # Longer cutoff for dense system
+
+output:
+  output_interval: 800
+  analysis_interval: 400
+  save_trajectory: true
+  trajectory_interval: 2000
+

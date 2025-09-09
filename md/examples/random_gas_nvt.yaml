@@ -1,0 +1,49 @@
+# Random Gas NVT Simulation
+# This demonstrates random initial positioning for a gas-like system
+
+system:
+  # Random positions with minimum distance constraint
+  positions:
+    type: random
+    n_atoms: 50            # 50 atoms randomly distributed
+    min_distance: 1.5      # Minimum distance between atoms
+
+  # Maxwell-Boltzmann velocities at high temperature
+  velocities:
+    type: maxwell_boltzmann
+    temperature: 2.0       # High temperature (gas-like)
+    seed: 12345           # Reproducible random velocities
+
+  masses: 1.0
+
+  # Large box for gas phase
+  box_setup:
+    lengths: [15.0, 15.0, 15.0]  # Large box (low density)
+    periodic: true
+
+simulation:
+  # NVT ensemble for gas
+  ensemble:
+    type: nvt
+    target_temperature: 2.0    # High temperature
+    thermostat_coupling: 50.0  # Quick thermostat response
+    k_boltzmann: 1.0
+
+  integration:
+    time_step: 0.005       # Larger time step for gas (particles farther apart)
+    total_steps: 15000
+
+# Weak interactions for gas
+potential:
+  type: lennard_jones
+  epsilon: 0.8            # Weaker interactions
+  sigma: 1.0
+  cutoff: 2.5
+
+# Less frequent output for gas simulation
+output:
+  output_interval: 300
+  analysis_interval: 150
+  save_trajectory: false
+  trajectory_interval: 1000
+

@@ -1,0 +1,56 @@
+# NVT Simulation of a small water cluster
+# This demonstrates explicit positioning and mixed atom types
+
+system:
+  # Explicit positions for a small water cluster
+  positions:
+    type: explicit
+    coords:
+      # First water molecule
+      - [0.0, 0.0, 0.0]      # O1
+      - [0.757, 0.586, 0.0]  # H1
+      - [-0.757, 0.586, 0.0] # H2
+      # Second water molecule (offset)
+      - [3.0, 0.0, 0.0]      # O2
+      - [3.757, 0.586, 0.0]  # H3
+      - [2.243, 0.586, 0.0]  # H4
+
+  # Zero initial velocities (system will heat up from LJ interactions)
+  velocities:
+    type: zero
+
+  # Different masses for O and H atoms
+  masses: [16.0, 1.0, 1.0, 16.0, 1.0, 1.0]  # O, H, H, O, H, H
+
+  # Larger box for the cluster
+  box_setup:
+    lengths: [10.0, 10.0, 10.0]
+    periodic: true
+
+simulation:
+  # NVT ensemble with gentle thermostat
+  ensemble:
+    type: nvt
+    target_temperature: 0.5    # Low temperature
+    thermostat_coupling: 500.0 # Gentle coupling
+    k_boltzmann: 1.0
+
+  # Small time steps for light H atoms
+  integration:
+    time_step: 0.0005      # Smaller time step for stability
+    total_steps: 50000     # Longer simulation
+
+# Simple LJ potential (not realistic for water, but for demonstration)
+potential:
+  type: lennard_jones
+  epsilon: 0.5            # Weaker interactions
+  sigma: 2.0              # Larger effective size
+  cutoff: 6.0             # Larger cutoff
+
+# More frequent output for detailed analysis
+output:
+  output_interval: 1000
+  analysis_interval: 500
+  save_trajectory: true
+  trajectory_interval: 500
+
