@@ -337,7 +337,7 @@ impl MdConfig {
                             return Err("Could not generate random positions with minimum distance constraint".to_string());
                         }
                         
-                        let candidate = Vector3::new(
+                        let candidate = nalgebra::Vector3::<f64>::new(
                             rng.gen::<f64>() * box_lengths.x,
                             rng.gen::<f64>() * box_lengths.y,
                             rng.gen::<f64>() * box_lengths.z,
@@ -346,7 +346,8 @@ impl MdConfig {
                         // Check minimum distance constraint
                         let mut valid = true;
                         for existing in &positions {
-                            let dist = (candidate - existing).norm();
+                            let diff = candidate - existing;
+                            let dist: f64 = nalgebra::Vector3::<f64>::norm(&diff);
                             if dist < *min_distance {
                                 valid = false;
                                 break;
