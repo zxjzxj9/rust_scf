@@ -57,3 +57,4 @@ output:
   save_trajectory: true     # Save trajectory for analysis
   trajectory_interval: 1000 # Save trajectory every N steps
 
+
