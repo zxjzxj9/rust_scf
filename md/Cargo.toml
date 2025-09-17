@@ -26,3 +26,7 @@ path = "examples/argon_melting_demo.rs"
 [[example]]
 name = "yaml_config_demo"
 path = "examples/yaml_config_demo.rs"
+
+[[example]]
+name = "ising_2d_mc"
+path = "examples/ising_2d_mc.rs"
