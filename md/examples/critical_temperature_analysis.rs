@@ -15,11 +15,11 @@ fn main() {
     
     // Run analysis for both 2D and 3D models
     analyze_critical_temperature_2d();
-    println!("\n" + &"=".repeat(60) + "\n");
+    println!("\n{}\n", "=".repeat(60));
     analyze_critical_temperature_3d();
     
     // Compare theoretical vs numerical results
-    println!("\n" + &"=".repeat(60));
+    println!("\n{}", "=".repeat(60));
     println!("\n📊 Theoretical vs Numerical Comparison");
     println!("======================================");
     compare_theoretical_values();
