@@ -377,10 +377,32 @@ fn finite_size_scaling_2d(sizes: &[usize]) -> f64 {
     let largest_size = *sizes.last().unwrap();
     let largest_tc = tc_estimates.last().unwrap().1;
     
-    // For 2D Ising, the finite size correction goes as 1/ln(L)
-    // Here we use a simple approximation
-    let correction = 0.02 / (largest_size as f64).ln(); // Rough correction
-    largest_tc + correction
+    // For 2D Ising, finite size scaling: T_c(L) = T_c(∞) + A/ln(L) + B/L
+    // Use linear regression on 1/ln(L) for better extrapolation
+    if tc_estimates.len() >= 3 {
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_xy = 0.0;
+        let mut sum_x2 = 0.0;
+        let n = tc_estimates.len() as f64;
+        
+        for &(size, tc) in &tc_estimates {
+            let x = 1.0 / (size as f64).ln(); // 1/ln(L)
+            sum_x += x;
+            sum_y += tc;
+            sum_xy += x * tc;
+            sum_x2 += x * x;
+        }
+        
+        // Linear regression: y = a + b*x, extrapolate to x=0 (infinite size)
+        let b = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
+        let a = (sum_y - b * sum_x) / n;
+        a // Extrapolated T_c at infinite size
+    } else {
+        // Fallback for insufficient data
+        let correction = 0.02 / (largest_size as f64).ln();
+        largest_tc + correction
+    }
 }
 
 fn finite_size_scaling_3d(sizes: &[usize]) -> f64 {
@@ -394,13 +416,34 @@ fn finite_size_scaling_3d(sizes: &[usize]) -> f64 {
         println!("   Size {}: T_c ≈ {:.4}", size, tc);
     }
     
-    // Simple extrapolation for 3D
-    let largest_size = *sizes.last().unwrap();
-    let largest_tc = tc_estimates.last().unwrap().1;
-    
-    // For 3D Ising, finite size correction goes roughly as 1/L
-    let correction = 0.1 / largest_size as f64; // Rough correction
-    largest_tc + correction
+    // For 3D Ising, finite size scaling: T_c(L) = T_c(∞) + A/L^(1/ν) where ν ≈ 0.63
+    // Use linear regression on 1/L for simplicity (approximate)
+    if tc_estimates.len() >= 3 {
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_xy = 0.0;
+        let mut sum_x2 = 0.0;
+        let n = tc_estimates.len() as f64;
+        
+        for &(size, tc) in &tc_estimates {
+            let x = 1.0 / size as f64; // 1/L (simplified from 1/L^(1/ν))
+            sum_x += x;
+            sum_y += tc;
+            sum_xy += x * tc;
+            sum_x2 += x * x;
+        }
+        
+        // Linear regression: y = a + b*x, extrapolate to x=0 (infinite size)
+        let b = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
+        let a = (sum_y - b * sum_x) / n;
+        a // Extrapolated T_c at infinite size
+    } else {
+        // Fallback for insufficient data
+        let largest_size = *sizes.last().unwrap();
+        let largest_tc = tc_estimates.last().unwrap().1;
+        let correction = 0.1 / largest_size as f64;
+        largest_tc + correction
+    }
 }
 
 fn compare_theoretical_values() {
