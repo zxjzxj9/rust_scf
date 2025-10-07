@@ -250,3 +250,4 @@ fn estimate_critical_exponents() {
     println!("   γ = ν(2 - η) (Fisher)"); 
     println!("   dν = 2 - α (Josephson hyperscaling)");
 }
+
