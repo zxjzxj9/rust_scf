@@ -740,24 +740,25 @@ impl IsingModel4D {
         let mut correlations = vec![0.0; max_distance + 1];
         let mut counts = vec![0; max_distance + 1];
         
-        // Sample a subset of spins for efficiency
-        let sample_size = (self.size * self.size).min(1000);
+        // Sample systematically instead of randomly for deterministic results
+        let sample_spacing = (self.size / 4).max(1);
         
-        for _ in 0..sample_size {
-            let i0 = self.rng.gen_range(0..self.size);
-            let j0 = self.rng.gen_range(0..self.size);
-            let k0 = self.rng.gen_range(0..self.size);
-            let l0 = self.rng.gen_range(0..self.size);
-            
-            let spin0 = self.spins[i0][j0][k0][l0] as f64;
-            
-            for distance in 0..=max_distance {
-                if distance < self.size {
-                    let i1 = (i0 + distance) % self.size;
-                    let spin1 = self.spins[i1][j0][k0][l0] as f64;
-                    
-                    correlations[distance] += spin0 * spin1;
-                    counts[distance] += 1;
+        for i0 in (0..self.size).step_by(sample_spacing) {
+            for j0 in (0..self.size).step_by(sample_spacing) {
+                for k0 in (0..self.size).step_by(sample_spacing) {
+                    for l0 in (0..self.size).step_by(sample_spacing) {
+                        let spin0 = self.spins[i0][j0][k0][l0] as f64;
+                        
+                        for distance in 0..=max_distance {
+                            if distance < self.size {
+                                let i1 = (i0 + distance) % self.size;
+                                let spin1 = self.spins[i1][j0][k0][l0] as f64;
+                                
+                                correlations[distance] += spin0 * spin1;
+                                counts[distance] += 1;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -967,5 +968,111 @@ mod tests {
         let ising_random = IsingModel3D::new(5, 5.0);
         assert!(ising_random.magnetization().abs() <= total_spins);
         assert!(ising_random.magnetization_per_site().abs() <= 1.0);
+    }
+
+    // 4D Ising Model Tests
+    #[test]
+    fn test_ising4d_creation() {
+        let ising = IsingModel4D::new(6, 4.0);
+        assert_eq!(ising.size, 6);
+        assert_eq!(ising.temperature, 4.0);
+        assert_eq!(ising.spins.len(), 6);
+        assert_eq!(ising.spins[0].len(), 6);
+        assert_eq!(ising.spins[0][0].len(), 6);
+        assert_eq!(ising.spins[0][0][0].len(), 6);
+    }
+    
+    #[test]
+    fn test_ising4d_ordered_state() {
+        let ising = IsingModel4D::new_ordered(4, 2.0);
+        assert_eq!(ising.magnetization_per_site(), 1.0);
+        assert_relative_eq!(ising.energy_per_site(), -4.0, epsilon = 1e-10);
+    }
+    
+    #[test]
+    fn test_ising4d_energy_calculation() {
+        let mut ising = IsingModel4D::new_ordered(3, 1.0);
+        let initial_energy = ising.total_energy();
+        
+        // Flip one spin and check energy change
+        ising.spins[1][1][1][1] = -1;
+        let new_energy = ising.total_energy();
+        
+        // The energy should increase by 16J (one spin surrounded by 8 opposite neighbors)
+        assert_relative_eq!(new_energy - initial_energy, 16.0, epsilon = 1e-10);
+    }
+    
+    #[test]
+    fn test_ising4d_periodic_boundary_conditions() {
+        let ising = IsingModel4D::new_ordered(3, 1.0);
+        
+        // Test corner and edge cases for all 4 dimensions
+        assert_eq!(ising.get_spin(-1, 0, 0, 0), 1);  // Should wrap to (2, 0, 0, 0)
+        assert_eq!(ising.get_spin(3, 1, 2, 1), 1);   // Should wrap to (0, 1, 2, 1)
+        assert_eq!(ising.get_spin(1, -1, 1, 2), 1);  // Should wrap to (1, 2, 1, 2)
+        assert_eq!(ising.get_spin(1, 3, 0, 1), 1);   // Should wrap to (1, 0, 0, 1)
+        assert_eq!(ising.get_spin(0, 1, -1, 2), 1);  // Should wrap to (0, 1, 2, 2)
+        assert_eq!(ising.get_spin(2, 0, 3, 1), 1);   // Should wrap to (2, 0, 0, 1)
+        assert_eq!(ising.get_spin(1, 2, 1, -1), 1);  // Should wrap to (1, 2, 1, 2)
+        assert_eq!(ising.get_spin(0, 1, 2, 3), 1);   // Should wrap to (0, 1, 2, 0)
+    }
+    
+    #[test]
+    fn test_ising4d_critical_temperatures() {
+        let t_c_2d = analysis::critical_temperature_2d();
+        let t_c_3d = analysis::critical_temperature_3d();
+        let t_c_4d = analysis::critical_temperature_4d();
+        
+        assert_relative_eq!(t_c_2d, 2.269, epsilon = 0.001);
+        assert_relative_eq!(t_c_3d, 4.511, epsilon = 0.001);
+        assert_relative_eq!(t_c_4d, 6.68, epsilon = 0.01);
+        
+        // Critical temperatures should increase with dimension
+        assert!(t_c_3d > t_c_2d);
+        assert!(t_c_4d > t_c_3d);
+    }
+    
+    #[test]
+    fn test_ising4d_monte_carlo_step() {
+        let mut ising = IsingModel4D::new(3, 3.0);
+        let initial_step = ising.step;
+        
+        ising.monte_carlo_step();
+        
+        assert_eq!(ising.step, initial_step + 1);
+    }
+    
+    #[test]
+    fn test_ising4d_magnetization_bounds() {
+        let ising_ordered = IsingModel4D::new_ordered(4, 1.0);
+        let total_spins = (4_f64).powi(4);
+        
+        // For ordered state, all spins are +1
+        assert_eq!(ising_ordered.magnetization(), total_spins);
+        assert_eq!(ising_ordered.magnetization_per_site(), 1.0);
+        
+        // Check that magnetization is bounded by the number of spins
+        let ising_random = IsingModel4D::new(4, 8.0);
+        assert!(ising_random.magnetization().abs() <= total_spins);
+        assert!(ising_random.magnetization_per_site().abs() <= 1.0);
+    }
+    
+    #[test]
+    fn test_coordination_numbers() {
+        assert_eq!(analysis::coordination_number(2), 4);
+        assert_eq!(analysis::coordination_number(3), 6);
+        assert_eq!(analysis::coordination_number(4), 8);
+        assert_eq!(analysis::coordination_number(5), 10);
+    }
+    
+    #[test]
+    fn test_mean_field_approximation() {
+        // Mean field theory should be exact in d >= 4
+        let mf_4d = analysis::mean_field_critical_temperature(4);
+        let actual_4d = analysis::critical_temperature_4d();
+        
+        // Should be close but not exactly equal due to finite size effects
+        assert!((mf_4d - actual_4d).abs() / actual_4d < 0.3);
+        assert_eq!(mf_4d, 8.0); // 2 * 4 = 8 neighbors
     }
 }
