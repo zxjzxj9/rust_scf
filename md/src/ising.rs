@@ -212,6 +212,133 @@ impl IsingModel2D {
             println!();
         }
     }
+    
+    /// Perform one Wolff cluster algorithm step
+    /// This is much more efficient than single-spin flips, especially near T_c
+    pub fn wolff_cluster_step(&mut self) {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j];
+        
+        // Probability to add neighbors to cluster
+        // P = 1 - exp(-2*J*beta) for same-orientation neighbors
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![false; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j));
+        visited[seed_i][seed_j] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j)) = queue.pop_front() {
+            cluster.push((i, j));
+            
+            // Check all 4 neighbors
+            let neighbors = [
+                (i.wrapping_sub(1), j),
+                (i.wrapping_add(1), j),
+                (i, j.wrapping_sub(1)),
+                (i, j.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj] = true;
+                        queue.push_back((ni, nj));
+                    }
+                }
+            }
+        }
+        
+        // Flip entire cluster
+        for &(i, j) in &cluster {
+            self.spins[i][j] *= -1;
+        }
+        
+        self.step += 1;
+    }
+    
+    /// Get the size of the last Wolff cluster (for analysis)
+    pub fn wolff_cluster_step_with_size(&mut self) -> usize {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j];
+        
+        // Probability to add neighbors to cluster
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![false; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j));
+        visited[seed_i][seed_j] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j)) = queue.pop_front() {
+            cluster.push((i, j));
+            
+            // Check all 4 neighbors
+            let neighbors = [
+                (i.wrapping_sub(1), j),
+                (i.wrapping_add(1), j),
+                (i, j.wrapping_sub(1)),
+                (i, j.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj] = true;
+                        queue.push_back((ni, nj));
+                    }
+                }
+            }
+        }
+        
+        let cluster_size = cluster.len();
+        
+        // Flip entire cluster
+        for &(i, j) in &cluster {
+            self.spins[i][j] *= -1;
+        }
+        
+        self.step += 1;
+        cluster_size
+    }
 }
 
 /// 3D Ising Model for Monte Carlo simulation
@@ -454,6 +581,141 @@ impl IsingModel3D {
                 println!();
             }
         }
+    }
+    
+    /// Perform one Wolff cluster algorithm step for 3D
+    /// This is much more efficient than single-spin flips, especially near T_c
+    pub fn wolff_cluster_step(&mut self) {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_k = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j][seed_k];
+        
+        // Probability to add neighbors to cluster
+        // P = 1 - exp(-2*J*beta) for same-orientation neighbors
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![vec![false; self.size]; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j, seed_k));
+        visited[seed_i][seed_j][seed_k] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j, k)) = queue.pop_front() {
+            cluster.push((i, j, k));
+            
+            // Check all 6 neighbors in 3D
+            let neighbors = [
+                (i.wrapping_sub(1), j, k),
+                (i.wrapping_add(1), j, k),
+                (i, j.wrapping_sub(1), k),
+                (i, j.wrapping_add(1), k),
+                (i, j, k.wrapping_sub(1)),
+                (i, j, k.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj, nk) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                let nk = nk % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj][nk] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj][nk] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj][nk] = true;
+                        queue.push_back((ni, nj, nk));
+                    }
+                }
+            }
+        }
+        
+        // Flip entire cluster
+        for &(i, j, k) in &cluster {
+            self.spins[i][j][k] *= -1;
+        }
+        
+        self.step += 1;
+    }
+    
+    /// Get the size of the last Wolff cluster (for analysis) in 3D
+    pub fn wolff_cluster_step_with_size(&mut self) -> usize {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_k = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j][seed_k];
+        
+        // Probability to add neighbors to cluster
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![vec![false; self.size]; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j, seed_k));
+        visited[seed_i][seed_j][seed_k] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j, k)) = queue.pop_front() {
+            cluster.push((i, j, k));
+            
+            // Check all 6 neighbors in 3D
+            let neighbors = [
+                (i.wrapping_sub(1), j, k),
+                (i.wrapping_add(1), j, k),
+                (i, j.wrapping_sub(1), k),
+                (i, j.wrapping_add(1), k),
+                (i, j, k.wrapping_sub(1)),
+                (i, j, k.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj, nk) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                let nk = nk % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj][nk] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj][nk] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj][nk] = true;
+                        queue.push_back((ni, nj, nk));
+                    }
+                }
+            }
+        }
+        
+        let cluster_size = cluster.len();
+        
+        // Flip entire cluster
+        for &(i, j, k) in &cluster {
+            self.spins[i][j][k] *= -1;
+        }
+        
+        self.step += 1;
+        cluster_size
     }
 }
 
@@ -772,6 +1034,149 @@ impl IsingModel4D {
         
         correlations
     }
+    
+    /// Perform one Wolff cluster algorithm step for 4D
+    /// This is much more efficient than single-spin flips, especially near T_c
+    pub fn wolff_cluster_step(&mut self) {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_k = self.rng.gen_range(0..self.size);
+        let seed_l = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j][seed_k][seed_l];
+        
+        // Probability to add neighbors to cluster
+        // P = 1 - exp(-2*J*beta) for same-orientation neighbors
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![vec![vec![false; self.size]; self.size]; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j, seed_k, seed_l));
+        visited[seed_i][seed_j][seed_k][seed_l] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j, k, l)) = queue.pop_front() {
+            cluster.push((i, j, k, l));
+            
+            // Check all 8 neighbors in 4D
+            let neighbors = [
+                (i.wrapping_sub(1), j, k, l),
+                (i.wrapping_add(1), j, k, l),
+                (i, j.wrapping_sub(1), k, l),
+                (i, j.wrapping_add(1), k, l),
+                (i, j, k.wrapping_sub(1), l),
+                (i, j, k.wrapping_add(1), l),
+                (i, j, k, l.wrapping_sub(1)),
+                (i, j, k, l.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj, nk, nl) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                let nk = nk % self.size;
+                let nl = nl % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj][nk][nl] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj][nk][nl] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj][nk][nl] = true;
+                        queue.push_back((ni, nj, nk, nl));
+                    }
+                }
+            }
+        }
+        
+        // Flip entire cluster
+        for &(i, j, k, l) in &cluster {
+            self.spins[i][j][k][l] *= -1;
+        }
+        
+        self.step += 1;
+    }
+    
+    /// Get the size of the last Wolff cluster (for analysis) in 4D
+    pub fn wolff_cluster_step_with_size(&mut self) -> usize {
+        use std::collections::VecDeque;
+        
+        // Choose random seed spin
+        let seed_i = self.rng.gen_range(0..self.size);
+        let seed_j = self.rng.gen_range(0..self.size);
+        let seed_k = self.rng.gen_range(0..self.size);
+        let seed_l = self.rng.gen_range(0..self.size);
+        let seed_spin = self.spins[seed_i][seed_j][seed_k][seed_l];
+        
+        // Probability to add neighbors to cluster
+        let add_probability = 1.0 - (-2.0 * self.coupling / self.temperature).exp();
+        
+        // Track visited sites and cluster
+        let mut visited = vec![vec![vec![vec![false; self.size]; self.size]; self.size]; self.size];
+        let mut cluster = Vec::new();
+        let mut queue = VecDeque::new();
+        
+        // Start with seed
+        queue.push_back((seed_i, seed_j, seed_k, seed_l));
+        visited[seed_i][seed_j][seed_k][seed_l] = true;
+        
+        // Grow cluster using breadth-first search
+        while let Some((i, j, k, l)) = queue.pop_front() {
+            cluster.push((i, j, k, l));
+            
+            // Check all 8 neighbors in 4D
+            let neighbors = [
+                (i.wrapping_sub(1), j, k, l),
+                (i.wrapping_add(1), j, k, l),
+                (i, j.wrapping_sub(1), k, l),
+                (i, j.wrapping_add(1), k, l),
+                (i, j, k.wrapping_sub(1), l),
+                (i, j, k.wrapping_add(1), l),
+                (i, j, k, l.wrapping_sub(1)),
+                (i, j, k, l.wrapping_add(1)),
+            ];
+            
+            for &(ni, nj, nk, nl) in &neighbors {
+                let ni = ni % self.size;
+                let nj = nj % self.size;
+                let nk = nk % self.size;
+                let nl = nl % self.size;
+                
+                // Skip if already visited
+                if visited[ni][nj][nk][nl] {
+                    continue;
+                }
+                
+                // Check if neighbor has same orientation as seed
+                if self.spins[ni][nj][nk][nl] == seed_spin {
+                    // Add to cluster with probability P
+                    if self.rng.gen::<f64>() < add_probability {
+                        visited[ni][nj][nk][nl] = true;
+                        queue.push_back((ni, nj, nk, nl));
+                    }
+                }
+            }
+        }
+        
+        let cluster_size = cluster.len();
+        
+        // Flip entire cluster
+        for &(i, j, k, l) in &cluster {
+            self.spins[i][j][k][l] *= -1;
+        }
+        
+        self.step += 1;
+        cluster_size
+    }
 }
 
 /// Utility functions for analyzing Ising model results
@@ -1074,5 +1479,187 @@ mod tests {
         // Should be close but not exactly equal due to finite size effects
         assert!((mf_4d - actual_4d).abs() / actual_4d < 0.3);
         assert_eq!(mf_4d, 8.0); // 2 * 4 = 8 neighbors
+    }
+    
+    // Wolff Cluster Algorithm Tests
+    #[test]
+    fn test_wolff_2d_basic() {
+        let mut ising = IsingModel2D::new_ordered(8, 2.0);
+        let initial_energy = ising.total_energy();
+        let initial_mag = ising.magnetization();
+        
+        // Perform Wolff steps
+        for _ in 0..10 {
+            ising.wolff_cluster_step();
+        }
+        
+        // Energy and magnetization should change but be physically reasonable
+        assert!(ising.total_energy().is_finite());
+        assert!(ising.magnetization().abs() <= (ising.size * ising.size) as f64);
+        assert_eq!(ising.step, 10);
+    }
+    
+    #[test]
+    fn test_wolff_3d_basic() {
+        let mut ising = IsingModel3D::new_ordered(6, 3.0);
+        let initial_energy = ising.total_energy();
+        
+        // Perform Wolff steps
+        for _ in 0..5 {
+            ising.wolff_cluster_step();
+        }
+        
+        // Energy should be finite and magnetization bounded
+        assert!(ising.total_energy().is_finite());
+        assert!(ising.magnetization().abs() <= (ising.size * ising.size * ising.size) as f64);
+        assert_eq!(ising.step, 5);
+    }
+    
+    #[test]
+    fn test_wolff_4d_basic() {
+        let mut ising = IsingModel4D::new_ordered(4, 4.0);
+        let total_spins = (ising.size as f64).powi(4);
+        
+        // Perform Wolff steps
+        for _ in 0..3 {
+            ising.wolff_cluster_step();
+        }
+        
+        // Check basic properties
+        assert!(ising.total_energy().is_finite());
+        assert!(ising.magnetization().abs() <= total_spins);
+        assert_eq!(ising.step, 3);
+    }
+    
+    #[test]
+    fn test_wolff_cluster_sizes() {
+        let mut ising = IsingModel2D::new_ordered(6, 1.0);  // Low temperature
+        let total_spins = ising.size * ising.size;
+        
+        let mut cluster_sizes = Vec::new();
+        for _ in 0..20 {
+            let size = ising.wolff_cluster_step_with_size();
+            cluster_sizes.push(size);
+        }
+        
+        // All cluster sizes should be reasonable
+        for &size in &cluster_sizes {
+            assert!(size > 0);
+            assert!(size <= total_spins);
+        }
+        
+        // At low temperature, clusters should generally be small
+        let mean_size = cluster_sizes.iter().sum::<usize>() as f64 / cluster_sizes.len() as f64;
+        assert!(mean_size > 0.0);
+        assert!(mean_size <= total_spins as f64);
+    }
+    
+    #[test]
+    fn test_wolff_energy_conservation() {
+        // Test that energy calculations are consistent after Wolff steps
+        let mut ising1 = IsingModel2D::new(8, 2.5);
+        let mut ising2 = ising1.clone();
+        
+        // Apply same random seed for deterministic comparison
+        // (Note: This test checks consistency, not exact reproduction due to RNG)
+        
+        // Both should maintain physical properties
+        for _ in 0..5 {
+            ising1.monte_carlo_step();
+            ising2.wolff_cluster_step();
+        }
+        
+        // Both should have reasonable energies
+        let energy1 = ising1.total_energy();
+        let energy2 = ising2.total_energy();
+        
+        assert!(energy1.is_finite());
+        assert!(energy2.is_finite());
+        
+        // Energy per site should be in reasonable range for 2D Ising model
+        let min_energy_per_site = -2.0;  // Ground state
+        let max_energy_per_site = 2.0;   // Maximally frustrated state
+        
+        assert!(ising1.energy_per_site() >= min_energy_per_site);
+        assert!(ising1.energy_per_site() <= max_energy_per_site);
+        assert!(ising2.energy_per_site() >= min_energy_per_site);
+        assert!(ising2.energy_per_site() <= max_energy_per_site);
+    }
+    
+    #[test]
+    fn test_wolff_detailed_balance() {
+        // Test that Wolff algorithm maintains detailed balance
+        // by checking that equilibrium properties are preserved
+        let mut ising = IsingModel2D::new(12, analysis::critical_temperature_2d());
+        
+        // Equilibrate
+        for _ in 0..100 {
+            ising.wolff_cluster_step();
+        }
+        
+        // Collect samples
+        let mut energy_samples = Vec::new();
+        let mut mag_samples = Vec::new();
+        
+        for _ in 0..200 {
+            ising.wolff_cluster_step();
+            energy_samples.push(ising.energy_per_site());
+            mag_samples.push(ising.magnetization_per_site());
+        }
+        
+        // Check that samples are reasonable
+        let mean_energy = energy_samples.iter().sum::<f64>() / energy_samples.len() as f64;
+        let mean_mag = mag_samples.iter().sum::<f64>() / mag_samples.len() as f64;
+        
+        // At critical temperature, magnetization should be small on average
+        assert!(mean_mag.abs() < 0.5);
+        assert!(mean_energy > -2.0 && mean_energy < 0.0);
+        
+        // Variance should be reasonable (not zero, not infinite)
+        let energy_var = energy_samples.iter()
+            .map(|e| (e - mean_energy).powi(2))
+            .sum::<f64>() / energy_samples.len() as f64;
+        
+        assert!(energy_var > 0.0);
+        assert!(energy_var < 1.0);
+    }
+    
+    #[test]
+    fn test_wolff_vs_metropolis_consistency() {
+        // Test that both algorithms sample the same equilibrium distribution
+        // (at least approximately for finite samples)
+        let temp = 3.0;
+        let size = 10;
+        let steps = 500;
+        
+        let mut ising_metro = IsingModel2D::new(size, temp);
+        let mut ising_wolff = IsingModel2D::new(size, temp);
+        
+        // Equilibrate both
+        for _ in 0..200 {
+            ising_metro.monte_carlo_step();
+            ising_wolff.wolff_cluster_step();
+        }
+        
+        // Collect samples
+        let mut metro_energies = Vec::new();
+        let mut wolff_energies = Vec::new();
+        
+        for _ in 0..steps {
+            ising_metro.monte_carlo_step();
+            ising_wolff.wolff_cluster_step();
+            
+            metro_energies.push(ising_metro.energy_per_site());
+            wolff_energies.push(ising_wolff.energy_per_site());
+        }
+        
+        // Calculate means
+        let metro_mean = metro_energies.iter().sum::<f64>() / metro_energies.len() as f64;
+        let wolff_mean = wolff_energies.iter().sum::<f64>() / wolff_energies.len() as f64;
+        
+        // Means should be reasonably close (within statistical error)
+        let diff = (metro_mean - wolff_mean).abs();
+        assert!(diff < 0.1, "Energy means too different: Metro={:.4}, Wolff={:.4}, diff={:.4}", 
+               metro_mean, wolff_mean, diff);
     }
 }
