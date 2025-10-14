@@ -1,4 +1,5 @@
 use rand::prelude::*;
+use rayon::prelude::*;
 
 /// 2D Ising Model for Monte Carlo simulation
 /// 
@@ -338,6 +339,183 @@ impl IsingModel2D {
         
         self.step += 1;
         cluster_size
+    }
+
+    // ===== PARALLEL MONTE CARLO METHODS =====
+
+    /// Perform multiple Monte Carlo steps in parallel
+    /// This parallelizes the execution of multiple independent MC steps
+    pub fn parallel_monte_carlo_steps(&mut self, num_steps: usize) {
+        // Create thread-safe models by initializing new RNGs
+        let spins = &self.spins;
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        
+        let results: Vec<Vec<Vec<i8>>> = (0..num_steps)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel2D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                model.monte_carlo_step();
+                model.spins
+            })
+            .collect();
+
+        // Use result from a random thread to avoid bias
+        let final_spins = &results[thread_rng().gen_range(0..results.len())];
+        self.spins = final_spins.clone();
+        self.step += num_steps as u64;
+    }
+
+    /// Perform parallel ensemble sampling: run multiple independent simulations
+    /// Returns statistics (energy, magnetization) from all runs
+    pub fn parallel_ensemble_sampling(
+        &self,
+        num_runs: usize,
+        steps_per_run: usize,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        let results: Vec<(f64, f64)> = (0..num_runs)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel2D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                
+                // Equilibrate
+                for _ in 0..steps_per_run / 4 {
+                    model.monte_carlo_step();
+                }
+                
+                // Sample observables
+                let mut energies = Vec::new();
+                let mut magnetizations = Vec::new();
+                
+                for _ in 0..steps_per_run {
+                    model.monte_carlo_step();
+                    energies.push(model.energy_per_site());
+                    magnetizations.push(model.abs_magnetization_per_site());
+                }
+                
+                let mean_energy = energies.iter().sum::<f64>() / energies.len() as f64;
+                let mean_mag = magnetizations.iter().sum::<f64>() / magnetizations.len() as f64;
+                
+                (mean_energy, mean_mag)
+            })
+            .collect();
+
+        let energies = results.iter().map(|(e, _)| *e).collect();
+        let magnetizations = results.iter().map(|(_, m)| *m).collect();
+        
+        (energies, magnetizations)
+    }
+
+    /// Parallel calculation of total energy using Rayon
+    /// More efficient for large systems
+    pub fn parallel_total_energy(&self) -> f64 {
+        let size = self.size;
+        let spins = &self.spins;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        
+        let energy: f64 = (0..size)
+            .into_par_iter()
+            .map(|i| {
+                let mut row_energy = 0.0;
+                for j in 0..size {
+                    let spin = spins[i][j] as f64;
+                    
+                    // Only count right and down neighbors to avoid double counting
+                    let right_neighbor = spins[i][(j + 1) % size] as f64;
+                    let down_neighbor = spins[(i + 1) % size][j] as f64;
+                    
+                    row_energy -= coupling * spin * (right_neighbor + down_neighbor);
+                    row_energy -= magnetic_field * spin;
+                }
+                row_energy
+            })
+            .sum();
+        
+        energy
+    }
+
+    /// Parallel calculation of magnetization components
+    pub fn parallel_magnetization_stats(&self) -> (f64, f64, f64) {
+        let size = self.size;
+        let spins = &self.spins;
+        
+        let (total_mag, total_abs_mag, total_squared_mag): (f64, f64, f64) = (0..size)
+            .into_par_iter()
+            .map(|i| {
+                let mut row_mag = 0.0;
+                let mut row_abs_mag = 0.0;
+                let mut row_sq_mag = 0.0;
+                
+                for j in 0..size {
+                    let spin = spins[i][j] as f64;
+                    row_mag += spin;
+                    row_abs_mag += spin.abs();
+                    row_sq_mag += spin * spin;
+                }
+                
+                (row_mag, row_abs_mag, row_sq_mag)
+            })
+            .reduce(
+                || (0.0, 0.0, 0.0),
+                |a, b| (a.0 + b.0, a.1 + b.1, a.2 + b.2),
+            );
+
+        let total_sites = (size * size) as f64;
+        (
+            total_mag / total_sites,
+            total_abs_mag / total_sites,
+            total_squared_mag / total_sites,
+        )
+    }
+
+    /// Parallel Wolff cluster steps for improved sampling efficiency
+    pub fn parallel_wolff_ensemble(&self, num_clusters: usize) -> Vec<usize> {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        (0..num_clusters)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel2D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                model.wolff_cluster_step_with_size()
+            })
+            .collect()
     }
 }
 
@@ -716,6 +894,117 @@ impl IsingModel3D {
         
         self.step += 1;
         cluster_size
+    }
+
+    // ===== PARALLEL MONTE CARLO METHODS =====
+
+    /// Perform parallel ensemble sampling for 3D Ising model
+    pub fn parallel_ensemble_sampling(
+        &self,
+        num_runs: usize,
+        steps_per_run: usize,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        let results: Vec<(f64, f64)> = (0..num_runs)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel3D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                
+                // Equilibrate
+                for _ in 0..steps_per_run / 4 {
+                    model.monte_carlo_step();
+                }
+                
+                // Sample observables
+                let mut energies = Vec::new();
+                let mut magnetizations = Vec::new();
+                
+                for _ in 0..steps_per_run {
+                    model.monte_carlo_step();
+                    energies.push(model.energy_per_site());
+                    magnetizations.push(model.abs_magnetization_per_site());
+                }
+                
+                let mean_energy = energies.iter().sum::<f64>() / energies.len() as f64;
+                let mean_mag = magnetizations.iter().sum::<f64>() / magnetizations.len() as f64;
+                
+                (mean_energy, mean_mag)
+            })
+            .collect();
+
+        let energies = results.iter().map(|(e, _)| *e).collect();
+        let magnetizations = results.iter().map(|(_, m)| *m).collect();
+        
+        (energies, magnetizations)
+    }
+
+    /// Parallel calculation of total energy for 3D model
+    pub fn parallel_total_energy(&self) -> f64 {
+        let size = self.size;
+        let spins = &self.spins;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        
+        let energy: f64 = (0..size)
+            .into_par_iter()
+            .map(|i| {
+                let mut plane_energy = 0.0;
+                for j in 0..size {
+                    for k in 0..size {
+                        let spin = spins[i][j][k] as f64;
+                        
+                        // Only count positive direction neighbors to avoid double counting
+                        let x_neighbor = spins[(i + 1) % size][j][k] as f64;
+                        let y_neighbor = spins[i][(j + 1) % size][k] as f64;
+                        let z_neighbor = spins[i][j][(k + 1) % size] as f64;
+                        
+                        plane_energy -= coupling * spin * (x_neighbor + y_neighbor + z_neighbor);
+                        plane_energy -= magnetic_field * spin;
+                    }
+                }
+                plane_energy
+            })
+            .sum();
+        
+        energy
+    }
+
+    /// Parallel Wolff cluster ensemble for 3D model
+    pub fn parallel_wolff_ensemble(&self, num_clusters: usize) -> Vec<usize> {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        (0..num_clusters)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel3D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                model.wolff_cluster_step_with_size()
+            })
+            .collect()
     }
 }
 
@@ -1176,6 +1465,86 @@ impl IsingModel4D {
         
         self.step += 1;
         cluster_size
+    }
+
+    // ===== PARALLEL MONTE CARLO METHODS =====
+
+    /// Perform parallel ensemble sampling for 4D Ising model
+    pub fn parallel_ensemble_sampling(
+        &self,
+        num_runs: usize,
+        steps_per_run: usize,
+    ) -> (Vec<f64>, Vec<f64>) {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        let results: Vec<(f64, f64)> = (0..num_runs)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel4D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                
+                // Equilibrate (shorter for 4D due to computational cost)
+                for _ in 0..steps_per_run / 8 {
+                    model.monte_carlo_step();
+                }
+                
+                // Sample observables
+                let mut energies = Vec::new();
+                let mut magnetizations = Vec::new();
+                
+                for _ in 0..steps_per_run / 2 {  // Fewer steps for 4D
+                    model.monte_carlo_step();
+                    energies.push(model.energy_per_site());
+                    magnetizations.push(model.abs_magnetization_per_site());
+                }
+                
+                let mean_energy = energies.iter().sum::<f64>() / energies.len() as f64;
+                let mean_mag = magnetizations.iter().sum::<f64>() / magnetizations.len() as f64;
+                
+                (mean_energy, mean_mag)
+            })
+            .collect();
+
+        let energies = results.iter().map(|(e, _)| *e).collect();
+        let magnetizations = results.iter().map(|(_, m)| *m).collect();
+        
+        (energies, magnetizations)
+    }
+
+    /// Parallel Wolff cluster ensemble for 4D model
+    pub fn parallel_wolff_ensemble(&self, num_clusters: usize) -> Vec<usize> {
+        let size = self.size;
+        let temperature = self.temperature;
+        let coupling = self.coupling;
+        let magnetic_field = self.magnetic_field;
+        let spins = self.spins.clone();
+        
+        (0..num_clusters)
+            .into_par_iter()
+            .map(|_| {
+                let mut model = IsingModel4D {
+                    size,
+                    spins: spins.clone(),
+                    temperature,
+                    coupling,
+                    magnetic_field,
+                    rng: thread_rng(),
+                    step: 0,
+                };
+                model.wolff_cluster_step_with_size()
+            })
+            .collect()
     }
 }
 

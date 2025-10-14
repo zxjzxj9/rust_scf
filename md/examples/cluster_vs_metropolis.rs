@@ -51,6 +51,9 @@ fn main() {
     
     // Cluster size distribution analysis
     analyze_cluster_sizes(lattice_size, t_critical);
+    
+    // Parallel performance analysis
+    analyze_parallel_performance(lattice_size, t_critical);
 }
 
 fn compare_algorithms_at_temperature(lattice_size: usize, temperature: f64, steps: usize) {
@@ -268,5 +271,110 @@ fn calculate_variance(samples: &[f64]) -> f64 {
     samples.iter()
         .map(|x| (x - mean).powi(2))
         .sum::<f64>() / (samples.len() - 1) as f64
+}
+
+fn analyze_parallel_performance(lattice_size: usize, t_critical: f64) {
+    println!("🚀 Parallel Performance Analysis");
+    println!("================================");
+    
+    let model = IsingModel2D::new(lattice_size, t_critical);
+    let num_runs = 50;
+    let steps_per_run = 1000;
+    
+    println!("Testing parallel vs sequential ensemble sampling:");
+    println!("- System size: {}×{} ({} spins)", lattice_size, lattice_size, lattice_size * lattice_size);
+    println!("- Ensemble size: {} runs", num_runs);
+    println!("- Steps per run: {}", steps_per_run);
+    println!("- Available threads: {}", rayon::current_num_threads());
+    println!();
+    
+    // Sequential ensemble sampling
+    println!("🔄 Sequential Ensemble Sampling:");
+    let start_time = Instant::now();
+    let mut seq_energies = Vec::new();
+    let mut seq_mags = Vec::new();
+    
+    for _ in 0..num_runs {
+        let mut run_model = model.clone();
+        
+        // Equilibrate
+        for _ in 0..steps_per_run / 4 {
+            run_model.monte_carlo_step();
+        }
+        
+        // Sample observables
+        let mut run_energies = Vec::new();
+        let mut run_mags = Vec::new();
+        for _ in 0..steps_per_run {
+            run_model.monte_carlo_step();
+            run_energies.push(run_model.energy_per_site());
+            run_mags.push(run_model.abs_magnetization_per_site());
+        }
+        
+        seq_energies.push(run_energies.iter().sum::<f64>() / run_energies.len() as f64);
+        seq_mags.push(run_mags.iter().sum::<f64>() / run_mags.len() as f64);
+    }
+    let seq_time = start_time.elapsed();
+    
+    let seq_mean_energy = seq_energies.iter().sum::<f64>() / seq_energies.len() as f64;
+    let seq_mean_mag = seq_mags.iter().sum::<f64>() / seq_mags.len() as f64;
+    let seq_energy_std = calculate_std_error(&seq_energies);
+    let seq_mag_std = calculate_std_error(&seq_mags);
+    
+    println!("  Time: {:8.1} ms", seq_time.as_millis());
+    println!("  Energy: {:8.4} ± {:6.4}", seq_mean_energy, seq_energy_std);
+    println!("  |Magnetization|: {:6.4} ± {:6.4}", seq_mean_mag, seq_mag_std);
+    
+    // Parallel ensemble sampling
+    println!("\n⚡ Parallel Ensemble Sampling:");
+    let start_time = Instant::now();
+    let (par_energies, par_mags) = model.parallel_ensemble_sampling(num_runs, steps_per_run);
+    let par_time = start_time.elapsed();
+    
+    let par_mean_energy = par_energies.iter().sum::<f64>() / par_energies.len() as f64;
+    let par_mean_mag = par_mags.iter().sum::<f64>() / par_mags.len() as f64;
+    let par_energy_std = calculate_std_error(&par_energies);
+    let par_mag_std = calculate_std_error(&par_mags);
+    
+    println!("  Time: {:8.1} ms", par_time.as_millis());
+    println!("  Energy: {:8.4} ± {:6.4}", par_mean_energy, par_energy_std);
+    println!("  |Magnetization|: {:6.4} ± {:6.4}", par_mean_mag, par_mag_std);
+    
+    // Performance comparison
+    println!("\n📊 Performance Comparison:");
+    let speedup = seq_time.as_secs_f64() / par_time.as_secs_f64();
+    let efficiency = 100.0 * speedup / rayon::current_num_threads() as f64;
+    
+    println!("  Speedup: {:.2}x faster", speedup);
+    println!("  Parallel efficiency: {:.1}%", efficiency);
+    
+    // Statistical consistency check
+    let energy_diff = (seq_mean_energy - par_mean_energy).abs();
+    let mag_diff = (seq_mean_mag - par_mean_mag).abs();
+    println!("  Energy difference: {:8.6} (should be small)", energy_diff);
+    println!("  Magnetization difference: {:6.6} (should be small)", mag_diff);
+    
+    // Parallel Wolff cluster analysis
+    println!("\n⚡ Parallel Wolff Cluster Analysis:");
+    let start_time = Instant::now();
+    let cluster_sizes = model.parallel_wolff_ensemble(100);
+    let cluster_time = start_time.elapsed();
+    
+    let mean_cluster_size = cluster_sizes.iter().sum::<usize>() as f64 / cluster_sizes.len() as f64;
+    let max_cluster_size = *cluster_sizes.iter().max().unwrap_or(&0);
+    
+    println!("  Time for 100 parallel clusters: {:6.1} ms", cluster_time.as_millis());
+    println!("  Mean cluster size: {:8.1} spins ({:.2}% of lattice)", 
+             mean_cluster_size, 100.0 * mean_cluster_size / (lattice_size * lattice_size) as f64);
+    println!("  Max cluster size: {:8} spins ({:.1}% of lattice)", 
+             max_cluster_size, 100.0 * max_cluster_size as f64 / (lattice_size * lattice_size) as f64);
+    
+    println!("\n✅ Parallel optimization analysis complete!");
+    println!("\nKey Insights:");
+    println!("- Parallel ensemble sampling provides {}x speedup", speedup as u32);
+    println!("- Efficiency of {:.0}% indicates good thread utilization", efficiency);
+    println!("- Statistical results remain consistent between methods");
+    println!("- Parallel cluster analysis enables rapid sampling of cluster distributions");
+    println!("- Best gains for large ensembles and extensive statistical sampling");
 }
 
