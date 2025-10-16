@@ -1,6 +1,7 @@
 // file: `md/src/lj_pot.rs`
 use nalgebra::Vector3;
 use crate::run_md::ForceProvider;
+use rayon::prelude::*;
 
 pub struct LennardJones {
     pub epsilon: f64,
@@ -30,7 +31,6 @@ impl LennardJones {
 
     pub fn compute_potential_energy(&self, positions: &[Vector3<f64>]) -> f64 {
         let n = positions.len();
-        let mut potential = 0.0;
         let sigma2 = self.sigma * self.sigma;
 
         // cutoff at 2.5 sigma
@@ -40,7 +40,9 @@ impl LennardJones {
         // prevent singularity for r^2 < min_r2
         let min_r2 = 0.01 * sigma2;
 
-        for i in 0..n {
+        // Parallelize over the outer loop
+        (0..n).into_par_iter().map(|i| {
+            let mut local_potential = 0.0;
             for j in (i + 1)..n {
                 let rij = self.minimum_image(positions[i] - positions[j]);
                 let mut r2 = rij.norm_squared();
@@ -53,18 +55,16 @@ impl LennardJones {
                     r2 = min_r2;
                 }
 
-                potential += self.lj_potential(r2);
+                local_potential += self.lj_potential(r2);
             }
-        }
-
-        potential
+            local_potential
+        }).sum()
     }
 }
 
 impl ForceProvider for LennardJones {
     fn compute_forces(&self, positions: &[Vector3<f64>]) -> Vec<Vector3<f64>> {
         let n = positions.len();
-        let mut forces = vec![Vector3::zeros(); n];
         let sigma2 = self.sigma * self.sigma;
 
         // cutoff at 2.5 sigma
@@ -74,7 +74,9 @@ impl ForceProvider for LennardJones {
         // prevent singularity for r^2 < min_r2
         let min_r2 = 0.01 * sigma2;
 
-        for i in 0..n {
+        // Parallelize over the outer loop, collecting local force contributions
+        let force_contributions: Vec<Vec<Vector3<f64>>> = (0..n).into_par_iter().map(|i| {
+            let mut local_forces = vec![Vector3::zeros(); n];
             for j in (i + 1)..n {
                 let rij = self.minimum_image(positions[i] - positions[j]);
                 let mut r2 = rij.norm_squared();
@@ -92,8 +94,17 @@ impl ForceProvider for LennardJones {
                 let f_mag = 48.0 * self.epsilon * inv_r6 * (inv_r6 - 0.5) / r2;
                 let fij = rij * f_mag;
 
-                forces[i] += fij;
-                forces[j] -= fij;
+                local_forces[i] += fij;
+                local_forces[j] -= fij;
+            }
+            local_forces
+        }).collect();
+
+        // Sum all force contributions
+        let mut forces = vec![Vector3::zeros(); n];
+        for local_forces in force_contributions {
+            for i in 0..n {
+                forces[i] += local_forces[i];
             }
         }
 
