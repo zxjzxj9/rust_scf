@@ -1,26 +1,130 @@
 // file: `md/src/lj_pot.rs`
-use nalgebra::Vector3;
+use nalgebra::{Vector3, Matrix3};
 use crate::run_md::ForceProvider;
 use rayon::prelude::*;
 
+/// Lennard-Jones potential with support for arbitrary lattice structures.
+/// 
+/// The lattice is represented by a 3x3 matrix where each column is a lattice vector:
+/// - Column 0: a-vector (first lattice vector)
+/// - Column 1: b-vector (second lattice vector)
+/// - Column 2: c-vector (third lattice vector)
+/// 
+/// For orthogonal boxes, this is a diagonal matrix with box lengths on the diagonal.
 pub struct LennardJones {
     pub epsilon: f64,
     pub sigma: f64,
+    /// Lattice matrix: columns are lattice vectors [a, b, c]
+    pub lattice: Matrix3<f64>,
+    /// Inverse lattice matrix for minimum image convention
+    lattice_inv: Matrix3<f64>,
+    /// Legacy box_lengths for backward compatibility (deprecated)
+    #[deprecated(note = "Use lattice matrix instead")]
     pub box_lengths: Vector3<f64>,
 }
 
 impl LennardJones {
+    /// Create a new Lennard-Jones potential with an orthogonal box (backward compatible).
+    /// 
+    /// # Arguments
+    /// * `epsilon` - Energy parameter
+    /// * `sigma` - Length parameter
+    /// * `box_lengths` - Box dimensions [Lx, Ly, Lz]
+    #[allow(deprecated)]
     pub fn new(epsilon: f64, sigma: f64, box_lengths: Vector3<f64>) -> Self {
-        LennardJones { epsilon, sigma, box_lengths }
+        let lattice = Matrix3::from_diagonal(&box_lengths);
+        let lattice_inv = Matrix3::from_diagonal(&Vector3::new(
+            1.0 / box_lengths.x,
+            1.0 / box_lengths.y,
+            1.0 / box_lengths.z,
+        ));
+        LennardJones {
+            epsilon,
+            sigma,
+            lattice,
+            lattice_inv,
+            box_lengths,
+        }
     }
 
-    // Apply minimum-image convention
-    fn minimum_image(&self, mut d: Vector3<f64>) -> Vector3<f64> {
-        for k in 0..3 {
-            let box_l = self.box_lengths[k];
-            d[k] -= box_l * (d[k] / box_l).round();
+    /// Create a new Lennard-Jones potential with an arbitrary lattice.
+    /// 
+    /// # Arguments
+    /// * `epsilon` - Energy parameter
+    /// * `sigma` - Length parameter
+    /// * `lattice` - 3x3 matrix where columns are lattice vectors [a, b, c]
+    /// 
+    /// # Example
+    /// ```
+    /// use nalgebra::{Vector3, Matrix3};
+    /// use md::lj_pot::LennardJones;
+    /// 
+    /// // Triclinic box with 60-degree angles
+    /// let a = Vector3::new(10.0, 0.0, 0.0);
+    /// let b = Vector3::new(5.0, 8.66, 0.0);  // 60 degrees from a
+    /// let c = Vector3::new(0.0, 0.0, 10.0);
+    /// let lattice = Matrix3::from_columns(&[a, b, c]);
+    /// 
+    /// let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
+    /// ```
+    #[allow(deprecated)]
+    pub fn from_lattice(epsilon: f64, sigma: f64, lattice: Matrix3<f64>) -> Self {
+        let lattice_inv = lattice.try_inverse()
+            .expect("Lattice matrix must be invertible (non-zero volume)");
+        
+        // For backward compatibility, extract diagonal as box_lengths
+        let box_lengths = Vector3::new(
+            lattice.column(0).norm(),
+            lattice.column(1).norm(),
+            lattice.column(2).norm(),
+        );
+        
+        LennardJones {
+            epsilon,
+            sigma,
+            lattice,
+            lattice_inv,
+            box_lengths,
         }
-        d
+    }
+
+    /// Update the lattice during simulation (e.g., for NPT ensemble).
+    /// 
+    /// # Arguments
+    /// * `new_lattice` - New 3x3 lattice matrix
+    #[allow(deprecated)]
+    pub fn set_lattice(&mut self, new_lattice: Matrix3<f64>) {
+        self.lattice = new_lattice;
+        self.lattice_inv = new_lattice.try_inverse()
+            .expect("Lattice matrix must be invertible (non-zero volume)");
+        
+        // Update box_lengths for backward compatibility
+        self.box_lengths = Vector3::new(
+            new_lattice.column(0).norm(),
+            new_lattice.column(1).norm(),
+            new_lattice.column(2).norm(),
+        );
+    }
+
+    /// Apply minimum image convention for arbitrary lattice.
+    /// 
+    /// This works by:
+    /// 1. Converting distance vector to fractional coordinates
+    /// 2. Wrapping fractional coordinates to [-0.5, 0.5)
+    /// 3. Converting back to Cartesian coordinates
+    pub fn minimum_image(&self, d: Vector3<f64>) -> Vector3<f64> {
+        // Convert to fractional coordinates
+        let frac = self.lattice_inv * d;
+        
+        // Wrap to [-0.5, 0.5)
+        let wrapped = Vector3::new(
+            frac.x - frac.x.round(),
+            frac.y - frac.y.round(),
+            frac.z - frac.z.round(),
+        );
+        
+        // Convert back to Cartesian
+        self.lattice * wrapped
     }
 
     pub fn lj_potential(&self, r2: f64) -> f64 {
@@ -127,7 +231,10 @@ mod tests {
         
         assert_eq!(lj.epsilon, epsilon);
         assert_eq!(lj.sigma, sigma);
-        assert_eq!(lj.box_lengths, box_lengths);
+        // Test that lattice is diagonal for orthogonal box
+        assert_eq!(lj.lattice[(0, 0)], 10.0);
+        assert_eq!(lj.lattice[(1, 1)], 10.0);
+        assert_eq!(lj.lattice[(2, 2)], 10.0);
     }
 
     #[test]
@@ -292,7 +399,7 @@ mod tests {
         assert_relative_eq!(numerical_force, analytical_force, epsilon = 1e-4);
     }
 
-    #[test] 
+    #[test]
     fn test_compute_forces_three_atoms() {
         let lj = LennardJones::new(1.0, 1.0, Vector3::new(20.0, 20.0, 20.0));
         
@@ -325,5 +432,152 @@ mod tests {
         assert_relative_eq!(forces[1].z, 0.0, epsilon = 1e-10);
         assert_relative_eq!(forces[2].y, 0.0, epsilon = 1e-10);
         assert_relative_eq!(forces[2].z, 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_from_lattice_orthogonal() {
+        // Test that from_lattice gives same results as new() for orthogonal boxes
+        let box_lengths = Vector3::new(10.0, 12.0, 15.0);
+        let lattice = Matrix3::from_diagonal(&box_lengths);
+        
+        let lj1 = LennardJones::new(1.0, 1.0, box_lengths);
+        let lj2 = LennardJones::from_lattice(1.0, 1.0, lattice);
+        
+        // Test that minimum image convention gives same results
+        let d = Vector3::new(7.0, -8.0, 9.0);
+        let d1 = lj1.minimum_image(d);
+        let d2 = lj2.minimum_image(d);
+        
+        assert_relative_eq!(d1.x, d2.x, epsilon = 1e-10);
+        assert_relative_eq!(d1.y, d2.y, epsilon = 1e-10);
+        assert_relative_eq!(d1.z, d2.z, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_triclinic_lattice() {
+        // Create a triclinic box with 60-degree angle between a and b
+        let a = Vector3::new(10.0, 0.0, 0.0);
+        let b = Vector3::new(5.0, 8.66025404, 0.0);  // 60 degrees from a
+        let c = Vector3::new(0.0, 0.0, 10.0);
+        let lattice = Matrix3::from_columns(&[a, b, c]);
+        
+        let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
+        
+        // Test that lattice is stored correctly
+        assert_relative_eq!(lj.lattice.column(0)[0], 10.0, epsilon = 1e-6);
+        assert_relative_eq!(lj.lattice.column(1)[0], 5.0, epsilon = 1e-6);
+        assert_relative_eq!(lj.lattice.column(1)[1], 8.66025404, epsilon = 1e-6);
+        
+        // Test minimum image convention
+        // Point at (11, 0, 0) should wrap to (1, 0, 0) through a-vector
+        let d = Vector3::new(11.0, 0.0, 0.0);
+        let wrapped = lj.minimum_image(d);
+        assert_relative_eq!(wrapped.x, 1.0, epsilon = 1e-6);
+        assert_relative_eq!(wrapped.y, 0.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_triclinic_pbc_wrapping() {
+        // Create a triclinic box
+        let a = Vector3::new(8.0, 0.0, 0.0);
+        let b = Vector3::new(4.0, 6.928, 0.0);  // 60 degrees
+        let c = Vector3::new(0.0, 0.0, 8.0);
+        let lattice = Matrix3::from_columns(&[a, b, c]);
+        
+        let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
+        
+        // Two atoms that are close through PBC in triclinic box
+        let positions = vec![
+            Vector3::new(0.5, 0.5, 0.0),
+            Vector3::new(7.8, 0.5, 0.0),  // Near opposite edge
+        ];
+        
+        // Distance should wrap through PBC
+        let rij = lj.minimum_image(positions[0] - positions[1]);
+        let dist = rij.norm();
+        
+        // Should be much closer than the direct distance
+        let direct_dist = (positions[0] - positions[1]).norm();
+        assert!(dist < direct_dist);
+        assert!(dist < 4.0);  // Should be close to 0.7 + wrap
+    }
+
+    #[test]
+    fn test_set_lattice() {
+        let mut lj = LennardJones::new(1.0, 1.0, Vector3::new(10.0, 10.0, 10.0));
+        
+        // Create a new triclinic lattice
+        let a = Vector3::new(12.0, 0.0, 0.0);
+        let b = Vector3::new(6.0, 10.392, 0.0);
+        let c = Vector3::new(0.0, 0.0, 12.0);
+        let new_lattice = Matrix3::from_columns(&[a, b, c]);
+        
+        lj.set_lattice(new_lattice);
+        
+        // Verify the lattice was updated
+        assert_relative_eq!(lj.lattice.column(0)[0], 12.0, epsilon = 1e-10);
+        assert_relative_eq!(lj.lattice.column(1)[0], 6.0, epsilon = 1e-10);
+        
+        // Verify inverse was recomputed (test by checking minimum image)
+        let d = Vector3::new(13.0, 0.0, 0.0);
+        let wrapped = lj.minimum_image(d);
+        assert_relative_eq!(wrapped.x, 1.0, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_triclinic_forces_conservation() {
+        // Test that forces still conserve momentum in triclinic box
+        let a = Vector3::new(15.0, 0.0, 0.0);
+        let b = Vector3::new(7.5, 12.99, 0.0);
+        let c = Vector3::new(0.0, 0.0, 15.0);
+        let lattice = Matrix3::from_columns(&[a, b, c]);
+        
+        let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
+        
+        // Three atoms in triclinic box
+        let positions = vec![
+            Vector3::new(1.0, 1.0, 1.0),
+            Vector3::new(3.0, 2.0, 1.0),
+            Vector3::new(5.0, 4.0, 1.0),
+        ];
+        
+        let forces = lj.compute_forces(&positions);
+        
+        // Total force should be zero (momentum conservation)
+        let total_force = forces[0] + forces[1] + forces[2];
+        assert_relative_eq!(total_force.x, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(total_force.y, 0.0, epsilon = 1e-10);
+        assert_relative_eq!(total_force.z, 0.0, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_triclinic_energy_symmetry() {
+        // Test that energy is symmetric under lattice translation
+        let a = Vector3::new(10.0, 0.0, 0.0);
+        let b = Vector3::new(5.0, 8.66, 0.0);
+        let c = Vector3::new(0.0, 0.0, 10.0);
+        let lattice = Matrix3::from_columns(&[a, b, c]);
+        
+        let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
+        
+        // Two atoms at minimum distance
+        let r_min = 2_f64.powf(1.0/6.0);
+        let positions1 = vec![
+            Vector3::new(1.0, 1.0, 1.0),
+            Vector3::new(1.0 + r_min, 1.0, 1.0),
+        ];
+        
+        // Same configuration translated by lattice vector a
+        let positions2 = vec![
+            Vector3::new(11.0, 1.0, 1.0),  // Wrapped through PBC
+            Vector3::new(11.0 + r_min, 1.0, 1.0),
+        ];
+        
+        let e1 = lj.compute_potential_energy(&positions1);
+        let e2 = lj.compute_potential_energy(&positions2);
+        
+        // Energies should be identical due to PBC
+        assert_relative_eq!(e1, e2, epsilon = 1e-8);
+        assert_relative_eq!(e1, -1.0, epsilon = 1e-8);
     }
 }
