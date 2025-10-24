@@ -74,11 +74,60 @@ You can modify the examples to:
 - Use different LJ parameters for other noble gases
 - Add analysis functions (radial distribution, structure factor, etc.)
 
+### 3. NPT Ensemble Simulations (Barostat + Thermostat)
+
+A collection of examples demonstrating constant pressure and temperature (NPT) molecular dynamics:
+
+**Available NPT Examples:**
+- `quick_lj_npt.rs` - Quick testing (8 atoms, 30s runtime)
+- `lj_cluster_npt.rs` - Full cluster simulation with analysis (32 atoms, 3min)
+- `single_atom_npt.rs` - Educational single-atom ideal gas
+- `multi_atom_npt.rs` - Multi-atom LJ system with structure analysis
+
+**Key Features:**
+- Nosé-Hoover thermostat (temperature control)
+- Parrinello-Rahman barostat (pressure control)
+- Proper virial-based pressure calculation
+- Volume fluctuations at constant pressure
+- Phase transition studies (melting, evaporation)
+- Coordination number and structural analysis
+
+**Quick Start:**
+```bash
+# Quick test (30 seconds)
+cargo run --example quick_lj_npt --release
+
+# Full simulation with analysis (3 minutes)
+cargo run --example lj_cluster_npt --release
+
+# Educational single-atom
+cargo run --example single_atom_npt --release
+```
+
+**Documentation:** See `NPT_EXAMPLES_README.md` and `LJ_CLUSTER_NPT_GUIDE.md` for detailed guides.
+
+**NPT Ensemble Physics:**
+
+In NPT simulations:
+- **N** (particles): Fixed
+- **P** (pressure): Controlled by barostat
+- **T** (temperature): Controlled by thermostat
+- **V** (volume): Fluctuates to maintain pressure
+
+Pressure calculation includes virial:
+```
+P = (2K + W) / (3V)
+```
+where K = kinetic energy, W = virial from forces
+
+---
+
 ## Physics Background
 
 The simulations use:
 - **Lennard-Jones potential**: V(r) = 4ε[(σ/r)¹² - (σ/r)⁶]
 - **Nosé-Hoover thermostat**: Maintains target temperature
+- **Parrinello-Rahman barostat**: Maintains target pressure (NPT only)
 - **Verlet integration**: Time evolution of positions/velocities
 - **Periodic boundary conditions**: Simulate bulk behavior
 - **Reduced units**: Natural units where ε = σ = m = 1
