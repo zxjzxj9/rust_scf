@@ -11,13 +11,14 @@ use rayon::prelude::*;
 /// - Column 2: c-vector (third lattice vector)
 /// 
 /// For orthogonal boxes, this is a diagonal matrix with box lengths on the diagonal.
+#[derive(Debug, Clone)]
 pub struct LennardJones {
     pub epsilon: f64,
     pub sigma: f64,
     /// Lattice matrix: columns are lattice vectors [a, b, c]
     pub lattice: Matrix3<f64>,
     /// Inverse lattice matrix for minimum image convention
-    lattice_inv: Matrix3<f64>,
+    pub lattice_inv: Matrix3<f64>,
     /// Legacy box_lengths for backward compatibility (deprecated)
     #[deprecated(note = "Use lattice matrix instead")]
     pub box_lengths: Vector3<f64>,
