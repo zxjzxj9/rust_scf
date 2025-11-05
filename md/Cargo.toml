@@ -16,18 +16,83 @@ rayon = "1.8"
 approx = "0.5"
 tempfile = "3.0"
 
+# Molecular Dynamics Examples
 [[example]]
 name = "argon_melting"
-path = "examples/argon_melting.rs"
+path = "examples/molecular_dynamics/argon_melting.rs"
 
 [[example]]
-name = "argon_melting_demo"
-path = "examples/argon_melting_demo.rs"
+name = "pressure_calculation_demo"
+path = "examples/molecular_dynamics/pressure_calculation_demo.rs"
+
+# NPT Ensemble Examples
+[[example]]
+name = "quick_lj_npt"
+path = "examples/npt_ensemble/quick_lj_npt.rs"
 
 [[example]]
-name = "yaml_config_demo"
-path = "examples/yaml_config_demo.rs"
+name = "lj_cluster_npt"
+path = "examples/npt_ensemble/lj_cluster_npt.rs"
 
+[[example]]
+name = "single_atom_npt"
+path = "examples/npt_ensemble/single_atom_npt.rs"
+
+[[example]]
+name = "multi_atom_npt"
+path = "examples/npt_ensemble/multi_atom_npt.rs"
+
+[[example]]
+name = "triclinic_lattice_demo"
+path = "examples/npt_ensemble/triclinic_lattice_demo.rs"
+
+# Monte Carlo - Ising Model Examples
 [[example]]
 name = "ising_2d_mc"
-path = "examples/ising_2d_mc.rs"
+path = "examples/monte_carlo/ising/ising_2d_mc.rs"
+
+[[example]]
+name = "ising_3d_mc"
+path = "examples/monte_carlo/ising/ising_3d_mc.rs"
+
+[[example]]
+name = "ising_4d_mc"
+path = "examples/monte_carlo/ising/ising_4d_mc.rs"
+
+[[example]]
+name = "simple_ising_3d"
+path = "examples/monte_carlo/ising/simple_ising_3d.rs"
+
+[[example]]
+name = "critical_temperature_analysis"
+path = "examples/monte_carlo/ising/critical_temperature_analysis.rs"
+
+[[example]]
+name = "simple_tc_calculation"
+path = "examples/monte_carlo/ising/simple_tc_calculation.rs"
+
+[[example]]
+name = "cluster_vs_metropolis"
+path = "examples/monte_carlo/ising/cluster_vs_metropolis.rs"
+
+[[example]]
+name = "wolff_algorithm_guide"
+path = "examples/monte_carlo/ising/wolff_algorithm_guide.rs"
+
+# Monte Carlo - GCMC Examples
+[[example]]
+name = "gcmc_quickstart"
+path = "examples/monte_carlo/gcmc/gcmc_quickstart.rs"
+
+[[example]]
+name = "gcmc_lj_demo"
+path = "examples/monte_carlo/gcmc/gcmc_lj_demo.rs"
+
+[[example]]
+name = "gcmc_phase_diagram"
+path = "examples/monte_carlo/gcmc/gcmc_phase_diagram.rs"
+
+# Monte Carlo - Benchmarks
+[[example]]
+name = "parallel_mc_benchmark"
+path = "examples/monte_carlo/parallel_mc_benchmark.rs"
