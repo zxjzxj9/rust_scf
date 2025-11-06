@@ -1,8 +1,7 @@
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
-use crate::simple::SimpleSCF;
-use crate::optim::{GeometryOptimizer, CGOptimizer, create_optimizer};
-use crate::scf::SCF;
+use crate::scf_impl::{SimpleSCF, SCF};
+use crate::optim_impl::{GeometryOptimizer, CGOptimizer, create_optimizer};
 use basis::cgto::{Basis631G, ContractedGTO};
 use basis::gto::GTO;
 use std::collections::HashMap;

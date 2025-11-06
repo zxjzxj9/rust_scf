@@ -1,5 +1,4 @@
-use scf::simple::SimpleSCF;
-use scf::scf::SCF;
+use scf::{SimpleSCF, SCF};
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;

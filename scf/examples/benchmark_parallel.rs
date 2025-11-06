@@ -4,10 +4,8 @@ use std::time::Instant;
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
-use basis::basis::AOBasis;
 use basis::cgto::Basis631G;
-use scf::simple::SimpleSCF;
-use scf::scf::SCF;
+use scf::{SimpleSCF, SCF};
 
 fn create_h2_molecule() -> (Vec<Vector3<f64>>, Vec<Element>) {
     let coords = vec![

@@ -1,280 +1,196 @@
-use basis::cgto::Basis631G;
+//! SCF Calculation Command-Line Interface
+//!
+//! This is the main entry point for running SCF calculations with YAML configuration.
+
 use clap::Parser;
 use color_eyre::eyre::{Result, WrapErr};
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::Write;
 use std::fs;
-
-mod scf;
-use crate::optim::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
-mod optim;
-mod simple;
-mod simple_spin;
-use crate::scf::SCF;
-use crate::simple::SimpleSCF;
-use crate::simple_spin::SpinSCF;
 use tracing::info;
-use tracing_subscriber::{fmt::layer, fmt::time::FormatTime, fmt::format::Writer, layer::SubscriberExt, util::SubscriberInitExt, Registry};
-use std::fmt;
-use std::time::SystemTime as StdSystemTime;
 
-// Custom time formatter that shows only seconds
-struct SecondPrecisionTimer;
+mod config;
+mod io;
+mod optim_impl;
+mod scf_impl;
 
-impl FormatTime for SecondPrecisionTimer {
-    fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
-        let now = StdSystemTime::now();
-        let duration = now.duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        
-        // Format as HH:MM:SS (only seconds precision)
-        let total_seconds = duration.as_secs();
-        let hours = (total_seconds / 3600) % 24;
-        let minutes = (total_seconds / 60) % 60;
-        let seconds = total_seconds % 60;
-        
-        write!(w, "{:02}:{:02}:{:02}", hours, minutes, seconds)
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Config {
-    geometry: Vec<Atom>,
-    basis_sets: HashMap<String, String>,
-    scf_params: ScfParams,
-    optimization: Option<OptimizationParams>,
-    charge: Option<i32>,       // Total molecular charge
-    multiplicity: Option<usize>, // Spin multiplicity (2S+1)
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct OptimizationParams {
-    enabled: Option<bool>,
-    algorithm: Option<String>,
-    max_iterations: Option<usize>,
-    convergence_threshold: Option<f64>,
-    step_size: Option<f64>,
-}
-
-impl Default for OptimizationParams {
-    fn default() -> Self {
-        OptimizationParams {
-            enabled: Some(false),
-            algorithm: Some("cg".to_string()),
-            max_iterations: Some(50),
-            convergence_threshold: Some(1e-4),
-            step_size: Some(0.1),
-        }
-    }
-}
-
-fn fetch_basis(atomic_symbol: &str) -> Result<Basis631G> {
-    println!("DEBUG: Attempting to fetch basis set for {}", atomic_symbol);
-    let url = format!(
-        "https://www.basissetexchange.org/api/basis/6-31g/format/nwchem?elements={}",
-        atomic_symbol
-    );
-    println!("DEBUG: URL: {}", url);
-    let response = reqwest::blocking::get(&url)
-        .wrap_err_with(|| format!("Failed to fetch basis set for {}", atomic_symbol))?;
-    println!("DEBUG: HTTP request successful");
-    let basis_str = response
-        .text()
-        .wrap_err("Failed to get response text from basis set API")?;
-    println!("DEBUG: Got response text, length: {}", basis_str.len());
-    Ok(Basis631G::parse_nwchem(&basis_str))
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct Atom {
-    element: String,
-    coords: [f64; 3],
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-struct ScfParams {
-    density_mixing: Option<f64>,
-    max_cycle: Option<usize>,
-    diis_subspace_size: Option<usize>,
-    convergence_threshold: Option<f64>,
-}
-
-impl Default for ScfParams {
-    fn default() -> Self {
-        ScfParams {
-            density_mixing: Some(0.5),
-            max_cycle: Some(100),
-            diis_subspace_size: Some(8),
-            convergence_threshold: Some(1e-6),
-        }
-    }
-}
-
-/// Simple SCF calculation with YAML configuration
-#[derive(Parser, Debug)]
-#[command(author, version, about, long_about = None)]
-struct Args {
-    /// Path to the YAML configuration file
-    #[arg(short, long, default_value = "config.yaml")]
-    config_file: String,
-
-    /// Override density mixing parameter
-    #[arg(long)]
-    density_mixing: Option<f64>,
-
-    /// Override maximum SCF cycles
-    #[arg(long)]
-    max_cycle: Option<usize>,
-
-    /// Override DIIS subspace size
-    #[arg(long)]
-    diis_subspace_size: Option<usize>,
-
-    /// Override convergence threshold
-    #[arg(long)]
-    convergence_threshold: Option<f64>,
-
-    /// Override output file: (default stdout)
-    #[arg(short, long)]
-    output: Option<String>,
-
-    /// Enable geometry optimization
-    #[arg(long)]
-    optimize: bool,
-
-    /// Optimization algorithm (cg or sd)
-    #[arg(long, default_value = "cg")]
-    opt_algorithm: Option<String>,
-
-    /// Maximum optimization iterations
-    #[arg(long)]
-    opt_max_iterations: Option<usize>,
-
-    /// Optimization convergence threshold
-    #[arg(long)]
-    opt_convergence: Option<f64>,
-
-    /// Step size for optimization
-    #[arg(long)]
-    opt_step_size: Option<f64>,
-
-    /// Molecular charge (default: 0 for neutral)
-    #[arg(long)]
-    charge: Option<i32>,
-
-    /// Spin multiplicity (2S+1, default: 1 for singlet)
-    #[arg(long)]
-    multiplicity: Option<usize>,
-
-    /// Use spin-polarized SCF (UHF) instead of restricted SCF
-    #[arg(long)]
-    spin_polarized: bool,
-}
-
-fn setup_output(output_path: Option<&String>) {
-    match output_path {
-        Some(path) => {
-            info!("Output will be written to: {}", path);
-            if let Ok(log) = File::create(path) {
-                let file_layer = layer()
-                    .with_writer(log)
-                    .with_timer(SecondPrecisionTimer)
-                    .with_ansi(false);
-                Registry::default().with(file_layer).init();
-            } else {
-                eprintln!("Could not create output file: {}", path);
-            }
-        }
-        None => {
-            // Initialize tracing for stdout
-            let stdout_layer = layer()
-                .with_writer(std::io::stdout)
-                .with_timer(SecondPrecisionTimer)
-                .with_ansi(true);
-            Registry::default().with(stdout_layer).init();
-            info!("Output will be printed to stdout");
-        }
-    }
-}
-
-fn print_optimized_geometry<W: Write>(
-    writer: &mut W,
-    coords: &[Vector3<f64>],
-    elements: &[Element],
-    energy: f64,
-) -> Result<()> {
-    writeln!(writer, "Optimized geometry:")?;
-    for (i, (coord, elem)) in coords.iter().zip(elements.iter()).enumerate() {
-        writeln!(
-            writer,
-            "  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-            i + 1,
-            elem.get_symbol(),
-            coord.x,
-            coord.y,
-            coord.z
-        )?;
-    }
-    writeln!(writer, "Final energy: {:.10} au", energy)?;
-    Ok(())
-}
+use config::{Args, Config};
+use io::{fetch_basis, print_optimized_geometry, setup_output};
+use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
+use scf_impl::{SimpleSCF, SpinSCF, SCF};
 
 fn main() -> Result<()> {
     println!("DEBUG: Starting main function");
     color_eyre::install()?;
     println!("DEBUG: color_eyre installed");
+    
     let args = Args::parse();
     println!("DEBUG: Args parsed: {:?}", args.config_file);
     setup_output(args.output.as_ref());
     println!("DEBUG: Output setup complete");
 
-    // 1. Read YAML configuration file
+    // Load and parse configuration
     info!("Reading configuration from: {}", args.config_file);
     println!("DEBUG: About to read config file");
-    let config_file_content = fs::read_to_string(&args.config_file)
+    let config_content = fs::read_to_string(&args.config_file)
         .wrap_err_with(|| format!("Unable to read configuration file: {}", args.config_file))?;
     println!("DEBUG: Config file read successfully");
 
-    let mut config: Config = serde_yml::from_str(&config_file_content)
-        .wrap_err("Failed to parse configuration file")?;
+    let config: Config = serde_yml::from_str::<Config>(&config_content)
+        .wrap_err("Failed to parse configuration file")?
+        .with_defaults();
     println!("DEBUG: Config parsed successfully");
 
-    // Apply defaults to missing values but don't overwrite existing ones
-    let default_params = ScfParams::default();
-    if config.scf_params.density_mixing.is_none() {
-        config.scf_params.density_mixing = default_params.density_mixing;
-    }
-    if config.scf_params.max_cycle.is_none() {
-        config.scf_params.max_cycle = default_params.max_cycle;
-    }
-    if config.scf_params.diis_subspace_size.is_none() {
-        config.scf_params.diis_subspace_size = default_params.diis_subspace_size;
-    }
-    if config.scf_params.convergence_threshold.is_none() {
-        config.scf_params.convergence_threshold = default_params.convergence_threshold;
-    }
-
     info!("Configuration loaded:\n{:?}", config);
-    
-    // Check if we need spin-polarized calculations
+
+    // Determine calculation type
     let charge = args.charge.or(config.charge).unwrap_or(0);
     let multiplicity = args.multiplicity.or(config.multiplicity).unwrap_or(1);
     let use_spin_polarized = args.spin_polarized || multiplicity > 1 || charge != 0;
-    
+
     if use_spin_polarized {
         info!("Using spin-polarized SCF (UHF) with charge={}, multiplicity={}", charge, multiplicity);
+        run_spin_scf_calculation(config, args, charge, multiplicity)
     } else {
         info!("Using restricted SCF (RHF) for neutral singlet");
+        run_simple_scf_calculation(config, args)
+    }
+}
+
+/// Run a spin-polarized SCF calculation
+fn run_spin_scf_calculation(
+    config: Config,
+    args: Args,
+    charge: i32,
+    multiplicity: usize,
+) -> Result<()> {
+    use basis::cgto::Basis631G;
+    
+    let (elements, coords_vec) = prepare_geometry(&config)?;
+    let basis_map = prepare_basis_sets(&elements)?;
+
+    let mut spin_scf = SpinSCF::<Basis631G>::new();
+    println!("DEBUG: SpinSCF created");
+    
+    // Apply configuration parameters
+    spin_scf.density_mixing = config.scf_params.density_mixing.unwrap();
+    spin_scf.max_cycle = config.scf_params.max_cycle.unwrap();
+    spin_scf.set_charge(charge);
+    spin_scf.set_multiplicity(multiplicity);
+
+    // Override with command-line arguments if provided
+    if let Some(dm) = args.density_mixing {
+        info!("Overriding density_mixing with: {}", dm);
+        spin_scf.density_mixing = dm;
+    }
+    if let Some(mc) = args.max_cycle {
+        info!("Overriding max_cycle with: {}", mc);
+        spin_scf.max_cycle = mc;
     }
 
-    // Prepare Geometry
+    // Initialize and run SCF
+    info!("\nInitializing SpinSCF calculation...");
+    println!("DEBUG: About to init basis");
+    spin_scf.init_basis(&elements, basis_map.clone());
+    println!("DEBUG: About to init geometry");
+    spin_scf.init_geometry(&coords_vec, &elements);
+    println!("DEBUG: About to init density matrix");
+    spin_scf.init_density_matrix();
+    println!("DEBUG: About to init fock matrix");
+    spin_scf.init_fock_matrix();
+    println!("DEBUG: SpinSCF initialization complete");
+
+    info!("\nStarting SpinSCF cycle...\n");
+    println!("DEBUG: About to start SpinSCF cycle");
+    spin_scf.scf_cycle();
+    println!("DEBUG: SpinSCF cycle complete");
+
+    // Report results
+    info!("\nSpinSCF calculation finished.");
+    info!("\nFinal Energy Levels:");
+    info!("  Alpha electrons:");
+    for (i, energy) in spin_scf.e_level_alpha.iter().enumerate() {
+        info!("    Level {}: {:.8} au", i + 1, energy);
+    }
+    info!("  Beta electrons:");
+    for (i, energy) in spin_scf.e_level_beta.iter().enumerate() {
+        info!("    Level {}: {:.8} au", i + 1, energy);
+    }
+
+    let final_energy = spin_scf.calculate_total_energy();
+    info!("\nTotal energy: {:.10} au", final_energy);
+
+    // Run geometry optimization if requested
+    if should_optimize(&args, &config) {
+        run_optimization(&mut spin_scf, &args, &config, coords_vec, elements)?;
+    }
+
+    Ok(())
+}
+
+/// Run a simple (restricted) SCF calculation
+fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
+    use basis::cgto::Basis631G;
+    
+    let (elements, coords_vec) = prepare_geometry(&config)?;
+    let basis_map = prepare_basis_sets(&elements)?;
+
+    let mut scf = SimpleSCF::<Basis631G>::new();
+    println!("DEBUG: SimpleSCF created");
+
+    // Apply configuration parameters
+    scf.density_mixing = config.scf_params.density_mixing.unwrap();
+    scf.max_cycle = config.scf_params.max_cycle.unwrap();
+
+    // Override with command-line arguments if provided
+    if let Some(dm) = args.density_mixing {
+        info!("Overriding density_mixing with: {}", dm);
+        scf.density_mixing = dm;
+    }
+    if let Some(mc) = args.max_cycle {
+        info!("Overriding max_cycle with: {}", mc);
+        scf.max_cycle = mc;
+    }
+
+    // Initialize and run SCF
+    info!("\nInitializing SCF calculation...");
+    println!("DEBUG: About to init basis");
+    scf.init_basis(&elements, basis_map);
+    println!("DEBUG: About to init geometry");
+    scf.init_geometry(&coords_vec, &elements);
+    println!("DEBUG: About to init density matrix");
+    scf.init_density_matrix();
+    println!("DEBUG: About to init fock matrix");
+    scf.init_fock_matrix();
+    println!("DEBUG: SCF initialization complete");
+
+    info!("\nStarting SCF cycle...\n");
+    println!("DEBUG: About to start SCF cycle");
+    scf.scf_cycle();
+    println!("DEBUG: SCF cycle complete");
+
+    // Report results
+    info!("\nSCF calculation finished.");
+    info!("\nFinal Energy Levels:");
+    for (i, energy) in scf.e_level.iter().enumerate() {
+        info!("  Level {}: {:.8} au", i + 1, energy);
+    }
+
+    // Run geometry optimization if requested
+    if should_optimize(&args, &config) {
+        run_optimization(&mut scf, &args, &config, coords_vec, elements)?;
+    }
+
+    Ok(())
+}
+
+/// Prepare molecular geometry from configuration
+fn prepare_geometry(config: &Config) -> Result<(Vec<Element>, Vec<Vector3<f64>>)> {
     info!("\nPreparing geometry...");
     let mut elements = Vec::new();
     let mut coords_vec = Vec::new();
+
     for atom_config in &config.geometry {
         let element = Element::from_symbol(&atom_config.element)
             .ok_or_else(|| color_eyre::eyre::eyre!("Invalid element symbol: {}", atom_config.element))?;
@@ -287,11 +203,20 @@ fn main() -> Result<()> {
         coords_vec.push(coords);
     }
 
-    // Prepare Basis Sets
+    Ok((elements, coords_vec))
+}
+
+/// Prepare basis sets for all elements
+fn prepare_basis_sets(
+    elements: &[Element],
+) -> Result<HashMap<&str, &'static basis::cgto::Basis631G>> {
+    use basis::cgto::Basis631G;
+    
     info!("\nPreparing basis sets...");
     println!("DEBUG: Starting basis set preparation");
+    
     let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
-    for elem in &elements {
+    for elem in elements {
         let symbol = elem.get_symbol();
         if basis_map.contains_key(symbol) {
             continue;
@@ -306,226 +231,95 @@ fn main() -> Result<()> {
     }
     println!("DEBUG: Basis set preparation complete");
 
-    // Initialize and run SCF based on type needed
-    if use_spin_polarized {
-        // Use SpinSCF for spin-polarized calculations
-        let mut spin_scf = SpinSCF::<Basis631G>::new();
-        println!("DEBUG: SpinSCF created");
-        spin_scf.density_mixing = config.scf_params.density_mixing.unwrap_or(0.5);
-        spin_scf.max_cycle = config.scf_params.max_cycle.unwrap_or(100);
-        spin_scf.set_charge(charge);
-        spin_scf.set_multiplicity(multiplicity);
-        
-        // Override parameters from command line if provided
-        if let Some(dm) = args.density_mixing {
-            info!("Overriding density_mixing with: {}", dm);
-            spin_scf.density_mixing = dm;
+    Ok(basis_map)
+}
+
+/// Check if geometry optimization should be performed
+fn should_optimize(args: &Args, config: &Config) -> bool {
+    args.optimize || config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false)
+}
+
+/// Run geometry optimization
+fn run_optimization<S: SCF + Clone>(
+    scf: &mut S,
+    args: &Args,
+    config: &Config,
+    coords: Vec<Vector3<f64>>,
+    elements: Vec<Element>,
+) -> Result<()> {
+    use std::fs::File;
+    
+    info!("\nStarting geometry optimization...");
+
+    // Get optimization parameters
+    let opt_params = config
+        .optimization
+        .as_ref()
+        .cloned()
+        .unwrap_or_default()
+        .with_defaults();
+    
+    let algorithm = args.opt_algorithm
+        .clone()
+        .or(opt_params.algorithm)
+        .unwrap_or_else(|| "cg".to_string());
+    let max_iterations = args.opt_max_iterations
+        .or(opt_params.max_iterations)
+        .unwrap_or(50);
+    let convergence = args.opt_convergence
+        .or(opt_params.convergence_threshold)
+        .unwrap_or(1e-4);
+    let step_size = args.opt_step_size
+        .or(opt_params.step_size)
+        .unwrap_or(0.1);
+
+    info!("Optimization parameters:");
+    info!("  Algorithm: {}", algorithm);
+    info!("  Max iterations: {}", max_iterations);
+    info!("  Convergence threshold: {:.6e}", convergence);
+    info!("  Step size: {:.4}", step_size);
+
+    // Run optimization with the selected algorithm
+    let (optimized_coords, final_energy) = match algorithm.to_lowercase().as_str() {
+        "cg" => {
+            let mut optimizer = CGOptimizer::new(scf, max_iterations, convergence);
+            optimizer.set_step_size(step_size);
+            optimizer.init(coords, elements.clone());
+            optimizer.optimize()
         }
-        if let Some(mc) = args.max_cycle {
-            info!("Overriding max_cycle with: {}", mc);
-            spin_scf.max_cycle = mc;
+        "sd" => {
+            let mut optimizer = SteepestDescentOptimizer::new(scf, max_iterations, convergence);
+            optimizer.set_step_size(step_size);
+            optimizer.init(coords, elements.clone());
+            optimizer.optimize()
         }
-        
-        info!("\nInitializing SpinSCF calculation...");
-        println!("DEBUG: About to init basis");
-        spin_scf.init_basis(&elements, basis_map.clone());
-        println!("DEBUG: About to init geometry");
-        spin_scf.init_geometry(&coords_vec, &elements);
-        println!("DEBUG: About to init density matrix");
-        spin_scf.init_density_matrix();
-        println!("DEBUG: About to init fock matrix");
-        spin_scf.init_fock_matrix();
-        println!("DEBUG: SpinSCF initialization complete");
-
-        info!("\nStarting SpinSCF cycle...\n");
-        println!("DEBUG: About to start SpinSCF cycle");
-        spin_scf.scf_cycle();
-        println!("DEBUG: SpinSCF cycle complete");
-
-        info!("\nSpinSCF calculation finished.");
-        info!("\nFinal Energy Levels:");
-        info!("  Alpha electrons:");
-        for (i, energy) in spin_scf.e_level_alpha.iter().enumerate() {
-            info!("    Level {}: {:.8} au", i + 1, energy);
+        _ => {
+            info!("Unknown optimization algorithm: {}, defaulting to CG", algorithm);
+            let mut optimizer = CGOptimizer::new(scf, max_iterations, convergence);
+            optimizer.set_step_size(step_size);
+            optimizer.init(coords, elements.clone());
+            optimizer.optimize()
         }
-        info!("  Beta electrons:");
-        for (i, energy) in spin_scf.e_level_beta.iter().enumerate() {
-            info!("    Level {}: {:.8} au", i + 1, energy);
-        }
-        
-        let final_energy = spin_scf.calculate_total_energy();
-        info!("\nTotal energy: {:.10} au", final_energy);
-        
-        // Run geometry optimization if requested
-        let should_optimize = args.optimize ||
-            config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false);
+    };
 
-        if should_optimize {
-            info!("\nStarting geometry optimization...");
+    // Print optimized geometry
+    info!("\nOptimized geometry:");
+    for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
+        info!(
+            "  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
+            i + 1,
+            elem.get_symbol(),
+            coord.x,
+            coord.y,
+            coord.z
+        );
+    }
+    info!("Final energy: {:.10} au", final_energy);
 
-            // Get optimization parameters
-            let opt_params = config.optimization.unwrap_or_default();
-            let algorithm = args.opt_algorithm
-                .or_else(|| opt_params.algorithm)
-                .unwrap_or_else(|| "cg".to_string());
-            let max_iterations = args.opt_max_iterations
-                .or(opt_params.max_iterations)
-                .unwrap_or(50);
-            let convergence = args.opt_convergence
-                .or(opt_params.convergence_threshold)
-                .unwrap_or(1e-4);
-            let step_size = args.opt_step_size
-                .or(opt_params.step_size)
-                .unwrap_or(0.1);
-
-            info!("Optimization parameters:");
-            info!("  Algorithm: {}", algorithm);
-            info!("  Max iterations: {}", max_iterations);
-            info!("  Convergence threshold: {:.6e}", convergence);
-            info!("  Step size: {:.4}", step_size);
-
-            // Run optimization with the selected algorithm
-            let (optimized_coords, final_energy) = match algorithm.to_lowercase().as_str() {
-                "cg" => {
-                    let mut optimizer = CGOptimizer::new(&mut spin_scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                },
-                "sd" => {
-                    let mut optimizer = SteepestDescentOptimizer::new(&mut spin_scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                },
-                _ => {
-                    info!("Unknown optimization algorithm: {}, defaulting to CG", algorithm);
-                    let mut optimizer = CGOptimizer::new(&mut spin_scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                }
-            };
-
-            // Print optimized geometry
-            info!("\nOptimized geometry:");
-            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
-                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                    i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
-            info!("Final energy: {:.10} au", final_energy);
-
-            // Save optimized geometry if needed
-            if let Some(ref output_file) = args.output {
-                let mut file = File::create(output_file)?;
-                print_optimized_geometry(&mut file, &optimized_coords, &elements, final_energy)?;
-            }
-        }
-        
-    } else {
-        // Use SimpleSCF for restricted calculations
-        let mut scf = SimpleSCF::new();
-        println!("DEBUG: SimpleSCF created");
-        scf.density_mixing = config.scf_params.density_mixing.unwrap_or(0.5);
-        scf.max_cycle = config.scf_params.max_cycle.unwrap_or(100);
-        
-        // Override parameters from command line if provided
-        if let Some(dm) = args.density_mixing {
-            info!("Overriding density_mixing with: {}", dm);
-            scf.density_mixing = dm;
-        }
-        if let Some(mc) = args.max_cycle {
-            info!("Overriding max_cycle with: {}", mc);
-            scf.max_cycle = mc;
-        }
-        
-        info!("\nInitializing SCF calculation...");
-        println!("DEBUG: About to init basis");
-        scf.init_basis(&elements, basis_map);
-        println!("DEBUG: About to init geometry");
-        scf.init_geometry(&coords_vec, &elements);
-        println!("DEBUG: About to init density matrix");
-        scf.init_density_matrix();
-        println!("DEBUG: About to init fock matrix");
-        scf.init_fock_matrix();
-        println!("DEBUG: SCF initialization complete");
-
-        info!("\nStarting SCF cycle...\n");
-        println!("DEBUG: About to start SCF cycle");
-        scf.scf_cycle();
-        println!("DEBUG: SCF cycle complete");
-
-        info!("\nSCF calculation finished.");
-        info!("\nFinal Energy Levels:");
-        for (i, energy) in scf.e_level.iter().enumerate() {
-            info!("  Level {}: {:.8} au", i + 1, energy);
-        }
-
-        // Run geometry optimization if requested
-        let should_optimize = args.optimize ||
-            config.optimization.as_ref().and_then(|o| o.enabled).unwrap_or(false);
-
-        if should_optimize {
-            info!("\nStarting geometry optimization...");
-
-            // Get optimization parameters
-            let opt_params = config.optimization.unwrap_or_default();
-            let algorithm = args.opt_algorithm
-                .or_else(|| opt_params.algorithm)
-                .unwrap_or_else(|| "cg".to_string());
-            let max_iterations = args.opt_max_iterations
-                .or(opt_params.max_iterations)
-                .unwrap_or(50);
-            let convergence = args.opt_convergence
-                .or(opt_params.convergence_threshold)
-                .unwrap_or(1e-4);
-            let step_size = args.opt_step_size
-                .or(opt_params.step_size)
-                .unwrap_or(0.1);
-
-            info!("Optimization parameters:");
-            info!("  Algorithm: {}", algorithm);
-            info!("  Max iterations: {}", max_iterations);
-            info!("  Convergence threshold: {:.6e}", convergence);
-            info!("  Step size: {:.4}", step_size);
-
-            // Run optimization with the selected algorithm
-            let (optimized_coords, final_energy) = match algorithm.to_lowercase().as_str() {
-                "cg" => {
-                    let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                },
-                "sd" => {
-                    let mut optimizer = SteepestDescentOptimizer::new(&mut scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                },
-                _ => {
-                    info!("Unknown optimization algorithm: {}, defaulting to CG", algorithm);
-                    let mut optimizer = CGOptimizer::new(&mut scf, max_iterations, convergence);
-                    optimizer.set_step_size(step_size);
-                    optimizer.init(coords_vec.clone(), elements.clone());
-                    optimizer.optimize()
-                }
-            };
-
-            // Print optimized geometry
-            info!("\nOptimized geometry:");
-            for (i, (coord, elem)) in optimized_coords.iter().zip(elements.iter()).enumerate() {
-                info!("  Atom {}: {} at [{:.6}, {:.6}, {:.6}]",
-                    i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
-            }
-            info!("Final energy: {:.10} au", final_energy);
-
-            // Save optimized geometry if needed
-            if let Some(ref output_file) = args.output {
-                let mut file = File::create(output_file)?;
-                print_optimized_geometry(&mut file, &optimized_coords, &elements, final_energy)?;
-            }
-        }
+    // Save optimized geometry if output file is specified
+    if let Some(ref output_file) = args.output {
+        let mut file = File::create(output_file)?;
+        print_optimized_geometry(&mut file, &optimized_coords, &elements, final_energy)?;
     }
 
     Ok(())

@@ -1,6 +1,5 @@
-use scf::optim::create_optimizer;
-use scf::simple::SimpleSCF;
-use scf::scf::SCF;
+use scf::optim_impl::create_optimizer;
+use scf::{SimpleSCF, SCF};
 use basis::cgto::Basis631G;
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
