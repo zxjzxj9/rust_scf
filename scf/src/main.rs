@@ -76,8 +76,18 @@ fn run_spin_scf_calculation(
     // Apply configuration parameters
     spin_scf.density_mixing = config.scf_params.density_mixing.unwrap();
     spin_scf.max_cycle = config.scf_params.max_cycle.unwrap();
+    spin_scf.set_convergence_threshold(config.scf_params.convergence_threshold.unwrap());
     spin_scf.set_charge(charge);
     spin_scf.set_multiplicity(multiplicity);
+
+    // Enable DIIS if configured
+    if config.is_diis_enabled() {
+        let diis_size = config.diis_subspace_size();
+        info!("Enabling DIIS acceleration with subspace size {}", diis_size);
+        spin_scf.enable_diis(diis_size);
+    } else {
+        info!("DIIS acceleration disabled");
+    }
 
     // Override with command-line arguments if provided
     if let Some(dm) = args.density_mixing {
@@ -142,6 +152,16 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
     // Apply configuration parameters
     scf.density_mixing = config.scf_params.density_mixing.unwrap();
     scf.max_cycle = config.scf_params.max_cycle.unwrap();
+    scf.set_convergence_threshold(config.scf_params.convergence_threshold.unwrap());
+
+    // Enable DIIS if configured
+    if config.is_diis_enabled() {
+        let diis_size = config.diis_subspace_size();
+        info!("Enabling DIIS acceleration with subspace size {}", diis_size);
+        scf.enable_diis(diis_size);
+    } else {
+        info!("DIIS acceleration disabled");
+    }
 
     // Override with command-line arguments if provided
     if let Some(dm) = args.density_mixing {
