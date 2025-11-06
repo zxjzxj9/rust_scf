@@ -398,15 +398,20 @@ impl ForceValidator {
             });
             
             let mut test_scf = scf.clone();
-            let mut optimizer = create_optimizer(algorithm, &mut test_scf, 5, 1e-3)?;  // Fewer iterations, looser convergence
-            optimizer.init(coords.clone(), elements.clone());
-            
-            let (final_coords, final_energy) = optimizer.optimize();
-            
+            let final_coords;
+            let final_energy;
+            {
+                let mut optimizer = create_optimizer(algorithm, &mut test_scf, 5, 1e-3)?;  // Fewer iterations, looser convergence
+                optimizer.init(coords.clone(), elements.clone());
+
+                let (coords, energy) = optimizer.optimize();
+                final_coords = coords;
+                final_energy = energy;
+            } // optimizer dropped here, releasing the mutable borrow
+
             info!("  Final energy: {:.8} au", final_energy);
             info!("  Energy change: {:.8} au", final_energy - initial_energy);
-            info!("  Converged: {}", optimizer.is_converged());
-            
+
             // Validate final forces
             test_scf.init_geometry(&final_coords, &elements);
             test_scf.scf_cycle();
