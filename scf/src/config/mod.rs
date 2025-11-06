@@ -122,5 +122,15 @@ impl Config {
         }
         self
     }
+
+    /// Check if DIIS acceleration is enabled
+    pub fn is_diis_enabled(&self) -> bool {
+        self.scf_params.diis_subspace_size.unwrap_or(0) > 0
+    }
+
+    /// Get the DIIS subspace size
+    pub fn diis_subspace_size(&self) -> usize {
+        self.scf_params.diis_subspace_size.unwrap_or(8)
+    }
 }
 

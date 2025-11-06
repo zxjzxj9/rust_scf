@@ -37,6 +37,9 @@ pub struct SpinSCF<B: AOBasis> {
     pub e_level_alpha: DVector<f64>,
     pub e_level_beta: DVector<f64>,
     pub max_cycle: usize,
+    pub convergence_threshold: f64,
+    pub diis_alpha: Option<super::DIIS>,
+    pub diis_beta: Option<super::DIIS>,
     // Spin multiplicity (2S+1)
     pub multiplicity: usize,
     // Molecular charge
@@ -83,6 +86,9 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             e_level_alpha: DVector::zeros(0),
             e_level_beta: DVector::zeros(0),
             max_cycle: 1000,
+            convergence_threshold: 1e-6,
+            diis_alpha: None,
+            diis_beta: None,
             multiplicity: 1, // Default to singlet (no unpaired electrons)
             charge: 0, // Default to neutral molecule
         }
@@ -99,6 +105,17 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
         self.multiplicity = multiplicity;
         info!("Spin multiplicity set to {}", self.multiplicity);
+    }
+
+    pub fn set_convergence_threshold(&mut self, threshold: f64) {
+        self.convergence_threshold = threshold;
+        info!("Convergence threshold set to {}", threshold);
+    }
+
+    pub fn enable_diis(&mut self, subspace_size: usize) {
+        self.diis_alpha = Some(super::DIIS::new(subspace_size));
+        self.diis_beta = Some(super::DIIS::new(subspace_size));
+        info!("DIIS enabled with subspace size {}", subspace_size);
     }
 
     /// Get reference to alpha density matrix for validation
