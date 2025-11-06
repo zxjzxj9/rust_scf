@@ -27,6 +27,8 @@ pub struct SimpleSCF<B: AOBasis> {
     pub overlap_matrix: DMatrix<f64>,
     pub e_level: DVector<f64>,
     pub max_cycle: usize,
+    pub convergence_threshold: f64,
+    pub diis: Option<super::DIIS>,
     /// maps each contracted GTO (index in `mo_basis`) to the parent atom index
     basis_atom_map: Vec<usize>,
 }
@@ -90,6 +92,8 @@ where
             overlap_matrix: DMatrix::zeros(0, 0),
             e_level: DVector::zeros(0),
             max_cycle: 50,
+            convergence_threshold: 1e-6,
+            diis: None,
             basis_atom_map: Vec::new(),
         }
     }
@@ -104,6 +108,16 @@ where
 
     pub fn get_mo_basis(&self) -> &Vec<Arc<B::BasisType>> {
         &self.mo_basis
+    }
+
+    pub fn set_convergence_threshold(&mut self, threshold: f64) {
+        self.convergence_threshold = threshold;
+        info!("Convergence threshold set to {}", threshold);
+    }
+
+    pub fn enable_diis(&mut self, subspace_size: usize) {
+        self.diis = Some(super::DIIS::new(subspace_size));
+        info!("DIIS enabled with subspace size {}", subspace_size);
     }
 
     pub fn update_fock_matrix(&mut self) {

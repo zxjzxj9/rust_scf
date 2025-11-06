@@ -32,6 +32,7 @@ pub trait SCF {
     fn calculate_forces(&self) -> Vec<Vector3<f64>>;
 }
 
+#[derive(Clone)]
 pub struct DIIS {
     error_matrices: Vec<DMatrix<f64>>,
     fock_matrices: Vec<DMatrix<f64>>,
