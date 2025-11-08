@@ -12,11 +12,13 @@ use tracing::info;
 
 mod config;
 mod io;
+mod mp2_impl;
 mod optim_impl;
 mod scf_impl;
 
 use config::{Args, Config};
 use io::{fetch_basis, print_optimized_geometry, setup_output};
+use mp2_impl::MP2;
 use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
 use scf_impl::{SimpleSCF, SpinSCF, SCF};
 
@@ -192,9 +194,42 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
 
     // Report results
     info!("\nSCF calculation finished.");
+    let final_energy = scf.calculate_total_energy();
     info!("\nFinal Energy Levels:");
     for (i, energy) in scf.e_level.iter().enumerate() {
         info!("  Level {}: {:.8} au", i + 1, energy);
+    }
+    info!("\nHartree-Fock Total Energy: {:.10} au", final_energy);
+
+    // Run MP2 calculation if requested
+    if config.is_mp2_enabled() {
+        info!("\n===========================================");
+        info!("       Starting MP2 Calculation");
+        info!("===========================================");
+        
+        let mut mp2 = scf.create_mp2();
+        let algorithm = config.mp2_algorithm();
+        
+        let correlation_energy = match algorithm.to_lowercase().as_str() {
+            "direct" => {
+                info!("Using direct MP2 algorithm");
+                mp2.calculate_mp2_energy_direct()
+            }
+            _ => {
+                info!("Using optimized MP2 algorithm");
+                mp2.calculate_mp2_energy()
+            }
+        };
+        
+        let total_mp2_energy = final_energy + correlation_energy;
+        
+        info!("\n===========================================");
+        info!("        MP2 Results Summary");
+        info!("===========================================");
+        info!("Hartree-Fock energy:       {:.10} au", final_energy);
+        info!("MP2 correlation energy:    {:.10} au", correlation_energy);
+        info!("Total MP2 energy:          {:.10} au", total_mp2_energy);
+        info!("===========================================\n");
     }
 
     // Run geometry optimization if requested

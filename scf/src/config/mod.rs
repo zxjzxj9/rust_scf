@@ -17,6 +17,7 @@ pub struct Config {
     pub basis_sets: HashMap<String, String>,
     pub scf_params: ScfParams,
     pub optimization: Option<OptimizationParams>,
+    pub mp2: Option<Mp2Params>,
     pub charge: Option<i32>,
     pub multiplicity: Option<usize>,
 }
@@ -113,12 +114,45 @@ impl OptimizationParams {
     }
 }
 
+/// MP2 calculation parameters
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct Mp2Params {
+    pub enabled: Option<bool>,
+    pub algorithm: Option<String>, // "direct" or "optimized"
+}
+
+impl Default for Mp2Params {
+    fn default() -> Self {
+        Mp2Params {
+            enabled: Some(false),
+            algorithm: Some("optimized".to_string()),
+        }
+    }
+}
+
+impl Mp2Params {
+    /// Apply default values to any missing parameters
+    pub fn with_defaults(mut self) -> Self {
+        let defaults = Self::default();
+        if self.enabled.is_none() {
+            self.enabled = defaults.enabled;
+        }
+        if self.algorithm.is_none() {
+            self.algorithm = defaults.algorithm;
+        }
+        self
+    }
+}
+
 impl Config {
     /// Apply defaults to all configuration sections
     pub fn with_defaults(mut self) -> Self {
         self.scf_params = self.scf_params.with_defaults();
         if let Some(opt_params) = self.optimization.take() {
             self.optimization = Some(opt_params.with_defaults());
+        }
+        if let Some(mp2_params) = self.mp2.take() {
+            self.mp2 = Some(mp2_params.with_defaults());
         }
         self
     }
@@ -131,6 +165,19 @@ impl Config {
     /// Get the DIIS subspace size
     pub fn diis_subspace_size(&self) -> usize {
         self.scf_params.diis_subspace_size.unwrap_or(8)
+    }
+
+    /// Check if MP2 calculation is enabled
+    pub fn is_mp2_enabled(&self) -> bool {
+        self.mp2.as_ref().and_then(|m| m.enabled).unwrap_or(false)
+    }
+
+    /// Get the MP2 algorithm
+    pub fn mp2_algorithm(&self) -> String {
+        self.mp2
+            .as_ref()
+            .and_then(|m| m.algorithm.clone())
+            .unwrap_or_else(|| "optimized".to_string())
     }
 }
 

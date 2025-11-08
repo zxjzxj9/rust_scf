@@ -448,6 +448,39 @@ where
             pulay_two: self.calculate_pulay_two_forces(),
         }
     }
+    
+    /// Create an MP2 calculator from this converged HF calculation
+    ///
+    /// This method extracts the necessary data (MO coefficients, orbital energies,
+    /// basis functions) from the converged HF calculation and creates an MP2
+    /// instance ready for correlation energy calculation.
+    ///
+    /// # Returns
+    ///
+    /// An MP2 instance that can be used to calculate correlation energy
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use scf::{SimpleSCF, SCF, MP2};
+    /// 
+    /// // After HF convergence
+    /// let mut scf = SimpleSCF::new();
+    /// // ... setup and run SCF ...
+    /// scf.scf_cycle();
+    /// 
+    /// // Create MP2 calculator
+    /// let mut mp2 = scf.create_mp2();
+    /// let mp2_energy = mp2.calculate_mp2_energy();
+    /// ```
+    pub fn create_mp2(&self) -> crate::mp2_impl::MP2<B::BasisType> {
+        crate::mp2_impl::MP2::new(
+            self.coeffs.clone(),
+            self.e_level.clone(),
+            self.mo_basis.clone(),
+            self.elems.clone(),
+        )
+    }
 }
 
 impl<B: AOBasis + Clone + Send> SCF for SimpleSCF<B>
