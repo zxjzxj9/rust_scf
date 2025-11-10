@@ -13,12 +13,14 @@ use tracing::info;
 mod config;
 mod io;
 mod mp2_impl;
+mod ccsd_impl;
 mod optim_impl;
 mod scf_impl;
 
 use config::{Args, Config};
 use io::{fetch_basis, print_optimized_geometry, setup_output};
 use mp2_impl::MP2;
+use ccsd_impl::CCSD;
 use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
 use scf_impl::{SimpleSCF, SpinSCF, SCF};
 
@@ -229,6 +231,39 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
         info!("Hartree-Fock energy:       {:.10} au", final_energy);
         info!("MP2 correlation energy:    {:.10} au", correlation_energy);
         info!("Total MP2 energy:          {:.10} au", total_mp2_energy);
+        info!("===========================================\n");
+    }
+
+    // Run CCSD calculation if requested
+    if config.is_ccsd_enabled() {
+        info!("\n===========================================");
+        info!("       Starting CCSD Calculation");
+        info!("===========================================");
+        
+        let max_iterations = config.ccsd_max_iterations();
+        let convergence_threshold = config.ccsd_convergence_threshold();
+        
+        let mut ccsd = scf.create_ccsd(max_iterations, convergence_threshold);
+        let correlation_energy = ccsd.solve();
+        
+        let total_ccsd_energy = final_energy + correlation_energy;
+        
+        info!("\n===========================================");
+        info!("        CCSD Results Summary");
+        info!("===========================================");
+        info!("Hartree-Fock energy:       {:.10} au", final_energy);
+        info!("CCSD correlation energy:   {:.10} au", correlation_energy);
+        info!("Total CCSD energy:         {:.10} au", total_ccsd_energy);
+        
+        // Calculate and report T1 diagnostic
+        let t1_diag = ccsd.t1_diagnostic();
+        info!("\nT1 diagnostic:             {:.6}", t1_diag);
+        if t1_diag > 0.02 {
+            info!("WARNING: T1 diagnostic > 0.02 suggests significant multireference character");
+            info!("         CCSD may not be appropriate for this system");
+        } else {
+            info!("T1 diagnostic indicates single-reference character (good for CCSD)");
+        }
         info!("===========================================\n");
     }
 

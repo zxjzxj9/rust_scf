@@ -481,6 +481,38 @@ where
             self.elems.clone(),
         )
     }
+
+    /// Create a CCSD calculator from converged SCF data
+    ///
+    /// # Arguments
+    ///
+    /// * `max_iterations` - Maximum number of CCSD iterations
+    /// * `convergence_threshold` - Convergence threshold for T amplitudes
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // After converging SCF
+    /// scf.scf_cycle();
+    /// 
+    /// // Create CCSD calculator
+    /// let mut ccsd = scf.create_ccsd(50, 1e-7);
+    /// let ccsd_energy = ccsd.solve();
+    /// ```
+    pub fn create_ccsd(
+        &self,
+        max_iterations: usize,
+        convergence_threshold: f64,
+    ) -> crate::ccsd_impl::CCSD<B::BasisType> {
+        crate::ccsd_impl::CCSD::new(
+            self.coeffs.clone(),
+            self.e_level.clone(),
+            self.mo_basis.clone(),
+            self.elems.clone(),
+            max_iterations,
+            convergence_threshold,
+        )
+    }
 }
 
 impl<B: AOBasis + Clone + Send> SCF for SimpleSCF<B>

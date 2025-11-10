@@ -18,6 +18,7 @@ pub struct Config {
     pub scf_params: ScfParams,
     pub optimization: Option<OptimizationParams>,
     pub mp2: Option<Mp2Params>,
+    pub ccsd: Option<CcsdParams>,
     pub charge: Option<i32>,
     pub multiplicity: Option<usize>,
 }
@@ -144,6 +145,41 @@ impl Mp2Params {
     }
 }
 
+/// CCSD calculation parameters
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CcsdParams {
+    pub enabled: Option<bool>,
+    pub max_iterations: Option<usize>,
+    pub convergence_threshold: Option<f64>,
+}
+
+impl Default for CcsdParams {
+    fn default() -> Self {
+        CcsdParams {
+            enabled: Some(false),
+            max_iterations: Some(50),
+            convergence_threshold: Some(1e-7),
+        }
+    }
+}
+
+impl CcsdParams {
+    /// Apply default values to any missing parameters
+    pub fn with_defaults(mut self) -> Self {
+        let defaults = Self::default();
+        if self.enabled.is_none() {
+            self.enabled = defaults.enabled;
+        }
+        if self.max_iterations.is_none() {
+            self.max_iterations = defaults.max_iterations;
+        }
+        if self.convergence_threshold.is_none() {
+            self.convergence_threshold = defaults.convergence_threshold;
+        }
+        self
+    }
+}
+
 impl Config {
     /// Apply defaults to all configuration sections
     pub fn with_defaults(mut self) -> Self {
@@ -153,6 +189,9 @@ impl Config {
         }
         if let Some(mp2_params) = self.mp2.take() {
             self.mp2 = Some(mp2_params.with_defaults());
+        }
+        if let Some(ccsd_params) = self.ccsd.take() {
+            self.ccsd = Some(ccsd_params.with_defaults());
         }
         self
     }
@@ -178,6 +217,27 @@ impl Config {
             .as_ref()
             .and_then(|m| m.algorithm.clone())
             .unwrap_or_else(|| "optimized".to_string())
+    }
+
+    /// Check if CCSD calculation is enabled
+    pub fn is_ccsd_enabled(&self) -> bool {
+        self.ccsd.as_ref().and_then(|c| c.enabled).unwrap_or(false)
+    }
+
+    /// Get the CCSD max iterations
+    pub fn ccsd_max_iterations(&self) -> usize {
+        self.ccsd
+            .as_ref()
+            .and_then(|c| c.max_iterations)
+            .unwrap_or(50)
+    }
+
+    /// Get the CCSD convergence threshold
+    pub fn ccsd_convergence_threshold(&self) -> f64 {
+        self.ccsd
+            .as_ref()
+            .and_then(|c| c.convergence_threshold)
+            .unwrap_or(1e-7)
     }
 }
 
