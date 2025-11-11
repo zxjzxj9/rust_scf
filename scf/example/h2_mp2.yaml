@@ -1,0 +1,22 @@
+# H2 Molecule MP2 Calculation
+# This example demonstrates MP2 correlation energy calculation for H2
+
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]  # ~0.74 Angstrom bond length (in Bohr)
+
+basis_sets:
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-6
+  density_mixing: 0.5
+  diis_subspace_size: 0  # Disable DIIS for this simple example
+
+mp2:
+  enabled: true
+  algorithm: "optimized"  # Use "direct" for the straightforward O(N^8) algorithm
+

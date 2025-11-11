@@ -1,0 +1,23 @@
+geometry:
+  - element: O
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 1.43233673, 1.10767916]  # Bond length: 0.9572 Å, angle: 104.52°
+  - element: H
+    coords: [0.0, -1.43233673, 1.10767916]
+
+basis_sets:
+  O: "6-31g"
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 100
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 8
+
+ccsd:
+  enabled: true
+  max_iterations: 50
+  convergence_threshold: 1.0e-7
+

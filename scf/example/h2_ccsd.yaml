@@ -1,0 +1,20 @@
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]  # Bond length in Bohr (0.74 Å)
+
+basis_sets:
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 6
+
+ccsd:
+  enabled: true
+  max_iterations: 50
+  convergence_threshold: 1.0e-7
+

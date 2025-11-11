@@ -1,0 +1,26 @@
+# Water Molecule MP2 Calculation
+# Demonstrates MP2 correlation energy calculation for H2O
+
+geometry:
+  - element: O
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 1.43, 1.10]  # In Bohr units
+  - element: H
+    coords: [0.0, -1.43, 1.10]
+
+basis_sets:
+  O: "6-31g"
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 100
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 8
+
+mp2:
+  enabled: true
+  algorithm: "optimized"
+
+

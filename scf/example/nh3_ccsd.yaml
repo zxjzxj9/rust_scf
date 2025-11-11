@@ -1,0 +1,26 @@
+# Ammonia molecule - pyramidal geometry
+geometry:
+  - element: N
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, -1.77536, -0.55139]
+  - element: H
+    coords: [1.53745, 0.88768, -0.55139]
+  - element: H
+    coords: [-1.53745, 0.88768, -0.55139]
+
+basis_sets:
+  N: "6-31g"
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 100
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 8
+
+ccsd:
+  enabled: true
+  max_iterations: 75
+  convergence_threshold: 1.0e-7
+
