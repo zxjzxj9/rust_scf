@@ -14,6 +14,7 @@ mod config;
 mod io;
 mod mp2_impl;
 mod ccsd_impl;
+mod ci_impl;
 mod optim_impl;
 mod scf_impl;
 
@@ -21,6 +22,7 @@ use config::{Args, Config};
 use io::{fetch_basis, print_optimized_geometry, setup_output};
 use mp2_impl::MP2;
 use ccsd_impl::CCSD;
+use ci_impl::{CI, CIMethod};
 use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
 use scf_impl::{SimpleSCF, SpinSCF, SCF};
 
@@ -265,6 +267,64 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
             info!("T1 diagnostic indicates single-reference character (good for CCSD)");
         }
         info!("===========================================\n");
+    }
+
+    // Run CI calculation if requested
+    if config.is_ci_enabled() {
+        info!("\n===========================================");
+        info!("       Starting CI Calculation");
+        info!("===========================================");
+        
+        let max_states = config.ci_max_states();
+        let convergence_threshold = config.ci_convergence_threshold();
+        let method = config.ci_method();
+        
+        let mut ci = scf.create_ci(max_states, convergence_threshold);
+        
+        match method.to_lowercase().as_str() {
+            "cis" => {
+                info!("Running CIS (Configuration Interaction Singles) for excited states");
+                let excitation_energies = ci.calculate_cis_energies(max_states);
+                
+                info!("\n===========================================");
+                info!("        CIS Results Summary");
+                info!("===========================================");
+                info!("Hartree-Fock ground state: {:.10} au", final_energy);
+                info!("\nExcited States:");
+                for (i, &exc_energy) in excitation_energies.iter().enumerate() {
+                    let total_energy = final_energy + exc_energy;
+                    info!("  State {}: Excitation = {:.6} au ({:.2} eV), Total = {:.10} au",
+                          i + 1, exc_energy, exc_energy * 27.2114, total_energy);
+                }
+                info!("===========================================\n");
+            }
+            "cisd" => {
+                info!("Running CISD (Configuration Interaction Singles and Doubles)");
+                let correlation_energy = ci.calculate_cisd_energy();
+                let total_cisd_energy = final_energy + correlation_energy;
+                
+                info!("\n===========================================");
+                info!("        CISD Results Summary");
+                info!("===========================================");
+                info!("Hartree-Fock energy:       {:.10} au", final_energy);
+                info!("CISD correlation energy:   {:.10} au", correlation_energy);
+                info!("Total CISD energy:         {:.10} au", total_cisd_energy);
+                info!("===========================================\n");
+            }
+            _ => {
+                info!("Unknown CI method: {}. Using CISD.", method);
+                let correlation_energy = ci.calculate_cisd_energy();
+                let total_cisd_energy = final_energy + correlation_energy;
+                
+                info!("\n===========================================");
+                info!("        CISD Results Summary");
+                info!("===========================================");
+                info!("Hartree-Fock energy:       {:.10} au", final_energy);
+                info!("CISD correlation energy:   {:.10} au", correlation_energy);
+                info!("Total CISD energy:         {:.10} au", total_cisd_energy);
+                info!("===========================================\n");
+            }
+        }
     }
 
     // Run geometry optimization if requested

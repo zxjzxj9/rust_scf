@@ -513,6 +513,45 @@ where
             convergence_threshold,
         )
     }
+
+    /// Create a CI (Configuration Interaction) calculator from converged SCF data
+    ///
+    /// # Arguments
+    ///
+    /// * `max_states` - Maximum number of states to compute
+    /// * `convergence_threshold` - Convergence threshold for eigenvalue solver
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // After converging SCF
+    /// scf.scf_cycle();
+    /// 
+    /// // Create CI calculator
+    /// let mut ci = scf.create_ci(10, 1e-6);
+    /// 
+    /// // For ground state correlation (CISD)
+    /// let cisd_energy = ci.calculate_cisd_energy();
+    /// 
+    /// // For excited states (CIS)
+    /// let excitation_energies = ci.calculate_cis_energies(5);
+    /// ```
+    pub fn create_ci(
+        &self,
+        max_states: usize,
+        convergence_threshold: f64,
+    ) -> crate::ci_impl::CI<B::BasisType> {
+        let hf_energy = self.calculate_total_energy();
+        crate::ci_impl::CI::new(
+            self.coeffs.clone(),
+            self.e_level.clone(),
+            self.mo_basis.clone(),
+            self.elems.clone(),
+            hf_energy,
+            max_states,
+            convergence_threshold,
+        )
+    }
 }
 
 impl<B: AOBasis + Clone + Send> SCF for SimpleSCF<B>

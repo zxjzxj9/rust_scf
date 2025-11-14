@@ -3,7 +3,7 @@
 //! This library provides implementations of various SCF algorithms for quantum chemistry
 //! calculations, including restricted and unrestricted Hartree-Fock methods, MP2
 //! (Møller-Plesset perturbation theory), CCSD (Coupled Cluster Singles and Doubles),
-//! and geometry optimization algorithms.
+//! CI (Configuration Interaction), and geometry optimization algorithms.
 //!
 //! # Modules
 //!
@@ -12,6 +12,7 @@
 //! - `scf_impl`: SCF trait definition and implementations (SimpleSCF, SpinSCF)
 //! - `mp2_impl`: MP2 correlation energy calculations
 //! - `ccsd_impl`: CCSD correlation energy calculations
+//! - `ci_impl`: CI correlation and excited state calculations
 //! - `optim_impl`: Geometry optimization algorithms (Conjugate Gradient, Steepest Descent)
 //! - `force_validation`: Force calculation validation utilities
 
@@ -20,6 +21,7 @@ pub mod force_validation;
 pub mod io;
 pub mod mp2_impl;
 pub mod ccsd_impl;
+pub mod ci_impl;
 pub mod optim_impl;
 pub mod scf_impl;
 
@@ -27,5 +29,6 @@ pub mod scf_impl;
 pub use config::{Args, Config};
 pub use mp2_impl::MP2;
 pub use ccsd_impl::CCSD;
+pub use ci_impl::{CI, CIMethod};
 pub use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
 pub use scf_impl::{SimpleSCF, SpinSCF, SCF, DIIS};

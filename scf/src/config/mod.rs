@@ -19,6 +19,7 @@ pub struct Config {
     pub optimization: Option<OptimizationParams>,
     pub mp2: Option<Mp2Params>,
     pub ccsd: Option<CcsdParams>,
+    pub ci: Option<CiParams>,
     pub charge: Option<i32>,
     pub multiplicity: Option<usize>,
 }
@@ -180,6 +181,46 @@ impl CcsdParams {
     }
 }
 
+/// CI (Configuration Interaction) calculation parameters
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CiParams {
+    pub enabled: Option<bool>,
+    pub method: Option<String>, // "cis" or "cisd"
+    pub max_states: Option<usize>, // Number of states to compute
+    pub convergence_threshold: Option<f64>,
+}
+
+impl Default for CiParams {
+    fn default() -> Self {
+        CiParams {
+            enabled: Some(false),
+            method: Some("cisd".to_string()),
+            max_states: Some(5),
+            convergence_threshold: Some(1e-6),
+        }
+    }
+}
+
+impl CiParams {
+    /// Apply default values to any missing parameters
+    pub fn with_defaults(mut self) -> Self {
+        let defaults = Self::default();
+        if self.enabled.is_none() {
+            self.enabled = defaults.enabled;
+        }
+        if self.method.is_none() {
+            self.method = defaults.method;
+        }
+        if self.max_states.is_none() {
+            self.max_states = defaults.max_states;
+        }
+        if self.convergence_threshold.is_none() {
+            self.convergence_threshold = defaults.convergence_threshold;
+        }
+        self
+    }
+}
+
 impl Config {
     /// Apply defaults to all configuration sections
     pub fn with_defaults(mut self) -> Self {
@@ -192,6 +233,9 @@ impl Config {
         }
         if let Some(ccsd_params) = self.ccsd.take() {
             self.ccsd = Some(ccsd_params.with_defaults());
+        }
+        if let Some(ci_params) = self.ci.take() {
+            self.ci = Some(ci_params.with_defaults());
         }
         self
     }
@@ -238,6 +282,35 @@ impl Config {
             .as_ref()
             .and_then(|c| c.convergence_threshold)
             .unwrap_or(1e-7)
+    }
+
+    /// Check if CI calculation is enabled
+    pub fn is_ci_enabled(&self) -> bool {
+        self.ci.as_ref().and_then(|c| c.enabled).unwrap_or(false)
+    }
+
+    /// Get the CI method (CIS or CISD)
+    pub fn ci_method(&self) -> String {
+        self.ci
+            .as_ref()
+            .and_then(|c| c.method.clone())
+            .unwrap_or_else(|| "cisd".to_string())
+    }
+
+    /// Get the CI max states
+    pub fn ci_max_states(&self) -> usize {
+        self.ci
+            .as_ref()
+            .and_then(|c| c.max_states)
+            .unwrap_or(5)
+    }
+
+    /// Get the CI convergence threshold
+    pub fn ci_convergence_threshold(&self) -> f64 {
+        self.ci
+            .as_ref()
+            .and_then(|c| c.convergence_threshold)
+            .unwrap_or(1e-6)
     }
 }
 
