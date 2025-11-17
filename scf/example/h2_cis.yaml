@@ -1,0 +1,29 @@
+# H2 molecule CIS (Configuration Interaction Singles) calculation
+# This example computes excited states of the H2 molecule
+
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]  # H-H bond length in Bohr (~0.74 Å)
+
+basis_sets:
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 6
+
+ci:
+  enabled: true
+  method: "cis"  # Configuration Interaction Singles for excited states
+  max_states: 5  # Compute 5 lowest excited states
+  convergence_threshold: 1.0e-6
+
+# Expected output:
+# - HF ground state energy
+# - 5 excited state energies with excitation energies in both au and eV
+# - Transition energies useful for UV-Vis spectroscopy predictions
+

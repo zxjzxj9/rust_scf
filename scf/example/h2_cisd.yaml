@@ -1,0 +1,34 @@
+# H2 molecule CISD (Configuration Interaction Singles and Doubles) calculation
+# This example computes ground state correlation energy with CISD
+
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]  # H-H bond length in Bohr (~0.74 Å)
+
+basis_sets:
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 6
+
+ci:
+  enabled: true
+  method: "cisd"  # Configuration Interaction Singles and Doubles
+  max_states: 1   # Ground state only
+  convergence_threshold: 1.0e-6
+
+# Expected output:
+# - HF energy
+# - CISD correlation energy (should be negative)
+# - Total CISD energy (lower than HF)
+# 
+# For H2/6-31G, typical values:
+# - HF energy: ~-1.117 au
+# - CISD correlation: ~-0.031 au
+# - Total CISD: ~-1.148 au
+

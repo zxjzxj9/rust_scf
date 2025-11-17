@@ -1,0 +1,31 @@
+# He2 molecule CIS calculation
+# Demonstrates CIS for a simple noble gas dimer
+# He2 is weakly bound - interesting for excited state calculations
+
+geometry:
+  - element: He
+    coords: [0.0, 0.0, 0.0]
+  - element: He
+    coords: [0.0, 0.0, 5.6]  # ~3 Å separation (weak interaction)
+
+basis_sets:
+  He: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 6
+
+ci:
+  enabled: true
+  method: "cis"
+  max_states: 8
+  convergence_threshold: 1.0e-6
+
+# Expected features:
+# - Multiple excited states
+# - First excited states involve 1s → 2s, 1s → 2p transitions
+# - Excitation energies should be large (~20+ eV)
+# - Weakly interacting system, so states similar to isolated He atoms
+

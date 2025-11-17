@@ -1,0 +1,41 @@
+# H2 molecule: Comparison of MP2 and CISD methods
+# This example runs both MP2 and CISD to compare correlation energies
+
+geometry:
+  - element: H
+    coords: [0.0, 0.0, 0.0]
+  - element: H
+    coords: [0.0, 0.0, 1.4]
+
+basis_sets:
+  H: "6-31g"
+
+scf_params:
+  max_cycle: 50
+  convergence_threshold: 1.0e-8
+  density_mixing: 0.5
+  diis_subspace_size: 6
+
+# Enable both MP2 and CISD for comparison
+mp2:
+  enabled: true
+  algorithm: "optimized"
+
+ci:
+  enabled: true
+  method: "cisd"
+  max_states: 1
+  convergence_threshold: 1.0e-6
+
+# Expected behavior:
+# 1. HF calculation converges
+# 2. MP2 correlation energy computed
+# 3. CISD correlation energy computed
+# 4. CISD should give equal or lower energy than MP2
+# 5. For this small system, they should be quite close
+#
+# Typical results for H2/6-31G:
+# - MP2 correlation:  ~-0.026 au
+# - CISD correlation: ~-0.031 au
+# - CISD is more negative (better) due to variational principle
+
