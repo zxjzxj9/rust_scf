@@ -17,7 +17,31 @@ use na::Vector3;
 use nalgebra::{DMatrix, DVector};
 use periodic_table_on_an_enum::Element;
 use std::collections::HashMap;
+use std::cmp::Ordering;
 
+/// Given a matrix where each column is an eigenvector,
+/// this function aligns each eigenvector so that the entry with the largest
+/// absolute value is positive.
+pub fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
+    for j in 0..eigvecs.ncols() {
+        let col = eigvecs.column(j);
+        let (_, &max_val) = col
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| {
+                a.abs()
+                    .partial_cmp(&b.abs())
+                    .unwrap_or(Ordering::Less)
+            })
+            .unwrap();
+        if max_val < 0.0 {
+            for i in 0..eigvecs.nrows() {
+                eigvecs[(i, j)] = -eigvecs[(i, j)];
+            }
+        }
+    }
+    eigvecs
+}
 
 pub trait SCF {
     type BasisType: AOBasis;

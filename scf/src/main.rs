@@ -10,43 +10,28 @@ use std::collections::HashMap;
 use std::fs;
 use tracing::info;
 
-mod config;
-mod io;
-mod mp2_impl;
-mod ccsd_impl;
-mod ci_impl;
-mod optim_impl;
-mod scf_impl;
-
-use config::{Args, Config};
-use io::{fetch_basis, print_optimized_geometry, setup_output};
-use mp2_impl::MP2;
-use ccsd_impl::CCSD;
-use ci_impl::{CI, CIMethod};
-use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
-use scf_impl::{SimpleSCF, SpinSCF, SCF};
+use scf::{
+    config::{Args, Config},
+    io::{fetch_basis, print_optimized_geometry, setup_output},
+    CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer,
+    SimpleSCF, SpinSCF, SCF,
+};
+use basis::basis::AOBasis;
 
 fn main() -> Result<()> {
-    println!("DEBUG: Starting main function");
     color_eyre::install()?;
-    println!("DEBUG: color_eyre installed");
     
     let args = Args::parse();
-    println!("DEBUG: Args parsed: {:?}", args.config_file);
     setup_output(args.output.as_ref());
-    println!("DEBUG: Output setup complete");
 
     // Load and parse configuration
     info!("Reading configuration from: {}", args.config_file);
-    println!("DEBUG: About to read config file");
     let config_content = fs::read_to_string(&args.config_file)
         .wrap_err_with(|| format!("Unable to read configuration file: {}", args.config_file))?;
-    println!("DEBUG: Config file read successfully");
 
     let config: Config = serde_yml::from_str::<Config>(&config_content)
         .wrap_err("Failed to parse configuration file")?
         .with_defaults();
-    println!("DEBUG: Config parsed successfully");
 
     info!("Configuration loaded:\n{:?}", config);
 
@@ -64,6 +49,25 @@ fn main() -> Result<()> {
     }
 }
 
+/// Initialize and run SCF cycle (works with Basis631G)
+fn initialize_and_run_scf<B: AOBasis>(
+    scf: &mut impl SCF<BasisType = B>,
+    elements: &Vec<Element>,
+    coords_vec: &Vec<Vector3<f64>>,
+    basis_map: HashMap<&str, &B>,
+) where
+    B: 'static,
+{
+    info!("\nInitializing SCF calculation...");
+    scf.init_basis(elements, basis_map);
+    scf.init_geometry(coords_vec, elements);
+    scf.init_density_matrix();
+    scf.init_fock_matrix();
+
+    info!("\nStarting SCF cycle...\n");
+    scf.scf_cycle();
+}
+
 /// Run a spin-polarized SCF calculation
 fn run_spin_scf_calculation(
     config: Config,
@@ -77,12 +81,17 @@ fn run_spin_scf_calculation(
     let basis_map = prepare_basis_sets(&elements)?;
 
     let mut spin_scf = SpinSCF::<Basis631G>::new();
-    println!("DEBUG: SpinSCF created");
     
     // Apply configuration parameters
-    spin_scf.density_mixing = config.scf_params.density_mixing.unwrap();
-    spin_scf.max_cycle = config.scf_params.max_cycle.unwrap();
-    spin_scf.set_convergence_threshold(config.scf_params.convergence_threshold.unwrap());
+    spin_scf.density_mixing = args.density_mixing
+        .or(config.scf_params.density_mixing)
+        .unwrap();
+    spin_scf.max_cycle = args.max_cycle
+        .or(config.scf_params.max_cycle)
+        .unwrap();
+    spin_scf.set_convergence_threshold(
+        config.scf_params.convergence_threshold.unwrap()
+    );
     spin_scf.set_charge(charge);
     spin_scf.set_multiplicity(multiplicity);
 
@@ -95,32 +104,8 @@ fn run_spin_scf_calculation(
         info!("DIIS acceleration disabled");
     }
 
-    // Override with command-line arguments if provided
-    if let Some(dm) = args.density_mixing {
-        info!("Overriding density_mixing with: {}", dm);
-        spin_scf.density_mixing = dm;
-    }
-    if let Some(mc) = args.max_cycle {
-        info!("Overriding max_cycle with: {}", mc);
-        spin_scf.max_cycle = mc;
-    }
-
     // Initialize and run SCF
-    info!("\nInitializing SpinSCF calculation...");
-    println!("DEBUG: About to init basis");
-    spin_scf.init_basis(&elements, basis_map.clone());
-    println!("DEBUG: About to init geometry");
-    spin_scf.init_geometry(&coords_vec, &elements);
-    println!("DEBUG: About to init density matrix");
-    spin_scf.init_density_matrix();
-    println!("DEBUG: About to init fock matrix");
-    spin_scf.init_fock_matrix();
-    println!("DEBUG: SpinSCF initialization complete");
-
-    info!("\nStarting SpinSCF cycle...\n");
-    println!("DEBUG: About to start SpinSCF cycle");
-    spin_scf.scf_cycle();
-    println!("DEBUG: SpinSCF cycle complete");
+    initialize_and_run_scf(&mut spin_scf, &elements, &coords_vec, basis_map.clone());
 
     // Report results
     info!("\nSpinSCF calculation finished.");
@@ -153,12 +138,17 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
     let basis_map = prepare_basis_sets(&elements)?;
 
     let mut scf = SimpleSCF::<Basis631G>::new();
-    println!("DEBUG: SimpleSCF created");
 
-    // Apply configuration parameters
-    scf.density_mixing = config.scf_params.density_mixing.unwrap();
-    scf.max_cycle = config.scf_params.max_cycle.unwrap();
-    scf.set_convergence_threshold(config.scf_params.convergence_threshold.unwrap());
+    // Apply configuration parameters (args override config)
+    scf.density_mixing = args.density_mixing
+        .or(config.scf_params.density_mixing)
+        .unwrap();
+    scf.max_cycle = args.max_cycle
+        .or(config.scf_params.max_cycle)
+        .unwrap();
+    scf.set_convergence_threshold(
+        config.scf_params.convergence_threshold.unwrap()
+    );
 
     // Enable DIIS if configured
     if config.is_diis_enabled() {
@@ -169,32 +159,8 @@ fn run_simple_scf_calculation(config: Config, args: Args) -> Result<()> {
         info!("DIIS acceleration disabled");
     }
 
-    // Override with command-line arguments if provided
-    if let Some(dm) = args.density_mixing {
-        info!("Overriding density_mixing with: {}", dm);
-        scf.density_mixing = dm;
-    }
-    if let Some(mc) = args.max_cycle {
-        info!("Overriding max_cycle with: {}", mc);
-        scf.max_cycle = mc;
-    }
-
     // Initialize and run SCF
-    info!("\nInitializing SCF calculation...");
-    println!("DEBUG: About to init basis");
-    scf.init_basis(&elements, basis_map);
-    println!("DEBUG: About to init geometry");
-    scf.init_geometry(&coords_vec, &elements);
-    println!("DEBUG: About to init density matrix");
-    scf.init_density_matrix();
-    println!("DEBUG: About to init fock matrix");
-    scf.init_fock_matrix();
-    println!("DEBUG: SCF initialization complete");
-
-    info!("\nStarting SCF cycle...\n");
-    println!("DEBUG: About to start SCF cycle");
-    scf.scf_cycle();
-    println!("DEBUG: SCF cycle complete");
+    initialize_and_run_scf(&mut scf, &elements, &coords_vec, basis_map);
 
     // Report results
     info!("\nSCF calculation finished.");
@@ -363,7 +329,6 @@ fn prepare_basis_sets(
     use basis::cgto::Basis631G;
     
     info!("\nPreparing basis sets...");
-    println!("DEBUG: Starting basis set preparation");
     
     let mut basis_map: HashMap<&str, &Basis631G> = HashMap::new();
     for elem in elements {
@@ -373,13 +338,10 @@ fn prepare_basis_sets(
         }
 
         let basis = fetch_basis(symbol)?;
-        println!("DEBUG: Fetched basis for {}", symbol);
         // Allocate on the heap to ensure a stable memory address
         let basis_ref: &Basis631G = Box::leak(Box::new(basis));
         basis_map.insert(symbol, basis_ref);
-        println!("DEBUG: Added {} to basis_map", symbol);
     }
-    println!("DEBUG: Basis set preparation complete");
 
     Ok(basis_map)
 }

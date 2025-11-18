@@ -2,7 +2,7 @@
 
 extern crate nalgebra as na;
 
-use super::SCF;
+use super::{SCF, align_eigenvectors};
 use basis::basis::{AOBasis, Basis};
 use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
@@ -31,31 +31,6 @@ pub struct SimpleSCF<B: AOBasis> {
     pub diis: Option<super::DIIS>,
     /// maps each contracted GTO (index in `mo_basis`) to the parent atom index
     basis_atom_map: Vec<usize>,
-}
-
-/// Given a matrix where each column is an eigenvector,
-/// this function aligns each eigenvector so that the entry with the largest
-/// absolute value is positive.
-pub fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
-    for j in 0..eigvecs.ncols() {
-        let col = eigvecs.column(j);
-        use std::cmp::Ordering;
-        let (_, &max_val) = col
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| {
-                a.abs()
-                    .partial_cmp(&b.abs())
-                    .unwrap_or(Ordering::Less)
-            })
-            .unwrap();
-        if max_val < 0.0 {
-            for i in 0..eigvecs.nrows() {
-                eigvecs[(i, j)] = -eigvecs[(i, j)];
-            }
-        }
-    }
-    eigvecs
 }
 
 /// Decomposes the total analytic force into physically meaningful pieces.

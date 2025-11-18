@@ -46,24 +46,6 @@ pub struct SpinSCF<B: AOBasis> {
     pub charge: i32,
 }
 
-/// Helper function to align eigenvectors
-fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
-    for j in 0..eigvecs.ncols() {
-        let col = eigvecs.column(j);
-        let (_, &max_val) = col
-            .iter()
-            .enumerate()
-            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap())
-            .unwrap();
-        if max_val < 0.0 {
-            for i in 0..eigvecs.nrows() {
-                eigvecs[(i, j)] = -eigvecs[(i, j)];
-            }
-        }
-    }
-    eigvecs
-}
-
 impl<B: AOBasis + Clone> SpinSCF<B> {
     pub fn new() -> SpinSCF<B> {
         SpinSCF {
