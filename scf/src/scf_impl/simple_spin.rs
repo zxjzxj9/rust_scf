@@ -585,13 +585,11 @@ where
         info!("--------------- Performing SCF Cycle ---------------");
         info!("#####################################################");
 
-        // Detect if this is a closed-shell system (singlet with even electrons)
-        let nuclear_charge: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
-        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
-        let is_closed_shell = self.multiplicity == 1 && total_electrons % 2 == 0;
-        
+        let is_closed_shell = self.is_closed_shell();
         if is_closed_shell {
             info!("  Detected closed-shell singlet - using restricted approach (RHF-like)");
+            self.restricted_scf_cycle();
+            return;
         } else {
             info!("  Using unrestricted approach (UHF) for open-shell system");
         }
@@ -1293,6 +1291,149 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
 
         info!("  Density Matrices updated with adaptive mixing factor {:.3}.", mixing_factor);
+    }
+
+    fn restricted_density_mixing(&self) -> f64 {
+        if self.num_atoms <= 2 {
+            0.7
+        } else {
+            self.density_mixing.max(0.5)
+        }
+    }
+
+    fn build_restricted_fock(&self, total_density: &DMatrix<f64>) -> DMatrix<f64>
+    where
+        B: Send,
+        B::BasisType: Send + Sync,
+    {
+        let mut g_matrix = DMatrix::from_element(self.num_basis, self.num_basis, 0.0);
+        let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+            .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+            .collect();
+
+        let g_values: Vec<f64> = ij_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let mut g_ij = 0.0;
+                let mut local_integral_cache = HashMap::new();
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        let coulomb =
+                            self.get_or_compute_integral_cached(&mut local_integral_cache, i, j, k, l);
+                        let exchange =
+                            self.get_or_compute_integral_cached(&mut local_integral_cache, i, k, j, l);
+                        g_ij += total_density[(k, l)] * (coulomb - 0.5 * exchange);
+                    }
+                }
+                g_ij
+            })
+            .collect();
+
+        for (idx, &(i, j)) in ij_pairs.iter().enumerate() {
+            g_matrix[(i, j)] = g_values[idx];
+        }
+
+        self.h_core.clone() + g_matrix
+    }
+
+    fn restricted_scf_cycle(&mut self)
+    where
+        B: Send,
+        B::BasisType: Send + Sync,
+    {
+        info!("#####################################################");
+        info!("------- Running restricted SCF (RHF fallback) -------");
+        info!("#####################################################");
+
+        let mixing_factor = self.restricted_density_mixing();
+        let mut previous_energy = f64::INFINITY;
+
+        for cycle in 0..self.max_cycle {
+            info!("  [RHF] Cycle {}", cycle + 1);
+
+            let total_density = &self.density_matrix_alpha + &self.density_matrix_beta;
+            let fock = self.build_restricted_fock(&total_density);
+
+            let l = match self.overlap_matrix.clone().cholesky() {
+                Some(chol) => chol,
+                None => panic!("Cholesky decomposition failed during restricted SCF cycle."),
+            };
+            let l_inv = l.inverse();
+
+            let f_prime = l_inv.clone() * fock.clone() * l_inv.transpose();
+            let eig = f_prime
+                .try_symmetric_eigen(1e-6, 1000)
+                .expect("Eigen decomposition failed during restricted SCF cycle.");
+
+            let eigenvalues = eig.eigenvalues.clone();
+            let eigenvectors = eig.eigenvectors.clone();
+            let mut indices: Vec<usize> = (0..eigenvalues.len()).collect();
+            indices.sort_by(|&a, &b| {
+                eigenvalues[a]
+                    .partial_cmp(&eigenvalues[b])
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            let sorted_eigenvalues =
+                DVector::from_fn(eigenvalues.len(), |i, _| eigenvalues[indices[i]]);
+            let sorted_eigenvectors = eigenvectors.select_columns(&indices);
+            let mut coeffs = l_inv.transpose() * sorted_eigenvectors;
+
+            for j in 0..coeffs.ncols() {
+                let mut col = coeffs.column_mut(j);
+                let norm_squared = (&col).transpose() * &self.overlap_matrix * &col;
+                let norm = norm_squared[(0, 0)].sqrt();
+                if norm > 1e-12 {
+                    col /= norm;
+                }
+            }
+
+            self.coeffs_alpha = coeffs.clone();
+            self.coeffs_beta = coeffs.clone();
+            self.e_level_alpha = sorted_eigenvalues.clone();
+            self.e_level_beta = sorted_eigenvalues.clone();
+
+            self.update_density_matrix_with_mixing(mixing_factor);
+            self.density_matrix_beta = self.density_matrix_alpha.clone();
+
+            self.fock_matrix_alpha = fock.clone();
+            self.fock_matrix_beta = fock.clone();
+
+            let total_energy = self.calculate_total_energy();
+            let energy_change = if previous_energy.is_finite() {
+                (total_energy - previous_energy).abs()
+            } else {
+                f64::INFINITY
+            };
+
+            info!("    [RHF] Energy: {:.12} au (ΔE = {:.3e})", total_energy, energy_change);
+
+            if energy_change < self.convergence_threshold {
+                info!("  ✅ Restricted SCF converged in {} cycles", cycle + 1);
+                return;
+            }
+
+            previous_energy = total_energy;
+        }
+
+        info!(
+            "  ⚠️ Restricted SCF did not converge within {} cycles.",
+            self.max_cycle
+        );
+    }
+
+    fn is_closed_shell(&self) -> bool {
+        if self.multiplicity != 1 {
+            return false;
+        }
+
+        let nuclear_charge: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
+        let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
+        total_electrons % 2 == 0
     }
 
     /// Calculate condition number of a matrix (ratio of largest to smallest eigenvalue)
