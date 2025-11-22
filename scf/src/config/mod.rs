@@ -185,7 +185,7 @@ impl CcsdParams {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct CiParams {
     pub enabled: Option<bool>,
-    pub method: Option<String>, // "cis" or "cisd"
+    pub method: Option<String>,    // "cis" or "cisd"
     pub max_states: Option<usize>, // Number of states to compute
     pub convergence_threshold: Option<f64>,
 }
@@ -299,10 +299,7 @@ impl Config {
 
     /// Get the CI max states
     pub fn ci_max_states(&self) -> usize {
-        self.ci
-            .as_ref()
-            .and_then(|c| c.max_states)
-            .unwrap_or(5)
+        self.ci.as_ref().and_then(|c| c.max_states).unwrap_or(5)
     }
 
     /// Get the CI convergence threshold
@@ -313,4 +310,3 @@ impl Config {
             .unwrap_or(1e-6)
     }
 }
-

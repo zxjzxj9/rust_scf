@@ -2,7 +2,7 @@
 
 extern crate nalgebra as na;
 
-use super::{SCF, DIIS};
+use super::{DIIS, SCF};
 use basis::basis::{AOBasis, Basis};
 use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
@@ -72,7 +72,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             diis_alpha: None,
             diis_beta: None,
             multiplicity: 1, // Default to singlet (no unpaired electrons)
-            charge: 0, // Default to neutral molecule
+            charge: 0,       // Default to neutral molecule
         }
     }
 
@@ -141,12 +141,12 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-        
+
         // Account for molecular charge
         let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
         let unpaired_electrons = self.multiplicity - 1;
-        
+
         // Check if we have enough electrons for the requested unpaired electrons
         if total_electrons < unpaired_electrons {
             return Err(format!(
@@ -154,7 +154,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                 self.multiplicity, total_electrons, unpaired_electrons
             ));
         }
-        
+
         // Check if the remaining electrons can be paired
         let remaining_electrons = total_electrons - unpaired_electrons;
         if remaining_electrons % 2 != 0 {
@@ -176,7 +176,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
     }
 }
 
-impl<B: AOBasis + Clone + Send> SCF for SpinSCF<B> 
+impl<B: AOBasis + Clone + Send> SCF for SpinSCF<B>
 where
     B::BasisType: Send + Sync,
 {
@@ -273,10 +273,10 @@ where
                     );
                 }
                 let h_core_ij = t_ij + v_ij;
-                
+
                 // Store core Hamiltonian
                 self.h_core[(i, j)] = h_core_ij;
-                
+
                 // Add symmetry breaking to help convergence for both open and closed shell
                 if self.multiplicity > 1 {
                     // Add larger perturbation for open-shell systems
@@ -299,7 +299,7 @@ where
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-        
+
         // Account for molecular charge
         let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
@@ -317,9 +317,12 @@ where
             "  Total electrons: {}, Alpha: {}, Beta: {}, Basis size: {}",
             total_electrons, n_alpha, n_beta, self.num_basis
         );
-        
+
         if self.multiplicity > 1 {
-            info!("  Symmetry breaking applied for open-shell system (multiplicity = {})", self.multiplicity);
+            info!(
+                "  Symmetry breaking applied for open-shell system (multiplicity = {})",
+                self.multiplicity
+            );
         } else {
             info!("  Closed-shell system detected (multiplicity = 1)");
         }
@@ -328,16 +331,19 @@ where
         info!("  Checking overlap matrix conditioning...");
         let overlap_det = self.overlap_matrix.determinant();
         let overlap_condition = self.calculate_condition_number(&self.overlap_matrix);
-        
+
         info!("    Overlap determinant: {:.2e}", overlap_det);
         info!("    Overlap condition number: {:.2e}", overlap_condition);
-        
+
         if overlap_det.abs() < 1e-12 {
             panic!("Overlap matrix is nearly singular (det = {:.2e}). Check basis set linear dependence.", overlap_det);
         }
-        
+
         if overlap_condition > 1e12 {
-            info!("    ⚠️  Warning: Poor overlap matrix conditioning ({:.2e})", overlap_condition);
+            info!(
+                "    ⚠️  Warning: Poor overlap matrix conditioning ({:.2e})",
+                overlap_condition
+            );
         }
 
         let l = match self.overlap_matrix.clone().cholesky() {
@@ -371,7 +377,7 @@ where
         });
         let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
         let mut eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
-        
+
         // Normalize the molecular orbitals to ensure orthonormality
         for j in 0..eigvecs_alpha.ncols() {
             let mut col = eigvecs_alpha.column_mut(j);
@@ -381,7 +387,7 @@ where
                 col /= norm;
             }
         }
-        
+
         self.coeffs_alpha = eigvecs_alpha;
         self.e_level_alpha = sorted_eigenvalues_alpha;
 
@@ -408,7 +414,7 @@ where
         });
         let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
         let mut eigvecs_beta = l_inv.clone().transpose() * sorted_eigenvectors_beta;
-        
+
         // Normalize the molecular orbitals to ensure orthonormality
         for j in 0..eigvecs_beta.ncols() {
             let mut col = eigvecs_beta.column_mut(j);
@@ -418,7 +424,7 @@ where
                 col /= norm;
             }
         }
-        
+
         self.coeffs_beta = eigvecs_beta;
         self.e_level_beta = sorted_eigenvalues_beta;
 
@@ -446,7 +452,7 @@ where
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-        
+
         // Account for molecular charge
         let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
@@ -458,12 +464,16 @@ where
         // Fill lowest n_alpha orbitals (Aufbau principle with UHF)
         if n_alpha > 0 {
             if n_alpha > self.coeffs_alpha.ncols() {
-                panic!("Not enough alpha orbitals ({}) for {} alpha electrons", 
-                       self.coeffs_alpha.ncols(), n_alpha);
+                panic!(
+                    "Not enough alpha orbitals ({}) for {} alpha electrons",
+                    self.coeffs_alpha.ncols(),
+                    n_alpha
+                );
             }
             let occupied_coeffs_alpha = self.coeffs_alpha.columns(0, n_alpha);
             if self.density_matrix_alpha.shape() == (0, 0) {
-                self.density_matrix_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
+                self.density_matrix_alpha =
+                    &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
             } else {
                 let new_density_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
                 self.density_matrix_alpha = self.density_mixing * new_density_alpha
@@ -477,8 +487,11 @@ where
         // Update beta density matrix
         if n_beta > 0 {
             if n_beta > self.coeffs_beta.ncols() {
-                panic!("Not enough beta orbitals ({}) for {} beta electrons", 
-                       self.coeffs_beta.ncols(), n_beta);
+                panic!(
+                    "Not enough beta orbitals ({}) for {} beta electrons",
+                    self.coeffs_beta.ncols(),
+                    n_beta
+                );
             }
             let occupied_coeffs_beta = self.coeffs_beta.columns(0, n_beta);
             if self.density_matrix_beta.shape() == (0, 0) {
@@ -525,7 +538,7 @@ where
                         let ij = if i <= j { (i, j) } else { (j, i) };
                         let kl = if k <= l { (k, l) } else { (l, k) };
                         let canonical = if ij <= kl { (ij, kl) } else { (kl, ij) };
-                        
+
                         if !computed.contains(&canonical) {
                             unique_integrals.push((i, j, k, l));
                             computed.insert(canonical);
@@ -535,8 +548,11 @@ where
             }
         }
 
-        info!("  Computing {} unique integrals (8-fold symmetry reduces from {})", 
-              unique_integrals.len(), self.num_basis.pow(4));
+        info!(
+            "  Computing {} unique integrals (8-fold symmetry reduces from {})",
+            unique_integrals.len(),
+            self.num_basis.pow(4)
+        );
 
         // Parallel computation of unique two-electron integrals only
         let integral_values: Vec<f64> = unique_integrals
@@ -565,7 +581,7 @@ where
                     for l in 0..self.num_basis {
                         let row = i * self.num_basis + j;
                         let col = k * self.num_basis + l;
-                        
+
                         // Try to find the integral value using symmetry
                         let value = self.get_symmetric_integral(&integral_map, i, j, k, l);
                         self.integral_matrix[(row, col)] = value;
@@ -577,8 +593,6 @@ where
         info!("  Integral Matrix (Two-electron integrals) built with symmetry optimization.");
         info!("-----------------------------------------------------\n");
     }
-
-
 
     fn scf_cycle(&mut self) {
         info!("#####################################################");
@@ -645,23 +659,32 @@ where
                     let mut j_ij = 0.0;
                     let mut k_alpha_ij = 0.0;
                     let mut k_beta_ij = 0.0;
-                    
+
                     // Local cache for this (i,j) pair to exploit symmetry within inner loops
                     let mut local_integral_cache = std::collections::HashMap::new();
-                    
+
                     for k in 0..self.num_basis {
                         for l in 0..self.num_basis {
                             // Compute or retrieve Coulomb integral with symmetry
                             let coulomb = self.get_or_compute_integral_cached(
-                                &mut local_integral_cache, i, j, k, l
-                            );
-                            
-                            // Compute or retrieve Exchange integral with symmetry  
-                            let exchange = self.get_or_compute_integral_cached(
-                                &mut local_integral_cache, i, k, j, l
+                                &mut local_integral_cache,
+                                i,
+                                j,
+                                k,
+                                l,
                             );
 
-                            let p_total_kl = self.density_matrix_alpha[(k, l)] + self.density_matrix_beta[(k, l)];
+                            // Compute or retrieve Exchange integral with symmetry
+                            let exchange = self.get_or_compute_integral_cached(
+                                &mut local_integral_cache,
+                                i,
+                                k,
+                                j,
+                                l,
+                            );
+
+                            let p_total_kl = self.density_matrix_alpha[(k, l)]
+                                + self.density_matrix_beta[(k, l)];
                             let p_alpha_kl = self.density_matrix_alpha[(k, l)];
                             let p_beta_kl = self.density_matrix_beta[(k, l)];
 
@@ -684,7 +707,7 @@ where
                 k_alpha[(i, j)] = k_alpha_val;
                 k_beta[(i, j)] = k_beta_val;
             }
-            
+
             // K matrices should already be identical for closed-shell due to pre-averaged densities
 
             // Step 3: Build Fock matrices
@@ -713,7 +736,7 @@ where
             // Apply level shifting for numerical stability if needed
             if level_shift > 0.0 {
                 info!("  Applying level shifting: {:.3} au", level_shift);
-                
+
                 // Add level shift to diagonal elements (virtual orbitals will be shifted up)
                 for i in 0..self.num_basis {
                     fock_alpha[(i, i)] += level_shift;
@@ -729,13 +752,19 @@ where
                 if cycle > 1 {
                     let current_total_energy = self.calculate_total_energy();
                     let energy_change = (current_total_energy - previous_total_energy).abs();
-                    
+
                     if energy_change > DIIS_RESET_THRESHOLD {
                         diis_reset_counter += 1;
-                        info!("    DIIS reset triggered (energy change: {:.2e})", energy_change);
-                        
+                        info!(
+                            "    DIIS reset triggered (energy change: {:.2e})",
+                            energy_change
+                        );
+
                         if diis_reset_counter >= 3 {
-                            info!("    Resetting DIIS after {} poor cycles", diis_reset_counter);
+                            info!(
+                                "    Resetting DIIS after {} poor cycles",
+                                diis_reset_counter
+                            );
                             diis_alpha = DIIS::new(12);
                             diis_beta = DIIS::new(12);
                             diis_reset_counter = 0;
@@ -761,7 +790,7 @@ where
                     }
                 }
 
-                // Apply DIIS for beta if enabled  
+                // Apply DIIS for beta if enabled
                 if diis_beta_enabled {
                     diis_beta.update(
                         fock_beta.clone(),
@@ -781,26 +810,39 @@ where
 
             // Step 5: Diagonalize Fock matrices with stability checks
             info!("  Step 5: Diagonalizing Fock matrices...");
-            
+
             // Calculate electron counts for sanity checks
-            let nuclear_charge: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+            let nuclear_charge: usize = self
+                .elems
+                .iter()
+                .map(|e| e.get_atomic_number() as usize)
+                .sum();
             let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
             let unpaired_electrons = self.multiplicity - 1;
             let n_alpha = (total_electrons + unpaired_electrons) / 2;
             let n_beta = (total_electrons - unpaired_electrons) / 2;
-            
+
             // Check for NaN or infinite values in Fock matrices
             if !fock_alpha.iter().all(|x| x.is_finite()) {
-                panic!("Alpha Fock matrix contains NaN or infinite values at cycle {}", cycle);
+                panic!(
+                    "Alpha Fock matrix contains NaN or infinite values at cycle {}",
+                    cycle
+                );
             }
             if !fock_beta.iter().all(|x| x.is_finite()) {
-                panic!("Beta Fock matrix contains NaN or infinite values at cycle {}", cycle);
+                panic!(
+                    "Beta Fock matrix contains NaN or infinite values at cycle {}",
+                    cycle
+                );
             }
 
             let l = match self.overlap_matrix.clone().cholesky() {
                 Some(chol) => chol,
                 None => {
-                    panic!("Cholesky decomposition failed at cycle {}. SCF may have diverged.", cycle);
+                    panic!(
+                        "Cholesky decomposition failed at cycle {}. SCF may have diverged.",
+                        cycle
+                    );
                 }
             };
             let l_inv = l.inverse();
@@ -823,7 +865,7 @@ where
             });
             let sorted_eigenvectors_alpha = eigenvectors_alpha.select_columns(&indices_alpha);
             let mut eigvecs_alpha = l_inv.clone().transpose() * sorted_eigenvectors_alpha;
-            
+
             // Normalize the molecular orbitals to ensure orthonormality
             for j in 0..eigvecs_alpha.ncols() {
                 let mut col = eigvecs_alpha.column_mut(j);
@@ -833,20 +875,34 @@ where
                     col /= norm;
                 }
             }
-            
+
             self.coeffs_alpha = eigvecs_alpha;
             let current_e_level_alpha = sorted_eigenvalues_alpha;
-            
+
             // Sanity checks for alpha orbital energies
             if !current_e_level_alpha.iter().all(|x| x.is_finite()) {
-                panic!("Alpha orbital energies contain NaN or infinite values at cycle {}", cycle);
+                panic!(
+                    "Alpha orbital energies contain NaN or infinite values at cycle {}",
+                    cycle
+                );
             }
-            
-            let alpha_homo_energy = if n_alpha > 0 { current_e_level_alpha[n_alpha-1] } else { 0.0 };
-            let alpha_lumo_energy = if n_alpha < current_e_level_alpha.len() { current_e_level_alpha[n_alpha] } else { 0.0 };
-            
+
+            let alpha_homo_energy = if n_alpha > 0 {
+                current_e_level_alpha[n_alpha - 1]
+            } else {
+                0.0
+            };
+            let alpha_lumo_energy = if n_alpha < current_e_level_alpha.len() {
+                current_e_level_alpha[n_alpha]
+            } else {
+                0.0
+            };
+
             if cycle > 5 && alpha_homo_energy > 10.0 {
-                info!("    ⚠️  Warning: Alpha HOMO energy suspiciously high: {:.3} au", alpha_homo_energy);
+                info!(
+                    "    ⚠️  Warning: Alpha HOMO energy suspiciously high: {:.3} au",
+                    alpha_homo_energy
+                );
             }
 
             // Diagonalize beta Fock matrix - always use independent UHF orbitals
@@ -867,7 +923,7 @@ where
             });
             let sorted_eigenvectors_beta = eigenvectors_beta.select_columns(&indices_beta);
             let mut eigvecs_beta = l_inv.transpose() * sorted_eigenvectors_beta;
-            
+
             // Normalize the molecular orbitals to ensure orthonormality
             for j in 0..eigvecs_beta.ncols() {
                 let mut col = eigvecs_beta.column_mut(j);
@@ -877,20 +933,34 @@ where
                     col /= norm;
                 }
             }
-            
+
             self.coeffs_beta = eigvecs_beta;
             let current_e_level_beta = sorted_eigenvalues_beta;
-            
+
             // Sanity checks for beta orbital energies
             if !current_e_level_beta.iter().all(|x| x.is_finite()) {
-                panic!("Beta orbital energies contain NaN or infinite values at cycle {}", cycle);
+                panic!(
+                    "Beta orbital energies contain NaN or infinite values at cycle {}",
+                    cycle
+                );
             }
-            
-            let beta_homo_energy = if n_beta > 0 { current_e_level_beta[n_beta-1] } else { 0.0 };
-            let beta_lumo_energy = if n_beta < current_e_level_beta.len() { current_e_level_beta[n_beta] } else { 0.0 };
-            
+
+            let beta_homo_energy = if n_beta > 0 {
+                current_e_level_beta[n_beta - 1]
+            } else {
+                0.0
+            };
+            let beta_lumo_energy = if n_beta < current_e_level_beta.len() {
+                current_e_level_beta[n_beta]
+            } else {
+                0.0
+            };
+
             if cycle > 5 && beta_homo_energy > 10.0 {
-                info!("    ⚠️  Warning: Beta HOMO energy suspiciously high: {:.3} au", beta_homo_energy);
+                info!(
+                    "    ⚠️  Warning: Beta HOMO energy suspiciously high: {:.3} au",
+                    beta_homo_energy
+                );
             }
 
             // Update energy levels
@@ -910,76 +980,105 @@ where
             // Check convergence using multiple criteria
             if cycle > 1 {
                 info!("  Step 7: Checking for Convergence...");
-                
+
                 // Calculate current total energy
                 let current_total_energy = self.calculate_total_energy();
-                
+
                 // Density matrix RMSD convergence
                 let density_change_alpha = (&self.density_matrix_alpha - &previous_density_alpha)
-                    .iter().map(|x| x * x).sum::<f64>().sqrt() / (self.num_basis as f64);
+                    .iter()
+                    .map(|x| x * x)
+                    .sum::<f64>()
+                    .sqrt()
+                    / (self.num_basis as f64);
                 let density_change_beta = (&self.density_matrix_beta - &previous_density_beta)
-                    .iter().map(|x| x * x).sum::<f64>().sqrt() / (self.num_basis as f64);
+                    .iter()
+                    .map(|x| x * x)
+                    .sum::<f64>()
+                    .sqrt()
+                    / (self.num_basis as f64);
                 let max_density_change = density_change_alpha.max(density_change_beta);
-                
+
                 // Total energy change
                 let energy_change = (current_total_energy - previous_total_energy).abs();
-                
+
                 // Legacy energy level change for comparison
-                let energy_level_change_alpha = (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
-                let energy_level_change_beta = (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
+                let energy_level_change_alpha =
+                    (current_e_level_alpha.clone() - previous_e_level_alpha.clone()).norm();
+                let energy_level_change_beta =
+                    (current_e_level_beta.clone() - previous_e_level_beta.clone()).norm();
 
                 info!("    Density RMSD (Alpha): {:.2e}", density_change_alpha);
                 info!("    Density RMSD (Beta):  {:.2e}", density_change_beta);
                 info!("    Max Density RMSD:     {:.2e}", max_density_change);
                 info!("    Total Energy Change:   {:.2e} au", energy_change);
                 info!("    Total Energy:          {:.8} au", current_total_energy);
-                                    info!("    Legacy Energy Levels:  {:.2e} au", energy_level_change_alpha + energy_level_change_beta);
+                info!(
+                    "    Legacy Energy Levels:  {:.2e} au",
+                    energy_level_change_alpha + energy_level_change_beta
+                );
 
                 // Adaptive parameter adjustment based on convergence behavior
                 if energy_change > previous_total_energy.abs() * 0.1 {
                     // Energy is increasing or oscillating - be more conservative
                     consecutive_increases += 1;
                     consecutive_decreases = 0;
-                    
+
                     if consecutive_increases > 2 {
                         adaptive_mixing_factor = (adaptive_mixing_factor * 0.7).max(0.1);
                         level_shift += 0.5; // Add level shifting to stabilize
-                        info!("    🔧 Adaptive: Reduced mixing to {:.3}, level shift: {:.3}", 
-                              adaptive_mixing_factor, level_shift);
+                        info!(
+                            "    🔧 Adaptive: Reduced mixing to {:.3}, level shift: {:.3}",
+                            adaptive_mixing_factor, level_shift
+                        );
                     }
                 } else {
                     // Energy is decreasing - can be more aggressive
                     consecutive_decreases += 1;
                     consecutive_increases = 0;
-                    
+
                     if consecutive_decreases > 3 && adaptive_mixing_factor < 0.8 {
                         adaptive_mixing_factor = (adaptive_mixing_factor * 1.2).min(0.8);
                         level_shift = (level_shift - 0.1).max(0.0); // Reduce level shift
-                        info!("    🚀 Adaptive: Increased mixing to {:.3}, level shift: {:.3}", 
-                              adaptive_mixing_factor, level_shift);
+                        info!(
+                            "    🚀 Adaptive: Increased mixing to {:.3}, level shift: {:.3}",
+                            adaptive_mixing_factor, level_shift
+                        );
                     }
                 }
 
                 // Multi-criteria convergence
                 let density_converged = max_density_change < DENSITY_CONVERGENCE_THRESHOLD;
                 let energy_converged = energy_change < ENERGY_CONVERGENCE_THRESHOLD;
-                
+
                 if density_converged && energy_converged {
                     info!("  ✅ SCF CONVERGED at cycle {} ✅", cycle);
-                    info!("    Density RMSD: {:.2e} < {:.2e}", max_density_change, DENSITY_CONVERGENCE_THRESHOLD);
-                    info!("    Energy Change: {:.2e} < {:.2e}", energy_change, ENERGY_CONVERGENCE_THRESHOLD);
+                    info!(
+                        "    Density RMSD: {:.2e} < {:.2e}",
+                        max_density_change, DENSITY_CONVERGENCE_THRESHOLD
+                    );
+                    info!(
+                        "    Energy Change: {:.2e} < {:.2e}",
+                        energy_change, ENERGY_CONVERGENCE_THRESHOLD
+                    );
                     info!("-------------------- SCF Converged ---------------------\n");
                     break;
                 } else {
                     info!("    SCF not yet converged:");
                     if !density_converged {
-                        info!("      Density RMSD: {:.2e} >= {:.2e}", max_density_change, DENSITY_CONVERGENCE_THRESHOLD);
+                        info!(
+                            "      Density RMSD: {:.2e} >= {:.2e}",
+                            max_density_change, DENSITY_CONVERGENCE_THRESHOLD
+                        );
                     }
                     if !energy_converged {
-                        info!("      Energy Change: {:.2e} >= {:.2e}", energy_change, ENERGY_CONVERGENCE_THRESHOLD);
+                        info!(
+                            "      Energy Change: {:.2e} >= {:.2e}",
+                            energy_change, ENERGY_CONVERGENCE_THRESHOLD
+                        );
                     }
                 }
-                
+
                 // Store current values for next iteration
                 previous_total_energy = current_total_energy;
             } else {
@@ -1016,7 +1115,7 @@ where
 
     fn calculate_total_energy(&self) -> f64 {
         // Use efficient energy formula similar to SimpleSCF
-        // E = Tr(P_alpha * H_core) + Tr(P_beta * H_core) + 
+        // E = Tr(P_alpha * H_core) + Tr(P_beta * H_core) +
         //     0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
         // where G = F - H_core
 
@@ -1029,7 +1128,8 @@ where
         let one_electron_energy: f64 = ij_pairs
             .par_iter()
             .map(|&(i, j)| {
-                let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                let p_total_ij =
+                    self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
                 self.h_core[(i, j)] * p_total_ij
             })
             .sum();
@@ -1040,9 +1140,9 @@ where
             .map(|&(i, j)| {
                 let g_alpha_ij = self.fock_matrix_alpha[(i, j)] - self.h_core[(i, j)];
                 let g_beta_ij = self.fock_matrix_beta[(i, j)] - self.h_core[(i, j)];
-                
-                0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij +
-                0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij
+
+                0.5 * self.density_matrix_alpha[(i, j)] * g_alpha_ij
+                    + 0.5 * self.density_matrix_beta[(i, j)] * g_beta_ij
             })
             .sum();
 
@@ -1057,7 +1157,11 @@ where
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = (self.coords[i] - self.coords[j]).norm();
-                if r_ij > 1e-10 { z_i * z_j / r_ij } else { 0.0 }
+                if r_ij > 1e-10 {
+                    z_i * z_j / r_ij
+                } else {
+                    0.0
+                }
             })
             .sum();
 
@@ -1082,14 +1186,17 @@ where
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-        
+
         // Account for molecular charge
         let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
         let unpaired_electrons = self.multiplicity - 1;
-        
+
         // Validate multiplicity for force calculation
         if let Err(err_msg) = self.validate_multiplicity() {
-            panic!("Multiplicity validation failed during force calculation: {}", err_msg);
+            panic!(
+                "Multiplicity validation failed during force calculation: {}",
+                err_msg
+            );
         }
         let n_alpha = (total_electrons + unpaired_electrons) / 2;
         let n_beta = (total_electrons - unpaired_electrons) / 2;
@@ -1176,10 +1283,14 @@ where
                             );
 
                             // Coulomb contribution (both spins interact)
-                            forces[atom_idx] -= ((p_alpha_ij + p_beta_ij) * (p_alpha_kl + p_beta_kl)) * coulomb_deriv;
+                            forces[atom_idx] -= ((p_alpha_ij + p_beta_ij)
+                                * (p_alpha_kl + p_beta_kl))
+                                * coulomb_deriv;
 
                             // Exchange contribution (same-spin only)
-                            forces[atom_idx] += 0.5 * (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl) * exchange_deriv;
+                            forces[atom_idx] += 0.5
+                                * (p_alpha_ij * p_alpha_kl + p_beta_ij * p_beta_kl)
+                                * exchange_deriv;
                         }
                     }
                 }
@@ -1192,15 +1303,18 @@ where
             // Core Hamiltonian Pulay forces
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
-                    let p_total_ij = self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                    let p_total_ij =
+                        self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
 
                     // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
-                    let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
-                    let w_total_ij = w_matrix_alpha[(i,j)] + w_matrix_beta[(i,j)];
+                    let ds_dr =
+                        B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    let w_total_ij = w_matrix_alpha[(i, j)] + w_matrix_beta[(i, j)];
                     forces[atom_idx] -= w_total_ij * ds_dr;
 
                     // Kinetic energy derivatives
-                    let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
+                    let dt_dr =
+                        B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                     forces[atom_idx] -= p_total_ij * dt_dr;
 
                     // Nuclear attraction Pulay forces
@@ -1232,13 +1346,15 @@ where
 
         forces
     }
-
 }
 
 impl<B: AOBasis + Clone> SpinSCF<B> {
     /// Update density matrices with custom mixing factor (for adaptive SCF)
     pub fn update_density_matrix_with_mixing(&mut self, mixing_factor: f64) {
-        info!("  Updating Density Matrices with adaptive mixing factor {:.3}...", mixing_factor);
+        info!(
+            "  Updating Density Matrices with adaptive mixing factor {:.3}...",
+            mixing_factor
+        );
 
         // Calculate number of alpha and beta electrons based on multiplicity
         let nuclear_charge: usize = self
@@ -1246,7 +1362,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             .iter()
             .map(|e| e.get_atomic_number() as usize)
             .sum();
-        
+
         // Account for molecular charge
         let total_electrons = (nuclear_charge as i32 - self.charge) as usize;
 
@@ -1257,12 +1373,16 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         // Update alpha density matrix with adaptive mixing
         if n_alpha > 0 {
             if n_alpha > self.coeffs_alpha.ncols() {
-                panic!("Not enough alpha orbitals ({}) for {} alpha electrons", 
-                       self.coeffs_alpha.ncols(), n_alpha);
+                panic!(
+                    "Not enough alpha orbitals ({}) for {} alpha electrons",
+                    self.coeffs_alpha.ncols(),
+                    n_alpha
+                );
             }
             let occupied_coeffs_alpha = self.coeffs_alpha.columns(0, n_alpha);
             if self.density_matrix_alpha.shape() == (0, 0) {
-                self.density_matrix_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
+                self.density_matrix_alpha =
+                    &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
             } else {
                 let new_density_alpha = &occupied_coeffs_alpha * occupied_coeffs_alpha.transpose();
                 self.density_matrix_alpha = mixing_factor * new_density_alpha
@@ -1275,8 +1395,11 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         // Update beta density matrix with adaptive mixing
         if n_beta > 0 {
             if n_beta > self.coeffs_beta.ncols() {
-                panic!("Not enough beta orbitals ({}) for {} beta electrons", 
-                       self.coeffs_beta.ncols(), n_beta);
+                panic!(
+                    "Not enough beta orbitals ({}) for {} beta electrons",
+                    self.coeffs_beta.ncols(),
+                    n_beta
+                );
             }
             let occupied_coeffs_beta = self.coeffs_beta.columns(0, n_beta);
             if self.density_matrix_beta.shape() == (0, 0) {
@@ -1290,7 +1413,10 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             self.density_matrix_beta = DMatrix::zeros(self.num_basis, self.num_basis);
         }
 
-        info!("  Density Matrices updated with adaptive mixing factor {:.3}.", mixing_factor);
+        info!(
+            "  Density Matrices updated with adaptive mixing factor {:.3}.",
+            mixing_factor
+        );
     }
 
     fn restricted_density_mixing(&self) -> f64 {
@@ -1318,10 +1444,20 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                 let mut local_integral_cache = HashMap::new();
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
-                        let coulomb =
-                            self.get_or_compute_integral_cached(&mut local_integral_cache, i, j, k, l);
-                        let exchange =
-                            self.get_or_compute_integral_cached(&mut local_integral_cache, i, k, j, l);
+                        let coulomb = self.get_or_compute_integral_cached(
+                            &mut local_integral_cache,
+                            i,
+                            j,
+                            k,
+                            l,
+                        );
+                        let exchange = self.get_or_compute_integral_cached(
+                            &mut local_integral_cache,
+                            i,
+                            k,
+                            j,
+                            l,
+                        );
                         g_ij += total_density[(k, l)] * (coulomb - 0.5 * exchange);
                     }
                 }
@@ -1406,7 +1542,10 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                 f64::INFINITY
             };
 
-            info!("    [RHF] Energy: {:.12} au (ΔE = {:.3e})", total_energy, energy_change);
+            info!(
+                "    [RHF] Energy: {:.12} au (ΔE = {:.3e})",
+                total_energy, energy_change
+            );
 
             if energy_change < self.convergence_threshold {
                 info!("  ✅ Restricted SCF converged in {} cycles", cycle + 1);
@@ -1443,7 +1582,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
                 let eigenvalues = eigen.eigenvalues;
                 let max_eigenvalue = eigenvalues.max();
                 let min_eigenvalue = eigenvalues.min();
-                
+
                 if min_eigenvalue.abs() < 1e-15 {
                     1e15 // Return very large condition number for near-singular matrix
                 } else {
@@ -1458,9 +1597,12 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
 
     // Helper function to retrieve integral value using 8-fold symmetry
     fn get_symmetric_integral(
-        &self, 
+        &self,
         integral_map: &std::collections::HashMap<(usize, usize, usize, usize), f64>,
-        i: usize, j: usize, k: usize, l: usize
+        i: usize,
+        j: usize,
+        k: usize,
+        l: usize,
     ) -> f64 {
         // Try all symmetric permutations: (ij|kl) = (ji|lk) = (kl|ij) = (lk|ji) = ...
         let symmetries = [
@@ -1493,7 +1635,10 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
     fn get_or_compute_integral_cached(
         &self,
         cache: &mut std::collections::HashMap<(usize, usize, usize, usize), f64>,
-        i: usize, j: usize, k: usize, l: usize
+        i: usize,
+        j: usize,
+        k: usize,
+        l: usize,
     ) -> f64 {
         // Try all symmetric permutations to find cached value
         let symmetries = [
@@ -1523,7 +1668,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
 
         // Cache the computed value
         cache.insert((i, j, k, l), value);
-        
+
         value
     }
 }

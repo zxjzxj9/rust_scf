@@ -35,4 +35,3 @@ pub use ccsd::CCSD;
 
 #[cfg(test)]
 mod tests;
-

@@ -7,4 +7,3 @@ mod output;
 
 pub use basis_loader::fetch_basis;
 pub use output::{print_optimized_geometry, setup_output};
-

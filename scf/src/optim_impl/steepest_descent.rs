@@ -20,7 +20,7 @@ pub struct SteepestDescentOptimizer<S: SCF> {
 
 impl<S: SCF + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
     type SCFType = S;
-    
+
     fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self {
         SteepestDescentOptimizer {
             scf: scf.clone(),
@@ -88,8 +88,10 @@ impl<S: SCF + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
 
             // Check if we've reached max iterations
             if iteration == self.max_iterations {
-                tracing::info!("Optimization reached maximum number of iterations ({}) without converging",
-                          self.max_iterations);
+                tracing::info!(
+                    "Optimization reached maximum number of iterations ({}) without converging",
+                    self.max_iterations
+                );
                 tracing::info!("-----------------------------------------------------\n");
             }
         }
@@ -144,7 +146,10 @@ impl<S: SCF + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
             tracing::info!("  Initial state:");
         } else {
             tracing::info!("  Iteration {}:", iteration);
-            tracing::info!("    Energy change: {:.8} au", self.energy - self.previous_energy);
+            tracing::info!(
+                "    Energy change: {:.8} au",
+                self.energy - self.previous_energy
+            );
         }
 
         tracing::info!("    Energy: {:.8} au", self.energy);
@@ -154,15 +159,28 @@ impl<S: SCF + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         // Always log geometry and forces after each iteration
         tracing::info!("    Current geometry (atomic units):");
         for (i, (coord, elem)) in self.coords.iter().zip(self.elements.iter()).enumerate() {
-            tracing::info!("      Atom {}: {} at [{:10.6}, {:10.6}, {:10.6}] bohr",
-            i + 1, elem.get_symbol(), coord.x, coord.y, coord.z);
+            tracing::info!(
+                "      Atom {}: {} at [{:10.6}, {:10.6}, {:10.6}] bohr",
+                i + 1,
+                elem.get_symbol(),
+                coord.x,
+                coord.y,
+                coord.z
+            );
         }
-        
+
         tracing::info!("    Current forces (atomic units):");
         for (i, (force, elem)) in self.forces.iter().zip(self.elements.iter()).enumerate() {
             let force_magnitude = force.norm();
-            tracing::info!("      Atom {}: {} force [{:10.6}, {:10.6}, {:10.6}] au (|F| = {:10.6} au)",
-            i + 1, elem.get_symbol(), force.x, force.y, force.z, force_magnitude);
+            tracing::info!(
+                "      Atom {}: {} force [{:10.6}, {:10.6}, {:10.6}] au (|F| = {:10.6} au)",
+                i + 1,
+                elem.get_symbol(),
+                force.x,
+                force.y,
+                force.z,
+                force_magnitude
+            );
         }
     }
 
@@ -175,4 +193,3 @@ impl<S: SCF + Clone> GeometryOptimizer for SteepestDescentOptimizer<S> {
         temp_scf.calculate_total_energy()
     }
 }
-

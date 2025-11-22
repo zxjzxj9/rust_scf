@@ -9,10 +9,10 @@ mod steepest_descent;
 pub use cg::CGOptimizer;
 pub use steepest_descent::SteepestDescentOptimizer;
 
-use std::str::FromStr;
+use crate::scf_impl::SCF;
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
-use crate::scf_impl::SCF;
+use std::str::FromStr;
 
 enum OptimizationAlgorithm {
     ConjugateGradient,
@@ -36,17 +36,21 @@ pub fn create_optimizer<S: SCF + Clone + 'static>(
     algorithm: &str,
     scf: &mut S,
     max_iterations: usize,
-    convergence_threshold: f64
+    convergence_threshold: f64,
 ) -> Result<Box<dyn GeometryOptimizer<SCFType = S>>, color_eyre::eyre::Error> {
     let algo = OptimizationAlgorithm::from_str(algorithm)?;
 
     match algo {
-        OptimizationAlgorithm::ConjugateGradient => {
-            Ok(Box::new(CGOptimizer::new(scf, max_iterations, convergence_threshold)))
-        },
-        OptimizationAlgorithm::SteepestDescent => {
-            Ok(Box::new(SteepestDescentOptimizer::new(scf, max_iterations, convergence_threshold)))
-        },
+        OptimizationAlgorithm::ConjugateGradient => Ok(Box::new(CGOptimizer::new(
+            scf,
+            max_iterations,
+            convergence_threshold,
+        ))),
+        OptimizationAlgorithm::SteepestDescent => Ok(Box::new(SteepestDescentOptimizer::new(
+            scf,
+            max_iterations,
+            convergence_threshold,
+        ))),
     }
 }
 
@@ -55,7 +59,9 @@ pub trait GeometryOptimizer {
     type SCFType: SCF;
 
     /// Create a new optimizer with SCF object and convergence settings
-    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self where Self: Sized;
+    fn new(scf: &mut Self::SCFType, max_iterations: usize, convergence_threshold: f64) -> Self
+    where
+        Self: Sized;
 
     /// Initialize with molecule data
     fn init(&mut self, coords: Vec<Vector3<f64>>, elements: Vec<Element>);
@@ -85,8 +91,8 @@ pub trait GeometryOptimizer {
     /// Calculate RMS and maximum force
     fn calculate_force_metrics(&self) -> (f64, f64) {
         let forces = self.get_forces();
-        let mut max_force:f64 = 0.0;
-        let mut sum_squared:f64 = 0.0;
+        let mut max_force: f64 = 0.0;
+        let mut sum_squared: f64 = 0.0;
 
         for force in forces {
             let norm = force.norm();
@@ -110,7 +116,8 @@ pub trait GeometryOptimizer {
 
         for &step in &step_sizes {
             // Test this step size
-            let test_coords: Vec<Vector3<f64>> = initial_coords.iter()
+            let test_coords: Vec<Vector3<f64>> = initial_coords
+                .iter()
                 .zip(direction.iter())
                 .map(|(coord, dir)| coord + step * dir)
                 .collect();
@@ -178,13 +185,25 @@ pub trait GeometryOptimizer {
 
         // Log comparison
         tracing::info!("  Force validation (numerical vs analytical):");
-        for (i, (num, ana)) in numerical_forces.iter().zip(analytical_forces.iter()).enumerate() {
+        for (i, (num, ana)) in numerical_forces
+            .iter()
+            .zip(analytical_forces.iter())
+            .enumerate()
+        {
             let diff = (num - ana).norm();
-            tracing::info!("    Atom {}: num=[{:.6}, {:.6}, {:.6}] ana=[{:.6}, {:.6}, {:.6}] diff={:.6}",
-                i + 1, num.x, num.y, num.z, ana.x, ana.y, ana.z, diff);
+            tracing::info!(
+                "    Atom {}: num=[{:.6}, {:.6}, {:.6}] ana=[{:.6}, {:.6}, {:.6}] diff={:.6}",
+                i + 1,
+                num.x,
+                num.y,
+                num.z,
+                ana.x,
+                ana.y,
+                ana.z,
+                diff
+            );
         }
 
         numerical_forces
     }
 }
-

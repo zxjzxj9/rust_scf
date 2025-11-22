@@ -16,19 +16,20 @@
 //! - `optim_impl`: Geometry optimization algorithms (Conjugate Gradient, Steepest Descent)
 //! - `force_validation`: Force calculation validation utilities
 
+pub mod app;
+pub mod ccsd_impl;
+pub mod ci_impl;
 pub mod config;
 pub mod force_validation;
 pub mod io;
 pub mod mp2_impl;
-pub mod ccsd_impl;
-pub mod ci_impl;
 pub mod optim_impl;
 pub mod scf_impl;
 
 // Re-export commonly used items for convenience
+pub use ccsd_impl::CCSD;
+pub use ci_impl::{CIMethod, CI};
 pub use config::{Args, Config};
 pub use mp2_impl::MP2;
-pub use ccsd_impl::CCSD;
-pub use ci_impl::{CI, CIMethod};
 pub use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
-pub use scf_impl::{SimpleSCF, SpinSCF, SCF, DIIS};
+pub use scf_impl::{SimpleSCF, SpinSCF, DIIS, SCF};

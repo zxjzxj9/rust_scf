@@ -62,4 +62,3 @@ pub struct Args {
     #[arg(long)]
     pub spin_polarized: bool,
 }
-

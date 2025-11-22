@@ -341,4 +341,3 @@ impl<S: SCF + Clone> CGOptimizer<S> {
         dot_product < 0.0 // If negative, direction is uphill
     }
 }
-

@@ -16,8 +16,8 @@ use basis::basis::AOBasis;
 use na::Vector3;
 use nalgebra::{DMatrix, DVector};
 use periodic_table_on_an_enum::Element;
-use std::collections::HashMap;
 use std::cmp::Ordering;
+use std::collections::HashMap;
 
 /// Given a matrix where each column is an eigenvector,
 /// this function aligns each eigenvector so that the entry with the largest
@@ -28,11 +28,7 @@ pub fn align_eigenvectors(mut eigvecs: DMatrix<f64>) -> DMatrix<f64> {
         let (_, &max_val) = col
             .iter()
             .enumerate()
-            .max_by(|(_, a), (_, b)| {
-                a.abs()
-                    .partial_cmp(&b.abs())
-                    .unwrap_or(Ordering::Less)
-            })
+            .max_by(|(_, a), (_, b)| a.abs().partial_cmp(&b.abs()).unwrap_or(Ordering::Less))
             .unwrap();
         if max_val < 0.0 {
             for i in 0..eigvecs.nrows() {

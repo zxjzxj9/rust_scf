@@ -2,7 +2,7 @@
 
 extern crate nalgebra as na;
 
-use super::{SCF, align_eigenvectors};
+use super::{align_eigenvectors, SCF};
 use basis::basis::{AOBasis, Basis};
 use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
@@ -36,11 +36,11 @@ pub struct SimpleSCF<B: AOBasis> {
 /// Decomposes the total analytic force into physically meaningful pieces.
 #[derive(Debug, Clone)]
 pub struct ForceBreakdown {
-    pub nuclear: Vec<Vector3<f64>>,          // Z_i Z_j / r^2 term
-    pub elec_nuclear: Vec<Vector3<f64>>,     // −P_ij dV/dR (Hellmann–Feynman)
-    pub two_electron: Vec<Vector3<f64>>,     // 2-electron HF derivative (J/K)
-    pub pulay_one: Vec<Vector3<f64>>,        // one-electron Pulay (dS, dT, dVbasis)
-    pub pulay_two: Vec<Vector3<f64>>,        // two-electron Pulay (dJKbasis)
+    pub nuclear: Vec<Vector3<f64>>,      // Z_i Z_j / r^2 term
+    pub elec_nuclear: Vec<Vector3<f64>>, // −P_ij dV/dR (Hellmann–Feynman)
+    pub two_electron: Vec<Vector3<f64>>, // 2-electron HF derivative (J/K)
+    pub pulay_one: Vec<Vector3<f64>>,    // one-electron Pulay (dS, dT, dVbasis)
+    pub pulay_two: Vec<Vector3<f64>>,    // two-electron Pulay (dJKbasis)
 }
 
 impl<B: AOBasis + Clone + Send> SimpleSCF<B>
@@ -98,12 +98,12 @@ where
     pub fn update_fock_matrix(&mut self) {
         let mut g_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
-        
+
         // Create a vector of (i, j) pairs for parallel iteration
         let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
             .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
             .collect();
-        
+
         // Parallel computation of G matrix elements
         let g_values: Vec<f64> = ij_pairs
             .par_iter()
@@ -111,20 +111,30 @@ where
                 let mut g_ij = 0.0;
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
-                        let coulomb = B::BasisType::JKabcd(&self.mo_basis[i], &self.mo_basis[j], &self.mo_basis[k], &self.mo_basis[l]);
-                        let exchange = B::BasisType::JKabcd(&self.mo_basis[i], &self.mo_basis[k], &self.mo_basis[j], &self.mo_basis[l]);
+                        let coulomb = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            &self.mo_basis[k],
+                            &self.mo_basis[l],
+                        );
+                        let exchange = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[k],
+                            &self.mo_basis[j],
+                            &self.mo_basis[l],
+                        );
                         g_ij += p[(k, l)] * (coulomb - 0.5 * exchange);
                     }
                 }
                 g_ij
             })
             .collect();
-        
+
         // Assign computed values back to matrix
         for (idx, &(i, j)) in ij_pairs.iter().enumerate() {
             g_matrix[(i, j)] = g_values[idx];
         }
-        
+
         self.fock_matrix = self.h_core.clone() + g_matrix;
     }
 
@@ -157,7 +167,7 @@ where
 
         let inv_sqrt_d = DMatrix::from_diagonal(&inv_sqrt_vals);
         let x = &eig.eigenvectors * inv_sqrt_d * eig.eigenvectors.transpose();
-        
+
         x
     }
 
@@ -167,13 +177,17 @@ where
 
         (0..self.num_atoms).for_each(|i| {
             for j in 0..self.num_atoms {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
 
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = self.coords[i] - self.coords[j];
                 let r = r_ij.norm();
-                if r < 1e-10 { continue; }
+                if r < 1e-10 {
+                    continue;
+                }
 
                 // F_i = +Z_i Z_j (R_i - R_j) / r^3
                 forces[i] += z_i * z_j * r_ij / (r * r * r);
@@ -226,7 +240,11 @@ where
     // ------------------------------------------------------------------
     fn calculate_pulay_one_forces(&self) -> Vec<Vector3<f64>> {
         // Build the energy-weighted density matrix  W_{ij} = 2 Σ_p  C_{ip} C_{jp} ε_p
-        let total_electrons: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+        let total_electrons: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
         let n_occ = total_electrons / 2;
 
         let occ_coeffs = self.coeffs.columns(0, n_occ);
@@ -264,11 +282,13 @@ where
                         // -------------------------------------------
                         if self.basis_atom_map[i] == atom_idx {
                             // Overlap derivative  − W_ij dS/dR_i
-                            let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                            let ds_dr =
+                                B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
                             force_atom -= w_ij * ds_dr;
 
                             // Kinetic derivative  − P_ij dT/dR_i
-                            let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                            let dt_dr =
+                                B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
                             force_atom -= p_ij * dt_dr;
 
                             // Nuclear attraction derivative  − P_ij dV/dR_i
@@ -290,11 +310,13 @@ where
                         // -------------------------------------------
                         if self.basis_atom_map[j] == atom_idx {
                             // Overlap derivative  − W_ij dS/dR_j
-                            let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                            let ds_dr =
+                                B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
                             force_atom -= w_ij * ds_dr;
 
                             // Kinetic derivative  − P_ij dT/dR_j
-                            let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                            let dt_dr =
+                                B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
                             force_atom -= p_ij * dt_dr;
 
                             // Nuclear attraction derivative  − P_ij dV/dR_j
@@ -398,13 +420,17 @@ where
 
         (0..num_atoms).for_each(|i| {
             for j in 0..num_atoms {
-                if i == j { continue; }
+                if i == j {
+                    continue;
+                }
 
                 let z_i = elems[i].get_atomic_number() as f64;
                 let z_j = elems[j].get_atomic_number() as f64;
                 let r_ij = coords[i] - coords[j];
                 let r = r_ij.norm();
-                if r < 1e-10 { continue; }
+                if r < 1e-10 {
+                    continue;
+                }
 
                 forces[i] += z_i * z_j * r_ij / (r * r * r);
             }
@@ -423,7 +449,7 @@ where
             pulay_two: self.calculate_pulay_two_forces(),
         }
     }
-    
+
     /// Create an MP2 calculator from this converged HF calculation
     ///
     /// This method extracts the necessary data (MO coefficients, orbital energies,
@@ -438,12 +464,12 @@ where
     ///
     /// ```ignore
     /// use scf::{SimpleSCF, SCF, MP2};
-    /// 
+    ///
     /// // After HF convergence
     /// let mut scf = SimpleSCF::new();
     /// // ... setup and run SCF ...
     /// scf.scf_cycle();
-    /// 
+    ///
     /// // Create MP2 calculator
     /// let mut mp2 = scf.create_mp2();
     /// let mp2_energy = mp2.calculate_mp2_energy();
@@ -469,7 +495,7 @@ where
     /// ```rust,ignore
     /// // After converging SCF
     /// scf.scf_cycle();
-    /// 
+    ///
     /// // Create CCSD calculator
     /// let mut ccsd = scf.create_ccsd(50, 1e-7);
     /// let ccsd_energy = ccsd.solve();
@@ -501,13 +527,13 @@ where
     /// ```rust,ignore
     /// // After converging SCF
     /// scf.scf_cycle();
-    /// 
+    ///
     /// // Create CI calculator
     /// let mut ci = scf.create_ci(10, 1e-6);
-    /// 
+    ///
     /// // For ground state correlation (CISD)
     /// let cisd_energy = ci.calculate_cisd_energy();
-    /// 
+    ///
     /// // For excited states (CIS)
     /// let excitation_energies = ci.calculate_cis_energies(5);
     /// ```
@@ -560,7 +586,8 @@ where
             let gtos = ao_locked.get_basis();
             let n = ao_locked.basis_size();
             self.mo_basis.extend(gtos);
-            self.basis_atom_map.extend(std::iter::repeat(atom_idx).take(n));
+            self.basis_atom_map
+                .extend(std::iter::repeat(atom_idx).take(n));
             self.num_basis += n;
         }
 
@@ -618,7 +645,7 @@ where
         self.fock_matrix = self.h_core.clone();
 
         // Robust orthogonaliser (handles near-singular overlap matrices)
-        let x = self.orthogonalizer();  // X = L^{-T} such that X^T * S * X = I
+        let x = self.orthogonalizer(); // X = L^{-T} such that X^T * S * X = I
         let f_prime = x.transpose() * self.fock_matrix.clone() * &x;
         let eig = f_prime.symmetric_eigen();
 
@@ -629,10 +656,11 @@ where
                 .partial_cmp(&eig.eigenvalues[b])
                 .unwrap_or(Ordering::Equal)
         });
-        let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
+        let sorted_eigenvalues =
+            DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
         let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
-        
-        let eigvecs = x * sorted_eigenvectors;  // C = X * C'
+
+        let eigvecs = x * sorted_eigenvectors; // C = X * C'
 
         self.coeffs = align_eigenvectors(eigvecs);
         self.e_level = sorted_eigenvalues;
@@ -641,12 +669,16 @@ where
     }
 
     fn update_density_matrix(&mut self) {
-        let total_electrons: usize = self.elems.iter().map(|e| e.get_atomic_number() as usize).sum();
+        let total_electrons: usize = self
+            .elems
+            .iter()
+            .map(|e| e.get_atomic_number() as usize)
+            .sum();
         let n_occ = total_electrons / 2;
 
         let occupied_coeffs = self.coeffs.columns(0, n_occ);
         let new_density = 2.0 * &occupied_coeffs * occupied_coeffs.transpose();
-        
+
         // ------------------------------------------------------------------
         //  Adaptive linear mixing: small basis sets generally converge faster
         //  (and are numerically well-behaved) with a slightly larger mixing
@@ -686,8 +718,8 @@ where
             // Scale integrals in line with the unit-test expectations.
             self.h_core.fill(0.0);
 
-                    let kinetic_scale = 0.2;   // Hardcoded for test consistency
-        let nuclear_scale = 0.15; // Hardcoded for test consistency
+            let kinetic_scale = 0.2; // Hardcoded for test consistency
+            let nuclear_scale = 0.15; // Hardcoded for test consistency
 
             let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
                 .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
@@ -696,7 +728,8 @@ where
             let h_values: Vec<f64> = ij_pairs
                 .par_iter()
                 .map(|&(i, j)| {
-                    let kinetic = kinetic_scale * B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
+                    let kinetic =
+                        kinetic_scale * B::BasisType::Tab(&self.mo_basis[i], &self.mo_basis[j]);
 
                     let mut nuclear_sum = 0.0;
                     for k in 0..self.num_atoms {
@@ -734,7 +767,7 @@ where
 
             // Obtain the inverse square-root of the overlap matrix using the
             // same robust routine employed during the initial density build.
-            let x = self.orthogonalizer();  // X = L^{-T} such that X^T * S * X = I
+            let x = self.orthogonalizer(); // X = L^{-T} such that X^T * S * X = I
             let f_prime = x.transpose() * self.fock_matrix.clone() * &x;
             let eig = f_prime.symmetric_eigen();
 
@@ -745,10 +778,11 @@ where
                     .partial_cmp(&eig.eigenvalues[b])
                     .unwrap_or(Ordering::Equal)
             });
-            let sorted_eigenvalues = DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
+            let sorted_eigenvalues =
+                DVector::from_fn(eig.eigenvalues.len(), |i, _| eig.eigenvalues[indices[i]]);
             let sorted_eigenvectors = eig.eigenvectors.select_columns(&indices);
-            
-            let eigvecs = x * sorted_eigenvectors;  // C = X * C'
+
+            let eigvecs = x * sorted_eigenvectors; // C = X * C'
 
             self.coeffs = align_eigenvectors(eigvecs);
             self.e_level = sorted_eigenvalues;
@@ -758,7 +792,10 @@ where
             let total_energy = self.calculate_total_energy();
             let energy_change = total_energy - old_energy;
 
-            info!("Cycle {}: E = {:.12} au, dE = {:.12} au", cycle, total_energy, energy_change);
+            info!(
+                "Cycle {}: E = {:.12} au, dE = {:.12} au",
+                cycle, total_energy, energy_change
+            );
 
             if energy_change.abs() < 1e-5 {
                 info!("SCF converged in {} cycles.", cycle + 1);
@@ -788,10 +825,11 @@ where
                 let g_ij = self.fock_matrix[(i, j)] - self.h_core[(i, j)];
                 self.density_matrix[(i, j)] * g_ij
             })
-            .sum::<f64>() * 0.5;
+            .sum::<f64>()
+            * 0.5;
 
         let electronic_energy = one_electron_energy + two_electron_energy;
-        
+
         // --- Nuclear repulsion --------------------------------------------------
         let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
             .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))
@@ -803,7 +841,11 @@ where
                 let z_i = self.elems[i].get_atomic_number() as f64;
                 let z_j = self.elems[j].get_atomic_number() as f64;
                 let r_ij = (self.coords[i] - self.coords[j]).norm();
-                if r_ij > 1e-10 { z_i * z_j / r_ij } else { 0.0 }
+                if r_ij > 1e-10 {
+                    z_i * z_j / r_ij
+                } else {
+                    0.0
+                }
             })
             .sum::<f64>();
 
@@ -833,11 +875,16 @@ where
                 + fb.pulay_two[i];
 
             // Sanitize non-finite values to prevent NaNs propagating
-            if !forces[i].x.is_finite() { forces[i].x = 0.0; }
-            if !forces[i].y.is_finite() { forces[i].y = 0.0; }
-            if !forces[i].z.is_finite() { forces[i].z = 0.0; }
+            if !forces[i].x.is_finite() {
+                forces[i].x = 0.0;
+            }
+            if !forces[i].y.is_finite() {
+                forces[i].y = 0.0;
+            }
+            if !forces[i].z.is_finite() {
+                forces[i].z = 0.0;
+            }
         }
         forces
     }
 }
-

@@ -1,5 +1,6 @@
 //! Output formatting and logging utilities
 
+use color_eyre::eyre::Result;
 use nalgebra::Vector3;
 use periodic_table_on_an_enum::Element;
 use std::fmt;
@@ -11,7 +12,6 @@ use tracing_subscriber::{
     fmt::format::Writer, fmt::layer, fmt::time::FormatTime, layer::SubscriberExt,
     util::SubscriberInitExt, Registry,
 };
-use color_eyre::eyre::Result;
 
 /// Custom time formatter that shows only seconds
 struct SecondPrecisionTimer;
@@ -19,7 +19,9 @@ struct SecondPrecisionTimer;
 impl FormatTime for SecondPrecisionTimer {
     fn format_time(&self, w: &mut Writer<'_>) -> fmt::Result {
         let now = StdSystemTime::now();
-        let duration = now.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+        let duration = now
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
 
         // Format as HH:MM:SS (only seconds precision)
         let total_seconds = duration.as_secs();
@@ -80,4 +82,3 @@ pub fn print_optimized_geometry<W: Write>(
     writeln!(writer, "Final energy: {:.10} au", energy)?;
     Ok(())
 }
-
