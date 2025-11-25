@@ -33,3 +33,6 @@ pub use config::{Args, Config};
 pub use mp2_impl::MP2;
 pub use optim_impl::{CGOptimizer, GeometryOptimizer, SteepestDescentOptimizer};
 pub use scf_impl::{SimpleSCF, SpinSCF, DIIS, SCF};
+
+#[cfg(feature = "python")]
+mod python;
