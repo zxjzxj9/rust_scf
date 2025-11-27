@@ -28,3 +28,6 @@ pub fn build_geometry(config: &Config) -> Result<Geometry> {
 
     Ok(Geometry { elements, coords })
 }
+
+
+
