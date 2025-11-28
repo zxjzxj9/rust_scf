@@ -4,7 +4,7 @@ use crate::app::{
 use crate::config::{Args, Config};
 use crate::{SimpleSCF, SpinSCF, SCF};
 use basis::cgto::Basis631G;
-use nalgebra::DMatrix;
+use nalgebra::{DMatrix, Vector3};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
@@ -27,6 +27,8 @@ pub struct PyScfResult {
     charge: i32,
     #[pyo3(get)]
     multiplicity: usize,
+    #[pyo3(get)]
+    forces: Vec<[f64; 3]>,
 }
 
 #[pymethods]
@@ -41,6 +43,7 @@ impl PyScfResult {
 
 impl PyScfResult {
     fn from_restricted(scf: &SimpleSCF<Basis631G>) -> Self {
+        let forces = scf.calculate_forces();
         let orbital_energies: Vec<f64> = scf.e_level.iter().cloned().collect();
         let density = matrix_to_vecvec(&scf.density_matrix);
         Self {
@@ -52,10 +55,12 @@ impl PyScfResult {
             calculation_type: "restricted".to_string(),
             charge: 0,
             multiplicity: 1,
+            forces: vector3_to_array(&forces),
         }
     }
 
     fn from_spin(scf: &SpinSCF<Basis631G>) -> Self {
+        let forces = scf.calculate_forces();
         let alpha_energies: Vec<f64> = scf.e_level_alpha.iter().cloned().collect();
         let beta_energies: Vec<f64> = scf.e_level_beta.iter().cloned().collect();
         let density_alpha = matrix_to_vecvec(scf.get_density_matrix_alpha());
@@ -70,6 +75,7 @@ impl PyScfResult {
             calculation_type: "spin".to_string(),
             charge: scf.charge,
             multiplicity: scf.multiplicity,
+            forces: vector3_to_array(&forces),
         }
     }
 }
@@ -160,4 +166,11 @@ fn matrix_to_vecvec(matrix: &DMatrix<f64>) -> Vec<Vec<f64>> {
 
 fn to_py_err<E: std::fmt::Display>(err: E) -> PyErr {
     PyValueError::new_err(err.to_string())
+}
+
+fn vector3_to_array(forces: &[Vector3<f64>]) -> Vec<[f64; 3]> {
+    forces
+        .iter()
+        .map(|f| [f.x, f.y, f.z])
+        .collect::<Vec<[f64; 3]>>()
 }
