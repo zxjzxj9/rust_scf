@@ -212,7 +212,7 @@ fn benchmark_thread_scaling() {
     println!("==========================\n");
     
     let size = 24;
-    let model = IsingModel2D::new(size, analysis::critical_temperature_2d());
+    let temperature = analysis::critical_temperature_2d();
     let num_runs = 80;
     let steps_per_run = 400;
     
@@ -233,8 +233,9 @@ fn benchmark_thread_scaling() {
             .build()
             .unwrap();
             
-        let time = pool.install(|| {
+        let time = pool.install(move || {
             let start = Instant::now();
+            let model = IsingModel2D::new(size, temperature);
             let (_energies, _mags) = model.parallel_ensemble_sampling(num_runs, steps_per_run);
             start.elapsed()
         });

@@ -500,9 +500,13 @@ mod tests {
         let positions = config.generate_positions().unwrap();
         assert_eq!(positions.len(), 8); // 2^3 = 8 atoms
         
-        // Check lattice spacing
+        // Check lattice spacing along x-direction independent of generation order
         let expected_spacing = 1.2;
-        assert!((positions[1].x - positions[0].x - expected_spacing).abs() < 1e-10);
+        let mut xs: Vec<f64> = positions.iter().map(|p| p.x).collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        xs.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
+        assert!(xs.len() >= 2);
+        assert!((xs[1] - xs[0] - expected_spacing).abs() < 1e-10);
     }
     
     #[test]
