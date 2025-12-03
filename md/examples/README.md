@@ -10,7 +10,8 @@ examples/
 ├── molecular_dynamics/          # Classical MD simulations
 │   ├── README.md
 │   ├── argon_melting.rs        # Phase transition demo
-│   └── pressure_calculation_demo.rs
+│   ├── pressure_calculation_demo.rs
+│   └── langevin_lj_cluster.rs  # Finite LJ cluster with Langevin thermostat
 ├── npt_ensemble/               # NPT (constant P,T) simulations
 │   ├── NPT_EXAMPLES_README.md
 │   ├── LJ_CLUSTER_NPT_GUIDE.md
@@ -89,6 +90,7 @@ Classical equations of motion for continuous systems.
 **Examples:**
 - Argon melting simulation (256 atoms, heating cycle)
 - Pressure calculation demonstrations
+- Langevin-controlled LJ cluster (finite aggregation thermodynamics)
 
 **Key Features:**
 - Lennard-Jones interactions

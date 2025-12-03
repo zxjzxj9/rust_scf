@@ -86,6 +86,40 @@ where:
 
 ---
 
+### 3. Langevin LJ Cluster (`langevin_lj_cluster.rs`)
+
+Simulates a 38-atom Lennard-Jones cluster in reduced units while coupled to a Langevin heat bath. Useful for studying finite-size energy landscapes, exploring structural transitions, or demonstrating stochastic thermostats without periodic bulk effects.
+
+**Features:**
+- Custom Langevin integrator with friction + stochastic kicks
+- Compact cluster builder (radius-sorted cubic lattice)
+- Energy and radius monitoring every 250 steps
+- Optional on-the-fly thermostat retargeting
+- Re-centering to keep the aggregate away from box edges
+
+**Run:**
+```bash
+cd md
+cargo run --example langevin_lj_cluster --release
+```
+
+**Output Highlights:**
+- Instantaneous reduced temperature `T*`
+- Kinetic and potential energy per particle
+- Average and maximum radial extent of the cluster
+- Running averages over the reported frames
+
+**Customization Hooks:**
+```rust
+let n_atoms = 38;          // change cluster size
+let target_temp = 0.6;     // Langevin thermostat set point
+let gamma = 1.5;           // friction (higher => stronger coupling)
+let total_steps = 25_000;  // simulation length
+let sample_interval = 250; // reporting cadence
+```
+
+---
+
 ## Physics Background
 
 ### Lennard-Jones Potential

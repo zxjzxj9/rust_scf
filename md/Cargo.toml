@@ -25,6 +25,10 @@ path = "examples/molecular_dynamics/argon_melting.rs"
 name = "pressure_calculation_demo"
 path = "examples/molecular_dynamics/pressure_calculation_demo.rs"
 
+[[example]]
+name = "langevin_lj_cluster"
+path = "examples/molecular_dynamics/langevin_lj_cluster.rs"
+
 # NPT Ensemble Examples
 [[example]]
 name = "quick_lj_npt"
