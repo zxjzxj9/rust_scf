@@ -1,5 +1,8 @@
 use itertools::izip;
 use nalgebra::Vector3;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use rand_distr::StandardNormal;
 
 pub trait ForceProvider {
     fn compute_forces(&self, positions: &[Vector3<f64>]) -> Vec<Vector3<f64>>;
@@ -61,7 +64,7 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
     }
 
     #[inline]
-    fn kinetic_energy(&self) -> f64 {
+    pub fn kinetic_energy(&self) -> f64 {
         self.velocities
             .iter()
             .zip(&self.masses)
@@ -196,7 +199,7 @@ impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
     }
 
     #[inline]
-    fn kinetic_energy(&self) -> f64 {
+    pub fn kinetic_energy(&self) -> f64 {
         self.velocities
             .iter()
             .zip(&self.masses)
@@ -332,6 +335,114 @@ impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
 
         // Update eta (extended coordinate)
         self.eta += self.xi * dt;
+    }
+
+    fn temperature(&self) -> f64 {
+        2.0 * self.kinetic_energy() / (self.dof as f64 * self.k_b)
+    }
+}
+
+/// Langevin dynamics integrator for NVT simulations with stochastic thermostatting.
+pub struct LangevinDynamics<F: ForceProvider> {
+    pub positions: Vec<Vector3<f64>>,
+    pub velocities: Vec<Vector3<f64>>,
+    pub masses: Vec<f64>,
+    inv_masses: Vec<f64>,
+    pub provider: F,
+    pub forces: Vec<Vector3<f64>>,
+    gamma: f64,
+    target_temp: f64,
+    k_b: f64,
+    dof: usize,
+    rng: StdRng,
+}
+
+impl<F: ForceProvider> LangevinDynamics<F> {
+    /// Create a new Langevin integrator with a deterministic RNG seed.
+    pub fn new(
+        positions: Vec<Vector3<f64>>,
+        velocities: Vec<Vector3<f64>>,
+        masses: Vec<f64>,
+        provider: F,
+        gamma: f64,
+        target_temp: f64,
+        k_b: f64,
+        rng_seed: u64,
+    ) -> Self {
+        Self::with_rng(
+            positions,
+            velocities,
+            masses,
+            provider,
+            gamma,
+            target_temp,
+            k_b,
+            StdRng::seed_from_u64(rng_seed),
+        )
+    }
+
+    /// Create a new Langevin integrator with a caller-supplied RNG.
+    pub fn with_rng(
+        positions: Vec<Vector3<f64>>,
+        velocities: Vec<Vector3<f64>>,
+        masses: Vec<f64>,
+        provider: F,
+        gamma: f64,
+        target_temp: f64,
+        k_b: f64,
+        rng: StdRng,
+    ) -> Self {
+        let forces = provider.compute_forces(&positions);
+        let inv_masses = masses.iter().map(|&m| 1.0 / m).collect();
+        let dof = positions.len() * 3;
+        Self {
+            positions,
+            velocities,
+            masses,
+            inv_masses,
+            provider,
+            forces,
+            gamma,
+            target_temp,
+            k_b,
+            dof,
+            rng,
+        }
+    }
+
+    #[inline]
+    pub fn kinetic_energy(&self) -> f64 {
+        self.velocities
+            .iter()
+            .zip(&self.masses)
+            .map(|(v, &m)| 0.5 * m * v.dot(v))
+            .sum()
+    }
+
+    /// Update the thermostat target temperature.
+    pub fn set_target_temperature(&mut self, temp: f64) {
+        self.target_temp = temp;
+    }
+}
+
+impl<F: ForceProvider> Integrator for LangevinDynamics<F> {
+    fn step(&mut self, dt: f64) {
+        let sqrt_dt = dt.sqrt();
+        for i in 0..self.positions.len() {
+            let inv_m = self.inv_masses[i];
+            let deterministic = self.forces[i] * inv_m - self.velocities[i] * self.gamma;
+            let noise_scale = (2.0 * self.gamma * self.k_b * self.target_temp * inv_m).sqrt();
+            let random_vec = Vector3::new(
+                self.rng.sample(StandardNormal),
+                self.rng.sample(StandardNormal),
+                self.rng.sample(StandardNormal),
+            );
+            let stochastic = random_vec * (noise_scale * sqrt_dt);
+
+            self.velocities[i] += deterministic * dt + stochastic;
+            self.positions[i] += self.velocities[i] * dt;
+        }
+        self.forces = self.provider.compute_forces(&self.positions);
     }
 
     fn temperature(&self) -> f64 {
@@ -658,5 +769,121 @@ mod tests {
             1.0,
         );
         assert_eq!(integrator_3.dof, 9); // 3 atoms * 3 dimensions
+    }
+
+    #[test]
+    fn test_langevin_new_initializes_state() {
+        let positions = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
+        let velocities = vec![Vector3::zeros(), Vector3::zeros()];
+        let masses = vec![1.0, 2.0];
+        let forces = vec![Vector3::new(0.2, 0.0, 0.0), Vector3::new(-0.2, 0.0, 0.0)];
+        let provider = MockForceProvider::new(forces.clone());
+
+        let integrator = LangevinDynamics::new(
+            positions.clone(),
+            velocities.clone(),
+            masses.clone(),
+            provider,
+            1.0,
+            2.0,
+            1.0,
+            42,
+        );
+
+        assert_eq!(integrator.positions, positions);
+        assert_eq!(integrator.velocities, velocities);
+        assert_eq!(integrator.masses, masses);
+        assert_eq!(integrator.forces, forces);
+        assert_eq!(integrator.dof, 6);
+        assert_eq!(integrator.gamma, 1.0);
+        assert_eq!(integrator.target_temp, 2.0);
+    }
+
+    #[test]
+    fn test_langevin_step_adds_noise_with_zero_force() {
+        let positions = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let velocities = vec![Vector3::zeros()];
+        let masses = vec![1.0];
+        let provider = MockForceProvider::new(vec![Vector3::zeros()]);
+
+        let mut integrator = LangevinDynamics::new(
+            positions,
+            velocities.clone(),
+            masses,
+            provider,
+            0.5,
+            1.0,
+            1.0,
+            7,
+        );
+
+        let mut changed = false;
+        for _ in 0..5 {
+            integrator.step(0.01);
+            if integrator.velocities[0] != velocities[0] {
+                changed = true;
+                break;
+            }
+        }
+        assert!(changed, "Velocities should change due to stochastic kicks");
+    }
+
+    #[test]
+    fn test_langevin_temperature_converges_to_target() {
+        let positions = vec![
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(1.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+        ];
+        let velocities = vec![Vector3::zeros(); 3];
+        let masses = vec![1.0; 3];
+        let provider = MockForceProvider::new(vec![Vector3::zeros(); 3]);
+        let target_temp = 1.25;
+
+        let mut integrator = LangevinDynamics::new(
+            positions,
+            velocities,
+            masses,
+            provider,
+            1.0,
+            target_temp,
+            1.0,
+            2024,
+        );
+
+        let dt = 0.001;
+        for _ in 0..5_000 {
+            integrator.step(dt);
+        }
+
+        let final_temp = integrator.temperature();
+        assert!(
+            final_temp > 0.5 * target_temp && final_temp < 1.5 * target_temp,
+            "Final temperature {} should settle near target {}",
+            final_temp,
+            target_temp
+        );
+    }
+
+    #[test]
+    fn test_langevin_target_temperature_update() {
+        let positions = vec![Vector3::new(0.0, 0.0, 0.0)];
+        let velocities = vec![Vector3::zeros()];
+        let masses = vec![1.0];
+        let provider = MockForceProvider::new(vec![Vector3::zeros()]);
+
+        let mut integrator = LangevinDynamics::new(
+            positions,
+            velocities,
+            masses,
+            provider,
+            0.5,
+            1.0,
+            1.0,
+            99,
+        );
+
+        integrator.set_target_temperature(2.0);
+        assert_eq!(integrator.target_temp, 2.0);
     }
 }

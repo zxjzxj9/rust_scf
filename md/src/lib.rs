@@ -5,6 +5,12 @@ pub mod ising;
 pub mod gcmc;
 
 pub use lj_pot::LennardJones;
-pub use run_md::{ForceProvider, Integrator, NoseHooverVerlet, NoseHooverParrinelloRahman};
+pub use run_md::{
+    ForceProvider,
+    Integrator,
+    NoseHooverVerlet,
+    NoseHooverParrinelloRahman,
+    LangevinDynamics,
+};
 pub use config::*;
 pub use gcmc::{GCMC, GCMCStatistics, GCMCResults, parallel_gcmc_sweep};

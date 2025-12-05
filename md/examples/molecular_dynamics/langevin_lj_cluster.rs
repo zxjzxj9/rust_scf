@@ -5,7 +5,7 @@
 // temperature through friction + stochastic kicks while allowing the
 // structure to explore its inherent-energy landscape.
 
-use md::{ForceProvider, Integrator, LennardJones};
+use md::{Integrator, LennardJones, LangevinDynamics};
 use nalgebra::Vector3;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
@@ -13,87 +13,6 @@ use rand::Rng;
 use rand_distr::StandardNormal;
 
 const K_B: f64 = 1.0; // Reduced units
-
-struct LangevinDynamics<F: ForceProvider> {
-    pub positions: Vec<Vector3<f64>>,
-    pub velocities: Vec<Vector3<f64>>,
-    pub masses: Vec<f64>,
-    inv_masses: Vec<f64>,
-    pub provider: F,
-    pub forces: Vec<Vector3<f64>>,
-    gamma: f64,
-    target_temp: f64,
-    k_b: f64,
-    dof: usize,
-    rng: StdRng,
-}
-
-impl<F: ForceProvider> LangevinDynamics<F> {
-    fn new(
-        positions: Vec<Vector3<f64>>,
-        velocities: Vec<Vector3<f64>>,
-        masses: Vec<f64>,
-        provider: F,
-        gamma: f64,
-        target_temp: f64,
-        k_b: f64,
-        rng_seed: u64,
-    ) -> Self {
-        let forces = provider.compute_forces(&positions);
-        let inv_masses = masses.iter().map(|&m| 1.0 / m).collect::<Vec<_>>();
-        let dof = positions.len() * 3;
-        Self {
-            positions,
-            velocities,
-            masses,
-            inv_masses,
-            provider,
-            forces,
-            gamma,
-            target_temp,
-            k_b,
-            dof,
-            rng: StdRng::seed_from_u64(rng_seed),
-        }
-    }
-
-    fn kinetic_energy(&self) -> f64 {
-        self.velocities
-            .iter()
-            .zip(&self.masses)
-            .map(|(v, &m)| 0.5 * m * v.dot(v))
-            .sum()
-    }
-
-    fn set_target_temperature(&mut self, temp: f64) {
-        self.target_temp = temp;
-    }
-}
-
-impl<F: ForceProvider> Integrator for LangevinDynamics<F> {
-    fn step(&mut self, dt: f64) {
-        let sqrt_dt = dt.sqrt();
-        for i in 0..self.positions.len() {
-            let inv_m = self.inv_masses[i];
-            let deterministic = self.forces[i] * inv_m - self.velocities[i] * self.gamma;
-            let noise_scale = (2.0 * self.gamma * self.k_b * self.target_temp * inv_m).sqrt();
-            let random_vec = Vector3::new(
-                self.rng.sample(StandardNormal),
-                self.rng.sample(StandardNormal),
-                self.rng.sample(StandardNormal),
-            );
-            let stochastic = random_vec * (noise_scale * sqrt_dt);
-
-            self.velocities[i] += deterministic * dt + stochastic;
-            self.positions[i] += self.velocities[i] * dt;
-        }
-        self.forces = self.provider.compute_forces(&self.positions);
-    }
-
-    fn temperature(&self) -> f64 {
-        2.0 * self.kinetic_energy() / (self.dof as f64 * self.k_b)
-    }
-}
 
 fn create_compact_cluster(n_atoms: usize, spacing: f64) -> Vec<Vector3<f64>> {
     let mut candidates = Vec::new();
