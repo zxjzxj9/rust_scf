@@ -82,12 +82,12 @@ impl<F: ForceProvider> NoseHooverVerlet<F> {
 impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
     fn step(&mut self, dt: f64) {
         let half_dt = 0.5 * dt;
-        
+
         // Update xi (thermostat variable) first half-step
         let kin = self.kinetic_energy();
         let xi_dot = (2.0 * kin - self.gk_t) / self.q;
         self.xi += xi_dot * half_dt;
-        
+
         // Limit xi to prevent runaway
         self.xi = self.xi.clamp(-10.0, 10.0);
 
@@ -118,7 +118,7 @@ impl<F: ForceProvider> Integrator for NoseHooverVerlet<F> {
         let kin = self.kinetic_energy();
         let xi_dot = (2.0 * kin - self.gk_t) / self.q;
         self.xi += xi_dot * half_dt;
-        
+
         // Limit xi to prevent runaway
         self.xi = self.xi.clamp(-10.0, 10.0);
 
@@ -140,19 +140,19 @@ pub struct NoseHooverParrinelloRahman<F: ForceProvider> {
     inv_masses: Vec<f64>,
     pub forces: Vec<Vector3<f64>>,
     pub provider: F,
-    
+
     // Thermostat variables (Nosé-Hoover)
     xi: f64,
     eta: f64,
     q_t: f64,
     target_temp: f64,
-    
+
     // Barostat variables (Parrinello-Rahman)
     pub box_lengths: Vector3<f64>,
     box_velocities: Vector3<f64>,
     q_p: f64,
     target_pressure: f64,
-    
+
     // System parameters
     dof: usize,
     k_b: f64,
@@ -166,8 +166,8 @@ impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
         masses: Vec<f64>,
         provider: F,
         initial_box_lengths: Vector3<f64>,
-        q_t: f64,        // Thermostat coupling parameter
-        q_p: f64,        // Barostat coupling parameter  
+        q_t: f64, // Thermostat coupling parameter
+        q_p: f64, // Barostat coupling parameter
         target_temp: f64,
         target_pressure: f64,
         k_b: f64,
@@ -176,7 +176,7 @@ impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
         let gk_t = dof as f64 * k_b * target_temp;
         let forces = provider.compute_forces(&positions);
         let inv_masses = masses.iter().map(|&m| 1.0 / m).collect();
-        
+
         NoseHooverParrinelloRahman {
             positions,
             velocities,
@@ -217,10 +217,10 @@ impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
         let volume = self.volume();
         let n_atoms = self.positions.len() as f64;
         let temp = self.temperature();
-        
+
         // Ideal gas contribution + virial contribution
         let kinetic_pressure = n_atoms * self.k_b * temp / volume;
-        
+
         // For 1 atom, virial is essentially zero
         kinetic_pressure
     }
@@ -250,17 +250,17 @@ impl<F: ForceProvider> NoseHooverParrinelloRahman<F> {
 impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
     fn step(&mut self, dt: f64) {
         let half_dt = 0.5 * dt;
-        
+
         // Current quantities
         let volume = self.volume();
         let current_pressure = self.pressure();
         let kinetic_energy = self.kinetic_energy();
-        
+
         // Update thermostat variable xi (first half-step)
         let xi_dot = (2.0 * kinetic_energy - self.gk_t) / self.q_t;
         self.xi += xi_dot * half_dt;
         self.xi = self.xi.clamp(-10.0, 10.0);
-        
+
         // Update barostat velocities (first half-step)
         let pressure_error = current_pressure - self.target_pressure;
         for i in 0..3 {
@@ -269,21 +269,21 @@ impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
             // Limit box velocity to prevent runaway
             self.box_velocities[i] = self.box_velocities[i].clamp(-0.1, 0.1);
         }
-        
+
         // Update box lengths (full step) - use linear approximation for stability
         for i in 0..3 {
             self.box_lengths[i] *= 1.0 + self.box_velocities[i] * dt;
             // Prevent box collapse and excessive expansion
             self.box_lengths[i] = self.box_lengths[i].clamp(0.5, 50.0);
         }
-        
+
         // Scale positions with box changes
         let volume_change = self.volume() / volume;
-        let scale_factor = volume_change.powf(1.0/3.0);
+        let scale_factor = volume_change.powf(1.0 / 3.0);
         for pos in &mut self.positions {
             *pos *= scale_factor;
         }
-        
+
         // Update velocities (first half-step) - includes thermostat and barostat effects
         let box_vel_trace = self.box_velocities.x + self.box_velocities.y + self.box_velocities.z;
         for (v, &f, &inv_m) in izip!(&mut self.velocities, &self.forces, &self.inv_masses) {
@@ -321,7 +321,7 @@ impl<F: ForceProvider> Integrator for NoseHooverParrinelloRahman<F> {
         let xi_dot = (2.0 * kinetic_energy - self.gk_t) / self.q_t;
         self.xi += xi_dot * half_dt;
         self.xi = self.xi.clamp(-10.0, 10.0);
-        
+
         // Update barostat velocities (second half-step)
         let current_pressure = self.pressure();
         let pressure_error = current_pressure - self.target_pressure;
@@ -512,15 +512,8 @@ mod tests {
         let mock_forces = vec![Vector3::zeros(), Vector3::zeros()];
         let provider = MockForceProvider::new(mock_forces);
 
-        let integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
-            100.0,
-            300.0,
-            1.0,
-        );
+        let integrator =
+            NoseHooverVerlet::new(positions, velocities, masses, provider, 100.0, 300.0, 1.0);
 
         // KE = 0.5 * m1 * v1^2 + 0.5 * m2 * v2^2
         // = 0.5 * 1.0 * (2^2) + 0.5 * 2.0 * (3^2 + 4^2)
@@ -539,15 +532,8 @@ mod tests {
         let provider = MockForceProvider::new(mock_forces);
         let k_b = 1.0;
 
-        let integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
-            100.0,
-            300.0,
-            k_b,
-        );
+        let integrator =
+            NoseHooverVerlet::new(positions, velocities, masses, provider, 100.0, 300.0, k_b);
 
         // KE = 0.5 * 1.0 * 4.0 = 2.0
         // T = 2 * KE / (dof * k_b) = 2 * 2.0 / (6 * 1.0) = 4.0 / 6.0 = 2/3
@@ -561,7 +547,7 @@ mod tests {
         let positions = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(2.0, 0.0, 0.0)];
         let velocities = vec![Vector3::new(1.0, 0.0, 0.0), Vector3::new(-1.0, 0.0, 0.0)];
         let masses = vec![1.0, 1.0];
-        
+
         // Zero forces for conservation test
         let mock_forces = vec![Vector3::zeros(), Vector3::zeros()];
         let provider = MockForceProvider::new(mock_forces);
@@ -596,17 +582,14 @@ mod tests {
         let positions = vec![Vector3::new(0.0, 0.0, 0.0)];
         let velocities = vec![Vector3::new(0.0, 0.0, 0.0)];
         let masses = vec![1.0];
-        
+
         // Constant force in x direction
         let constant_force = vec![Vector3::new(1.0, 0.0, 0.0)];
         let provider = MockForceProvider::new(constant_force);
 
         let mut integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
-            1e10, // Large Q to minimize thermostat effect
+            positions, velocities, masses, provider,
+            1e10,  // Large Q to minimize thermostat effect
             1e-10, // Very low temperature to minimize thermostat effect
             1.0,
         );
@@ -622,7 +605,7 @@ mod tests {
         // With constant force F=1, mass=1, we expect acceleration a=1
         // Position should have increased
         assert!(integrator.positions[0].x > initial_position.x);
-        
+
         // Velocity should be positive (accelerating in +x direction)
         assert!(integrator.velocities[0].x > 0.0);
     }
@@ -635,7 +618,7 @@ mod tests {
             Vector3::new(1.0, 0.0, 0.0),
             Vector3::new(0.0, 1.0, 0.0),
         ];
-        
+
         // Start with high velocity (high temperature)
         let velocities = vec![
             Vector3::new(10.0, 0.0, 0.0),
@@ -643,15 +626,12 @@ mod tests {
             Vector3::new(0.0, 10.0, 0.0),
         ];
         let masses = vec![1.0, 1.0, 1.0];
-        
+
         let mock_forces = vec![Vector3::zeros(), Vector3::zeros(), Vector3::zeros()];
         let provider = MockForceProvider::new(mock_forces);
 
         let mut integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
+            positions, velocities, masses, provider,
             10.0, // Moderate Q for reasonable thermostat response
             1.0,  // Target temperature
             1.0,
@@ -666,10 +646,10 @@ mod tests {
         }
 
         let final_temp = integrator.temperature();
-        
+
         // The thermostat should reduce the temperature from its initial high value
         assert!(final_temp < initial_temp);
-        
+
         // Temperature should be closer to target (1.0) than initial
         let target_temp = 1.0;
         assert!((final_temp - target_temp).abs() < (initial_temp - target_temp).abs());
@@ -681,26 +661,23 @@ mod tests {
         let positions = vec![Vector3::new(0.0, 0.0, 0.0)];
         let velocities = vec![Vector3::new(100.0, 0.0, 0.0)]; // Very high velocity
         let masses = vec![1.0];
-        
+
         let mock_forces = vec![Vector3::zeros()];
         let provider = MockForceProvider::new(mock_forces);
 
         let mut integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
+            positions, velocities, masses, provider,
             0.01, // Very small Q to make thermostat aggressive
             0.1,  // Low target temperature
             1.0,
         );
 
         let dt = 0.1;
-        
+
         // Take a few steps with aggressive thermostat
         for _ in 0..10 {
             integrator.step(dt);
-            
+
             // xi should always be within bounds
             assert!(integrator.xi >= -10.0);
             assert!(integrator.xi <= 10.0);
@@ -713,19 +690,12 @@ mod tests {
         let positions = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(1.0, 0.0, 0.0)];
         let velocities = vec![Vector3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 0.0, 0.0)];
         let masses = vec![1.0, 1.0];
-        
+
         let test_forces = vec![Vector3::new(1.0, 2.0, 3.0), Vector3::new(-1.0, -2.0, -3.0)];
         let provider = MockForceProvider::new(test_forces.clone());
 
-        let integrator = NoseHooverVerlet::new(
-            positions,
-            velocities,
-            masses,
-            provider,
-            100.0,
-            300.0,
-            1.0,
-        );
+        let integrator =
+            NoseHooverVerlet::new(positions, velocities, masses, provider, 100.0, 300.0, 1.0);
 
         // Check that forces were computed correctly during initialization
         assert_eq!(integrator.forces, test_forces);
@@ -872,16 +842,8 @@ mod tests {
         let masses = vec![1.0];
         let provider = MockForceProvider::new(vec![Vector3::zeros()]);
 
-        let mut integrator = LangevinDynamics::new(
-            positions,
-            velocities,
-            masses,
-            provider,
-            0.5,
-            1.0,
-            1.0,
-            99,
-        );
+        let mut integrator =
+            LangevinDynamics::new(positions, velocities, masses, provider, 0.5, 1.0, 1.0, 99);
 
         integrator.set_target_temperature(2.0);
         assert_eq!(integrator.target_temp, 2.0);

@@ -5,11 +5,11 @@
 // temperature through friction + stochastic kicks while allowing the
 // structure to explore its inherent-energy landscape.
 
-use md::{Integrator, LennardJones, LangevinDynamics};
+use md::{Integrator, LangevinDynamics, LennardJones};
 use nalgebra::Vector3;
 use rand::rngs::StdRng;
-use rand::SeedableRng;
 use rand::Rng;
+use rand::SeedableRng;
 use rand_distr::StandardNormal;
 
 const K_B: f64 = 1.0; // Reduced units
@@ -36,7 +36,8 @@ fn shift_cluster_to_box(
     mut positions: Vec<Vector3<f64>>,
     box_lengths: Vector3<f64>,
 ) -> Vec<Vector3<f64>> {
-    let com: Vector3<f64> = positions.iter().copied().sum::<Vector3<f64>>() / positions.len() as f64;
+    let com: Vector3<f64> =
+        positions.iter().copied().sum::<Vector3<f64>>() / positions.len() as f64;
     let target_center = box_lengths * 0.5;
     for pos in &mut positions {
         *pos += target_center - com;
@@ -68,7 +69,8 @@ fn remove_linear_momentum(velocities: &mut [Vector3<f64>]) {
     if velocities.is_empty() {
         return;
     }
-    let v_cm: Vector3<f64> = velocities.iter().copied().sum::<Vector3<f64>>() / velocities.len() as f64;
+    let v_cm: Vector3<f64> =
+        velocities.iter().copied().sum::<Vector3<f64>>() / velocities.len() as f64;
     for v in velocities {
         *v -= v_cm;
     }
@@ -78,7 +80,8 @@ fn recenter_cluster(positions: &mut [Vector3<f64>], box_lengths: Vector3<f64>) {
     if positions.is_empty() {
         return;
     }
-    let com: Vector3<f64> = positions.iter().copied().sum::<Vector3<f64>>() / positions.len() as f64;
+    let com: Vector3<f64> =
+        positions.iter().copied().sum::<Vector3<f64>>() / positions.len() as f64;
     let shift = box_lengths * 0.5 - com;
     for pos in positions {
         *pos += shift;
@@ -143,7 +146,10 @@ fn main() {
     println!("Target T*         : {:.3}", target_temp);
     println!("Time step         : {:.4}", dt);
     println!("Friction gamma    : {:.2} 1/tau", gamma);
-    println!("Box (sigma units) : {:.1} x {:.1} x {:.1}", box_lengths.x, box_lengths.y, box_lengths.z);
+    println!(
+        "Box (sigma units) : {:.1} x {:.1} x {:.1}",
+        box_lengths.x, box_lengths.y, box_lengths.z
+    );
     println!("\nStep   |   T*   |   K/N  |   U/N  |  Avg R |  Max R |  E/N");
     println!("-----------------------------------------------------------");
 
@@ -159,7 +165,9 @@ fn main() {
 
         if step % sample_interval == 0 {
             let kinetic = integrator.kinetic_energy();
-            let potential = integrator.provider.compute_potential_energy(&integrator.positions);
+            let potential = integrator
+                .provider
+                .compute_potential_energy(&integrator.positions);
             let temp = integrator.temperature();
             let (avg_r, max_r) = cluster_metrics(&integrator.positions, center);
 
@@ -187,8 +195,13 @@ fn main() {
     println!("\nSimulation completed.");
     if samples > 0 {
         println!("Average T*  : {:.3}", temp_accum / samples as f64);
-        println!("Average E/N : {:.3}", e_accum / samples as f64 / n_atoms as f64);
+        println!(
+            "Average E/N : {:.3}",
+            e_accum / samples as f64 / n_atoms as f64
+        );
     }
-    println!("Data columns show instantaneous reduced values every {} steps.", sample_interval);
+    println!(
+        "Data columns show instantaneous reduced values every {} steps.",
+        sample_interval
+    );
 }
-

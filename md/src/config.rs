@@ -1,5 +1,5 @@
-use serde::{Deserialize, Serialize};
 use nalgebra::Vector3;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
@@ -35,9 +35,7 @@ pub struct SystemConfig {
 pub enum PositionConfig {
     /// Explicit list of positions
     #[serde(rename = "explicit")]
-    Explicit {
-        coords: Vec<[f64; 3]>,
-    },
+    Explicit { coords: Vec<[f64; 3]> },
     /// Generate simple cubic lattice
     #[serde(rename = "cubic_lattice")]
     CubicLattice {
@@ -64,9 +62,7 @@ pub enum PositionConfig {
 pub enum VelocityConfig {
     /// Explicit velocities
     #[serde(rename = "explicit")]
-    Explicit {
-        velocities: Vec<[f64; 3]>,
-    },
+    Explicit { velocities: Vec<[f64; 3]> },
     /// Maxwell-Boltzmann distribution at given temperature
     #[serde(rename = "maxwell_boltzmann")]
     MaxwellBoltzmann {
@@ -196,12 +192,24 @@ pub struct OutputConfig {
 }
 
 // Default value functions
-fn default_periodic() -> bool { true }
-fn default_kb() -> f64 { 1.0 }
-fn default_lj_cutoff() -> f64 { 2.5 }
-fn default_analysis_interval() -> usize { 200 }
-fn default_save_trajectory() -> bool { false }
-fn default_trajectory_interval() -> usize { 1000 }
+fn default_periodic() -> bool {
+    true
+}
+fn default_kb() -> f64 {
+    1.0
+}
+fn default_lj_cutoff() -> f64 {
+    2.5
+}
+fn default_analysis_interval() -> usize {
+    200
+}
+fn default_save_trajectory() -> bool {
+    false
+}
+fn default_trajectory_interval() -> usize {
+    1000
+}
 
 impl MdConfig {
     /// Load configuration from YAML file
@@ -211,29 +219,33 @@ impl MdConfig {
         config.validate()?;
         Ok(config)
     }
-    
+
     /// Save configuration to YAML file
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let content = serde_yaml::to_string(self)?;
         fs::write(path, content)?;
         Ok(())
     }
-    
+
     /// Validate configuration parameters
     pub fn validate(&self) -> Result<(), String> {
         // Validate time step
         if self.simulation.integration.time_step <= 0.0 {
             return Err("Time step must be positive".to_string());
         }
-        
+
         // Validate total steps
         if self.simulation.integration.total_steps == 0 {
             return Err("Total steps must be positive".to_string());
         }
-        
+
         // Validate ensemble parameters
         match &self.simulation.ensemble {
-            EnsembleConfig::NVT { target_temperature, thermostat_coupling, .. } => {
+            EnsembleConfig::NVT {
+                target_temperature,
+                thermostat_coupling,
+                ..
+            } => {
                 if *target_temperature <= 0.0 {
                     return Err("Target temperature must be positive".to_string());
                 }
@@ -241,7 +253,13 @@ impl MdConfig {
                     return Err("Thermostat coupling must be positive".to_string());
                 }
             }
-            EnsembleConfig::NPT { target_temperature, target_pressure, thermostat_coupling, barostat_coupling, .. } => {
+            EnsembleConfig::NPT {
+                target_temperature,
+                target_pressure,
+                thermostat_coupling,
+                barostat_coupling,
+                ..
+            } => {
                 if *target_temperature <= 0.0 {
                     return Err("Target temperature must be positive".to_string());
                 }
@@ -256,10 +274,14 @@ impl MdConfig {
                 }
             }
         }
-        
+
         // Validate potential parameters
         match &self.potential {
-            PotentialConfig::LennardJones { epsilon, sigma, cutoff } => {
+            PotentialConfig::LennardJones {
+                epsilon,
+                sigma,
+                cutoff,
+            } => {
                 if *epsilon <= 0.0 {
                     return Err("LJ epsilon must be positive".to_string());
                 }
@@ -271,14 +293,14 @@ impl MdConfig {
                 }
             }
         }
-        
+
         // Validate box dimensions
         for &length in &self.system.box_setup.lengths {
             if length <= 0.0 {
                 return Err("Box lengths must be positive".to_string());
             }
         }
-        
+
         // Validate output intervals
         if self.output.output_interval == 0 {
             return Err("Output interval must be positive".to_string());
@@ -289,20 +311,25 @@ impl MdConfig {
         if self.output.trajectory_interval == 0 {
             return Err("Trajectory interval must be positive".to_string());
         }
-        
+
         Ok(())
     }
-    
+
     /// Generate positions based on configuration
     pub fn generate_positions(&self) -> Result<Vec<Vector3<f64>>, String> {
         match &self.system.positions {
-            PositionConfig::Explicit { coords } => {
-                Ok(coords.iter().map(|&c| Vector3::new(c[0], c[1], c[2])).collect())
-            }
-            PositionConfig::CubicLattice { n_per_side, spacing, offset } => {
+            PositionConfig::Explicit { coords } => Ok(coords
+                .iter()
+                .map(|&c| Vector3::new(c[0], c[1], c[2]))
+                .collect()),
+            PositionConfig::CubicLattice {
+                n_per_side,
+                spacing,
+                offset,
+            } => {
                 let mut positions = Vec::new();
                 let offset = offset.unwrap_or([0.0, 0.0, 0.0]);
-                
+
                 for i in 0..*n_per_side {
                     for j in 0..*n_per_side {
                         for k in 0..*n_per_side {
@@ -317,7 +344,10 @@ impl MdConfig {
                 }
                 Ok(positions)
             }
-            PositionConfig::Random { n_atoms, min_distance } => {
+            PositionConfig::Random {
+                n_atoms,
+                min_distance,
+            } => {
                 use rand::Rng;
                 let mut rng = rand::thread_rng();
                 let mut positions = Vec::new();
@@ -326,23 +356,23 @@ impl MdConfig {
                     self.system.box_setup.lengths[1],
                     self.system.box_setup.lengths[2],
                 );
-                
+
                 for _ in 0..*n_atoms {
                     let mut attempts = 0;
                     let max_attempts = 10000;
-                    
+
                     loop {
                         attempts += 1;
                         if attempts > max_attempts {
                             return Err("Could not generate random positions with minimum distance constraint".to_string());
                         }
-                        
+
                         let candidate = nalgebra::Vector3::<f64>::new(
                             rng.gen::<f64>() * box_lengths.x,
                             rng.gen::<f64>() * box_lengths.y,
                             rng.gen::<f64>() * box_lengths.z,
                         );
-                        
+
                         // Check minimum distance constraint
                         let mut valid = true;
                         for existing in &positions {
@@ -353,7 +383,7 @@ impl MdConfig {
                                 break;
                             }
                         }
-                        
+
                         if valid {
                             positions.push(candidate);
                             break;
@@ -364,30 +394,36 @@ impl MdConfig {
             }
         }
     }
-    
+
     /// Generate velocities based on configuration
     pub fn generate_velocities(&self, n_atoms: usize) -> Result<Vec<Vector3<f64>>, String> {
         match &self.system.velocities {
             VelocityConfig::Explicit { velocities } => {
                 if velocities.len() != n_atoms {
-                    return Err(format!("Number of explicit velocities ({}) doesn't match number of atoms ({})", 
-                                     velocities.len(), n_atoms));
+                    return Err(format!(
+                        "Number of explicit velocities ({}) doesn't match number of atoms ({})",
+                        velocities.len(),
+                        n_atoms
+                    ));
                 }
-                Ok(velocities.iter().map(|&v| Vector3::new(v[0], v[1], v[2])).collect())
+                Ok(velocities
+                    .iter()
+                    .map(|&v| Vector3::new(v[0], v[1], v[2]))
+                    .collect())
             }
             VelocityConfig::MaxwellBoltzmann { temperature, seed } => {
                 use rand::SeedableRng;
-                use rand_distr::{StandardNormal, Distribution};
-                
+                use rand_distr::{Distribution, StandardNormal};
+
                 let mut rng = if let Some(seed) = seed {
                     rand::rngs::StdRng::seed_from_u64(*seed)
                 } else {
                     rand::rngs::StdRng::from_entropy()
                 };
-                
+
                 let mut velocities = Vec::with_capacity(n_atoms);
                 let normal = StandardNormal;
-                
+
                 // Sample individual velocities
                 for _ in 0..n_atoms {
                     let v = Vector3::new(
@@ -397,19 +433,18 @@ impl MdConfig {
                     );
                     velocities.push(v * temperature.sqrt());
                 }
-                
+
                 // Remove center-of-mass motion
                 let v_cm: Vector3<f64> = velocities.iter().sum::<Vector3<f64>>() / n_atoms as f64;
                 for v in &mut velocities {
                     *v -= v_cm;
                 }
-                
+
                 // Scale to exact target temperature if we have more than one atom
                 if n_atoms > 1 {
-                    let current_temp = velocities.iter()
-                        .map(|v| v.dot(v))
-                        .sum::<f64>() / (3.0 * n_atoms as f64);
-                    
+                    let current_temp =
+                        velocities.iter().map(|v| v.dot(v)).sum::<f64>() / (3.0 * n_atoms as f64);
+
                     if current_temp > 0.0 {
                         let scale_factor = (temperature / current_temp).sqrt();
                         for v in &mut velocities {
@@ -417,15 +452,13 @@ impl MdConfig {
                         }
                     }
                 }
-                
+
                 Ok(velocities)
             }
-            VelocityConfig::Zero => {
-                Ok(vec![Vector3::zeros(); n_atoms])
-            }
+            VelocityConfig::Zero => Ok(vec![Vector3::zeros(); n_atoms]),
         }
     }
-    
+
     /// Generate masses based on configuration
     pub fn generate_masses(&self, n_atoms: usize) -> Result<Vec<f64>, String> {
         match &self.system.masses {
@@ -437,8 +470,11 @@ impl MdConfig {
             }
             MassConfig::Individual(masses) => {
                 if masses.len() != n_atoms {
-                    return Err(format!("Number of masses ({}) doesn't match number of atoms ({})", 
-                                     masses.len(), n_atoms));
+                    return Err(format!(
+                        "Number of masses ({}) doesn't match number of atoms ({})",
+                        masses.len(),
+                        n_atoms
+                    ));
                 }
                 for &mass in masses {
                     if mass <= 0.0 {
@@ -449,21 +485,25 @@ impl MdConfig {
             }
         }
     }
-    
+
     /// Get current target temperature, potentially from schedule
     pub fn get_target_temperature(&self, current_step: usize) -> f64 {
         if let Some(schedule) = &self.simulation.temperature_schedule {
             if current_step < schedule.ramp_steps {
                 let progress = current_step as f64 / schedule.ramp_steps as f64;
-                schedule.initial_temperature + 
-                    (schedule.final_temperature - schedule.initial_temperature) * progress
+                schedule.initial_temperature
+                    + (schedule.final_temperature - schedule.initial_temperature) * progress
             } else {
                 schedule.final_temperature
             }
         } else {
             match &self.simulation.ensemble {
-                EnsembleConfig::NVT { target_temperature, .. } => *target_temperature,
-                EnsembleConfig::NPT { target_temperature, .. } => *target_temperature,
+                EnsembleConfig::NVT {
+                    target_temperature, ..
+                } => *target_temperature,
+                EnsembleConfig::NPT {
+                    target_temperature, ..
+                } => *target_temperature,
             }
         }
     }
@@ -478,28 +518,32 @@ mod tests {
     #[test]
     fn test_config_validation() {
         let mut config = create_test_config();
-        
+
         // Valid config should pass
         assert!(config.validate().is_ok());
-        
+
         // Invalid time step
         config.simulation.integration.time_step = -0.1;
         assert!(config.validate().is_err());
         config.simulation.integration.time_step = 0.01; // Reset
-        
+
         // Invalid temperature
-        if let EnsembleConfig::NVT { ref mut target_temperature, .. } = config.simulation.ensemble {
+        if let EnsembleConfig::NVT {
+            ref mut target_temperature,
+            ..
+        } = config.simulation.ensemble
+        {
             *target_temperature = -100.0;
             assert!(config.validate().is_err());
         }
     }
-    
+
     #[test]
     fn test_position_generation() {
         let config = create_test_config();
         let positions = config.generate_positions().unwrap();
         assert_eq!(positions.len(), 8); // 2^3 = 8 atoms
-        
+
         // Check lattice spacing along x-direction independent of generation order
         let expected_spacing = 1.2;
         let mut xs: Vec<f64> = positions.iter().map(|p| p.x).collect();
@@ -508,18 +552,18 @@ mod tests {
         assert!(xs.len() >= 2);
         assert!((xs[1] - xs[0] - expected_spacing).abs() < 1e-10);
     }
-    
+
     #[test]
     fn test_velocity_generation() {
         let config = create_test_config();
         let velocities = config.generate_velocities(8).unwrap();
         assert_eq!(velocities.len(), 8);
-        
+
         // Center of mass velocity should be ~0
         let v_cm: Vector3<f64> = velocities.iter().sum::<Vector3<f64>>() / velocities.len() as f64;
         assert!(v_cm.norm() < 1e-10);
     }
-    
+
     #[test]
     fn test_mass_generation() {
         let config = create_test_config();
@@ -527,29 +571,29 @@ mod tests {
         assert_eq!(masses.len(), 8);
         assert_eq!(masses[0], 1.0);
     }
-    
+
     #[test]
     fn test_yaml_serialization() {
         let config = create_test_config();
         let yaml = serde_yaml::to_string(&config).unwrap();
-        
+
         // Should be able to deserialize back
         let deserialized: MdConfig = serde_yaml::from_str(&yaml).unwrap();
         assert!(deserialized.validate().is_ok());
     }
-    
+
     #[test]
     fn test_file_io() {
         let config = create_test_config();
-        
+
         // Test saving and loading
         let mut temp_file = NamedTempFile::new().unwrap();
         config.to_file(temp_file.path()).unwrap();
-        
+
         let loaded_config = MdConfig::from_file(temp_file.path()).unwrap();
         assert!(loaded_config.validate().is_ok());
     }
-    
+
     fn create_test_config() -> MdConfig {
         MdConfig {
             system: SystemConfig {
@@ -594,4 +638,3 @@ mod tests {
         }
     }
 }
-

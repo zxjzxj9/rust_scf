@@ -1,20 +1,20 @@
 // file: `md/src/gcmc.rs`
-use nalgebra::{Vector3, Matrix3};
 use crate::lj_pot::LennardJones;
+use nalgebra::{Matrix3, Vector3};
 use rand::prelude::*;
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use rayon::prelude::*;
 
 /// Grand Canonical Monte Carlo (GCMC) simulator for Lennard-Jones particles
-/// 
+///
 /// In the grand canonical ensemble (μVT), the following are constant:
 /// - Chemical potential (μ)
 /// - Volume (V)
 /// - Temperature (T)
-/// 
+///
 /// The number of particles (N) fluctuates according to the chemical potential.
-/// 
+///
 /// GCMC uses three types of Monte Carlo moves:
 /// 1. Displacement: Move a particle to a new position (Metropolis criterion)
 /// 2. Insertion: Add a particle at a random position
@@ -130,15 +130,24 @@ impl GCMCStatistics {
     /// Print summary statistics
     pub fn print_summary(&self) {
         println!("\n=== GCMC Statistics ===");
-        println!("Displacement moves: {} / {} ({:.2}% accepted)", 
-                 self.displacement_accepted, self.displacement_attempts,
-                 100.0 * self.displacement_acceptance_rate());
-        println!("Insertion moves:    {} / {} ({:.2}% accepted)", 
-                 self.insertion_accepted, self.insertion_attempts,
-                 100.0 * self.insertion_acceptance_rate());
-        println!("Deletion moves:     {} / {} ({:.2}% accepted)", 
-                 self.deletion_accepted, self.deletion_attempts,
-                 100.0 * self.deletion_acceptance_rate());
+        println!(
+            "Displacement moves: {} / {} ({:.2}% accepted)",
+            self.displacement_accepted,
+            self.displacement_attempts,
+            100.0 * self.displacement_acceptance_rate()
+        );
+        println!(
+            "Insertion moves:    {} / {} ({:.2}% accepted)",
+            self.insertion_accepted,
+            self.insertion_attempts,
+            100.0 * self.insertion_acceptance_rate()
+        );
+        println!(
+            "Deletion moves:     {} / {} ({:.2}% accepted)",
+            self.deletion_accepted,
+            self.deletion_attempts,
+            100.0 * self.deletion_acceptance_rate()
+        );
         println!("Average N particles: {:.2}", self.avg_n_particles);
         println!("Average energy:      {:.6}", self.avg_energy);
         println!("Number of samples:   {}", self.n_samples);
@@ -147,14 +156,14 @@ impl GCMCStatistics {
 
 impl GCMC {
     /// Create a new GCMC simulation in a cubic box
-    /// 
+    ///
     /// # Arguments
     /// * `epsilon` - LJ energy parameter
     /// * `sigma` - LJ length parameter
     /// * `box_length` - Side length of cubic box
     /// * `temperature` - Temperature (in reduced units, k_B = 1)
     /// * `chemical_potential` - Chemical potential (in reduced units)
-    /// 
+    ///
     /// # Returns
     /// A new GCMC simulator with no initial particles
     pub fn new(
@@ -166,7 +175,7 @@ impl GCMC {
     ) -> Self {
         let box_lengths = Vector3::new(box_length, box_length, box_length);
         let lj = LennardJones::new(epsilon, sigma, box_lengths);
-        
+
         Self {
             lj,
             positions: Vec::new(),
@@ -181,7 +190,7 @@ impl GCMC {
     }
 
     /// Create a new GCMC simulation with a non-cubic lattice
-    /// 
+    ///
     /// # Arguments
     /// * `epsilon` - LJ energy parameter
     /// * `sigma` - LJ length parameter
@@ -196,7 +205,7 @@ impl GCMC {
         chemical_potential: f64,
     ) -> Self {
         let lj = LennardJones::from_lattice(epsilon, sigma, lattice);
-        
+
         Self {
             lj,
             positions: Vec::new(),
@@ -211,13 +220,13 @@ impl GCMC {
     }
 
     /// Initialize with random particles at a target density
-    /// 
+    ///
     /// # Arguments
     /// * `target_density` - Desired number density (particles per unit volume)
     pub fn initialize_random(&mut self, target_density: f64) {
         let volume = self.lj.volume();
         let n_particles = (target_density * volume) as usize;
-        
+
         self.positions.clear();
         for _ in 0..n_particles {
             let pos = self.generate_random_position();
@@ -237,7 +246,7 @@ impl GCMC {
     }
 
     /// Compute the potential energy of a single particle with all others
-    /// 
+    ///
     /// # Arguments
     /// * `pos` - Position of the test particle
     /// * `skip_index` - Optional index to skip (for displacement moves)
@@ -332,11 +341,10 @@ impl GCMC {
         let n = self.positions.len();
         let volume = self.lj.volume();
         let beta = 1.0 / self.temperature;
-        
-        let log_acc = (volume / (n as f64 + 1.0)).ln() 
-                      - beta * energy 
-                      + beta * self.chemical_potential;
-        
+
+        let log_acc =
+            (volume / (n as f64 + 1.0)).ln() - beta * energy + beta * self.chemical_potential;
+
         let accept = if log_acc >= 0.0 {
             true
         } else {
@@ -371,11 +379,9 @@ impl GCMC {
         let n = self.positions.len();
         let volume = self.lj.volume();
         let beta = 1.0 / self.temperature;
-        
-        let log_acc = (n as f64 / volume).ln() 
-                      + beta * energy 
-                      - beta * self.chemical_potential;
-        
+
+        let log_acc = (n as f64 / volume).ln() + beta * energy - beta * self.chemical_potential;
+
         let accept = if log_acc >= 0.0 {
             true
         } else {
@@ -394,14 +400,14 @@ impl GCMC {
     fn wrap_position(&self, pos: Vector3<f64>) -> Vector3<f64> {
         // Convert to fractional coordinates
         let frac = self.lj.lattice_inv * pos;
-        
+
         // Wrap to [0, 1)
         let wrapped = Vector3::new(
             frac.x - frac.x.floor(),
             frac.y - frac.y.floor(),
             frac.z - frac.z.floor(),
         );
-        
+
         // Convert back to Cartesian
         self.lj.lattice * wrapped
     }
@@ -410,7 +416,7 @@ impl GCMC {
     pub fn monte_carlo_step(&mut self) {
         // Choose move type based on probabilities
         let r = self.rng.gen::<f64>();
-        
+
         if r < self.move_probabilities[0] {
             // Displacement
             self.attempt_displacement();
@@ -477,14 +483,17 @@ impl GCMC {
     }
 
     /// Set move probabilities (must sum to 1.0)
-    /// 
+    ///
     /// # Arguments
     /// * `displacement` - Probability of displacement move
     /// * `insertion` - Probability of insertion move
     /// * `deletion` - Probability of deletion move
     pub fn set_move_probabilities(&mut self, displacement: f64, insertion: f64, deletion: f64) {
         let sum = displacement + insertion + deletion;
-        assert!((sum - 1.0).abs() < 1e-10, "Move probabilities must sum to 1.0");
+        assert!(
+            (sum - 1.0).abs() < 1e-10,
+            "Move probabilities must sum to 1.0"
+        );
         self.move_probabilities = [displacement, insertion, deletion];
     }
 
@@ -525,18 +534,18 @@ pub fn parallel_gcmc_sweep(
         .par_iter()
         .map(|gcmc_base| {
             let mut gcmc = gcmc_base.clone();
-            
+
             // Equilibration
             gcmc.run(equilibration_steps);
-            
+
             // Production with sampling
             let mut n_particles_samples = Vec::new();
             let mut energy_samples = Vec::new();
             let mut density_samples = Vec::new();
-            
+
             for step in 0..production_steps {
                 gcmc.monte_carlo_step();
-                
+
                 if step % sample_interval == 0 {
                     n_particles_samples.push(gcmc.n_particles() as f64);
                     energy_samples.push(gcmc.potential_energy());
@@ -544,7 +553,7 @@ pub fn parallel_gcmc_sweep(
                     gcmc.sample();
                 }
             }
-            
+
             GCMCResults {
                 chemical_potential: gcmc.chemical_potential,
                 temperature: gcmc.temperature,
@@ -591,9 +600,12 @@ impl GCMCResults {
             return 0.0;
         }
         let mean = self.avg_density;
-        let variance: f64 = self.density_samples.iter()
+        let variance: f64 = self
+            .density_samples
+            .iter()
             .map(|&rho| (rho - mean).powi(2))
-            .sum::<f64>() / (self.density_samples.len() - 1) as f64;
+            .sum::<f64>()
+            / (self.density_samples.len() - 1) as f64;
         variance.sqrt()
     }
 
@@ -603,9 +615,12 @@ impl GCMCResults {
             return 0.0;
         }
         let mean = self.avg_n_particles;
-        let variance: f64 = self.n_particles_samples.iter()
+        let variance: f64 = self
+            .n_particles_samples
+            .iter()
             .map(|&n| (n - mean).powi(2))
-            .sum::<f64>() / (self.n_particles_samples.len() - 1) as f64;
+            .sum::<f64>()
+            / (self.n_particles_samples.len() - 1) as f64;
         variance.sqrt()
     }
 
@@ -614,12 +629,23 @@ impl GCMCResults {
         println!("\n=== GCMC Results ===");
         println!("Chemical potential: {:.6}", self.chemical_potential);
         println!("Temperature:        {:.6}", self.temperature);
-        println!("Avg N particles:    {:.2} ± {:.2}", self.avg_n_particles, self.n_particles_std());
-        println!("Avg density:        {:.6} ± {:.6}", self.avg_density, self.density_std());
+        println!(
+            "Avg N particles:    {:.2} ± {:.2}",
+            self.avg_n_particles,
+            self.n_particles_std()
+        );
+        println!(
+            "Avg density:        {:.6} ± {:.6}",
+            self.avg_density,
+            self.density_std()
+        );
         println!("Avg energy:         {:.6}", self.avg_energy);
         println!("Avg energy/particle:{:.6}", self.avg_energy_per_particle);
         println!("Acceptance rates:");
-        println!("  Displacement: {:.2}%", 100.0 * self.displacement_acceptance);
+        println!(
+            "  Displacement: {:.2}%",
+            100.0 * self.displacement_acceptance
+        );
         println!("  Insertion:    {:.2}%", 100.0 * self.insertion_acceptance);
         println!("  Deletion:     {:.2}%", 100.0 * self.deletion_acceptance);
     }
@@ -642,7 +668,7 @@ mod tests {
     fn test_gcmc_initialization() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -5.0);
         gcmc.initialize_random(0.5);
-        
+
         let expected_n = (0.5 * 1000.0) as usize;
         assert!((gcmc.n_particles() as i32 - expected_n as i32).abs() < 50);
     }
@@ -650,12 +676,12 @@ mod tests {
     #[test]
     fn test_gcmc_insertion_deletion() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, 5.0); // High μ favors insertion
-        
+
         // Should tend to insert particles with high chemical potential
         for _ in 0..100 {
             gcmc.attempt_insertion();
         }
-        
+
         assert!(gcmc.n_particles() > 0);
     }
 
@@ -663,13 +689,13 @@ mod tests {
     fn test_gcmc_displacement() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -5.0);
         gcmc.initialize_random(0.1);
-        
+
         let initial_positions = gcmc.positions.clone();
-        
+
         for _ in 0..100 {
             gcmc.attempt_displacement();
         }
-        
+
         // At least some particles should have moved
         let mut moved_count = 0;
         for i in 0..gcmc.positions.len() {
@@ -677,7 +703,7 @@ mod tests {
                 moved_count += 1;
             }
         }
-        
+
         assert!(moved_count > 0);
     }
 
@@ -685,9 +711,9 @@ mod tests {
     fn test_gcmc_statistics() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -2.0);
         gcmc.initialize_random(0.5);
-        
+
         gcmc.run(1000);
-        
+
         assert!(gcmc.stats.displacement_attempts > 0);
         assert!(gcmc.stats.displacement_acceptance_rate() >= 0.0);
         assert!(gcmc.stats.displacement_acceptance_rate() <= 1.0);
@@ -697,12 +723,12 @@ mod tests {
     fn test_gcmc_sampling() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -3.0);
         gcmc.initialize_random(0.5);
-        
+
         for _ in 0..10 {
             gcmc.monte_carlo_step();
             gcmc.sample();
         }
-        
+
         assert_eq!(gcmc.stats.n_samples, 10);
         assert!(gcmc.stats.avg_n_particles > 0.0);
     }
@@ -710,11 +736,11 @@ mod tests {
     #[test]
     fn test_wrap_position() {
         let gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -5.0);
-        
+
         // Position outside box
         let pos = Vector3::new(12.0, -3.0, 15.0);
         let wrapped = gcmc.wrap_position(pos);
-        
+
         // Should be wrapped to [0, 10) in all dimensions
         assert!(wrapped.x >= 0.0 && wrapped.x < 10.0);
         assert!(wrapped.y >= 0.0 && wrapped.y < 10.0);
@@ -725,7 +751,7 @@ mod tests {
     fn test_density_calculation() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -5.0);
         gcmc.initialize_random(0.5);
-        
+
         let density = gcmc.density();
         assert!((density - 0.5).abs() < 0.1);
     }
@@ -734,10 +760,9 @@ mod tests {
     fn test_move_probabilities() {
         let mut gcmc = GCMC::new(1.0, 1.0, 10.0, 1.0, -5.0);
         gcmc.set_move_probabilities(0.6, 0.2, 0.2);
-        
+
         assert_relative_eq!(gcmc.move_probabilities[0], 0.6, epsilon = 1e-10);
         assert_relative_eq!(gcmc.move_probabilities[1], 0.2, epsilon = 1e-10);
         assert_relative_eq!(gcmc.move_probabilities[2], 0.2, epsilon = 1e-10);
     }
 }
-

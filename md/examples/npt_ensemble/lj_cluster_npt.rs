@@ -16,7 +16,7 @@
 // - Evaporation under low pressure
 // - Condensation under high pressure
 
-use md::{LennardJones, ForceProvider};
+use md::{ForceProvider, LennardJones};
 use nalgebra::Vector3;
 use rand::Rng;
 use rand_distr::StandardNormal;
@@ -35,19 +35,19 @@ pub struct LJClusterNPT {
     pub masses: Vec<f64>,
     inv_masses: Vec<f64>,
     pub lj_potential: LennardJones,
-    
+
     // Thermostat variables (Nosé-Hoover)
     xi: f64,
     eta: f64,
     q_t: f64,
     target_temp: f64,
-    
+
     // Barostat variables (Parrinello-Rahman)
     pub box_lengths: Vector3<f64>,
     box_velocities: Vector3<f64>,
     q_p: f64,
     target_pressure: f64,
-    
+
     // System parameters
     dof: usize,
     k_b: f64,
@@ -69,7 +69,7 @@ impl LJClusterNPT {
         let dof = positions.len() * 3;
         let inv_masses = masses.iter().map(|&m| 1.0 / m).collect();
         let lj_potential = LennardJones::new(epsilon, sigma, initial_box_lengths);
-        
+
         LJClusterNPT {
             positions,
             velocities,
@@ -107,7 +107,8 @@ impl LJClusterNPT {
     #[inline]
     fn pressure(&self) -> f64 {
         let kinetic_energy = self.kinetic_energy();
-        self.lj_potential.compute_pressure(&self.positions, kinetic_energy)
+        self.lj_potential
+            .compute_pressure(&self.positions, kinetic_energy)
     }
 
     pub fn set_target_temperature(&mut self, temp: f64) {
@@ -132,18 +133,18 @@ impl LJClusterNPT {
 
     pub fn step(&mut self, dt: f64) {
         let half_dt = 0.5 * dt;
-        
+
         // Current quantities
         let volume = self.volume();
         let current_pressure = self.pressure();
         let kinetic_energy = self.kinetic_energy();
         let gk_t = self.dof as f64 * self.k_b * self.target_temp;
-        
+
         // Update thermostat variable xi (first half-step)
         let xi_dot = (2.0 * kinetic_energy - gk_t) / self.q_t;
         self.xi += xi_dot * half_dt;
         self.xi = self.xi.clamp(-10.0, 10.0);
-        
+
         // Update barostat velocities (first half-step)
         let pressure_error = current_pressure - self.target_pressure;
         for i in 0..3 {
@@ -152,7 +153,7 @@ impl LJClusterNPT {
             // Limit box velocity to prevent runaway
             self.box_velocities[i] = self.box_velocities[i].clamp(-0.05, 0.05);
         }
-        
+
         // Update box lengths (full step)
         let old_volume = volume;
         for i in 0..3 {
@@ -160,20 +161,20 @@ impl LJClusterNPT {
             // Prevent box collapse and excessive expansion
             self.box_lengths[i] = self.box_lengths[i].clamp(2.0, 100.0);
         }
-        
+
         // Update LJ potential with new box size
         self.lj_potential = LennardJones::new(EPSILON, SIGMA, self.box_lengths);
-        
+
         // Scale positions with box changes
         let volume_change = self.volume() / old_volume;
-        let scale_factor = volume_change.powf(1.0/3.0);
+        let scale_factor = volume_change.powf(1.0 / 3.0);
         for pos in &mut self.positions {
             *pos *= scale_factor;
         }
-        
+
         // Compute forces
         let forces = self.lj_potential.compute_forces(&self.positions);
-        
+
         // Update velocities (first half-step) - includes thermostat and barostat effects
         let box_vel_trace = self.box_velocities.x + self.box_velocities.y + self.box_velocities.z;
         for i in 0..self.velocities.len() {
@@ -211,7 +212,7 @@ impl LJClusterNPT {
         let xi_dot = (2.0 * kinetic_energy - gk_t) / self.q_t;
         self.xi += xi_dot * half_dt;
         self.xi = self.xi.clamp(-10.0, 10.0);
-        
+
         // Update barostat velocities (second half-step)
         let current_pressure = self.pressure();
         let pressure_error = current_pressure - self.target_pressure;
@@ -256,7 +257,7 @@ impl ClusterAnalyzer {
         self.temp_history.push_back(temp);
         self.pressure_history.push_back(pressure);
         self.volume_history.push_back(volume);
-        
+
         if self.energy_history.len() > self.max_history {
             self.energy_history.pop_front();
             self.temp_history.pop_front();
@@ -294,9 +295,12 @@ impl ClusterAnalyzer {
             return 0.0;
         }
         let avg = self.average_energy();
-        let variance = self.energy_history.iter()
+        let variance = self
+            .energy_history
+            .iter()
             .map(|&e| (e - avg).powi(2))
-            .sum::<f64>() / self.energy_history.len() as f64;
+            .sum::<f64>()
+            / self.energy_history.len() as f64;
         variance.sqrt()
     }
 }
@@ -311,13 +315,13 @@ fn calculate_coordination_number(positions: &[Vector3<f64>], box_lengths: Vector
     for i in 0..n {
         for j in (i + 1)..n {
             let mut dr = positions[i] - positions[j];
-            
+
             // Minimum image convention
             for k in 0..3 {
                 let box_l = box_lengths[k];
                 dr[k] -= box_l * (dr[k] / box_l).round();
             }
-            
+
             if dr.norm_squared() < cutoff2 {
                 total_neighbors += 2; // Count for both i and j
             }
@@ -331,7 +335,7 @@ fn calculate_coordination_number(positions: &[Vector3<f64>], box_lengths: Vector
 fn create_fcc_cluster(n_cells: usize, lattice_constant: f64) -> Vec<Vector3<f64>> {
     let mut positions = Vec::new();
     let a = lattice_constant;
-    
+
     // FCC unit cell basis vectors
     let basis = [
         Vector3::new(0.0, 0.0, 0.0),
@@ -344,23 +348,19 @@ fn create_fcc_cluster(n_cells: usize, lattice_constant: f64) -> Vec<Vector3<f64>
         for j in 0..n_cells {
             for k in 0..n_cells {
                 for &basis_vec in &basis {
-                    let pos = Vector3::new(
-                        i as f64 * a,
-                        j as f64 * a,
-                        k as f64 * a,
-                    ) + basis_vec;
+                    let pos = Vector3::new(i as f64 * a, j as f64 * a, k as f64 * a) + basis_vec;
                     positions.push(pos);
                 }
             }
         }
     }
-    
+
     // Center the cluster
     let center: Vector3<f64> = positions.iter().sum::<Vector3<f64>>() / positions.len() as f64;
     for pos in &mut positions {
         *pos -= center;
     }
-    
+
     positions
 }
 
@@ -368,7 +368,7 @@ fn create_fcc_cluster(n_cells: usize, lattice_constant: f64) -> Vec<Vector3<f64>
 fn initialize_velocities(n_atoms: usize, temperature: f64, mass: f64) -> Vec<Vector3<f64>> {
     let mut rng = rand::thread_rng();
     let mut velocities = Vec::with_capacity(n_atoms);
-    
+
     // Sample from normal distribution
     for _ in 0..n_atoms {
         let v = Vector3::new(
@@ -378,24 +378,27 @@ fn initialize_velocities(n_atoms: usize, temperature: f64, mass: f64) -> Vec<Vec
         );
         velocities.push(v * (temperature / mass).sqrt());
     }
-    
+
     // Remove center-of-mass motion
     let v_cm: Vector3<f64> = velocities.iter().sum::<Vector3<f64>>() / n_atoms as f64;
     for v in &mut velocities {
         *v -= v_cm;
     }
-    
+
     // Scale to exact target temperature
-    let ke = velocities.iter().map(|v| 0.5 * mass * v.norm_squared()).sum::<f64>();
+    let ke = velocities
+        .iter()
+        .map(|v| 0.5 * mass * v.norm_squared())
+        .sum::<f64>();
     let current_temp = 2.0 * ke / (3.0 * n_atoms as f64 * K_B);
-    
+
     if current_temp > 0.0 {
         let scale_factor = (temperature / current_temp).sqrt();
         for v in &mut velocities {
             *v *= scale_factor;
         }
     }
-    
+
     velocities
 }
 
@@ -414,15 +417,15 @@ fn main() {
     println!();
 
     // System parameters (reduced units)
-    let n_cells = 2;  // 2x2x2 FCC = 32 atoms
-    let lattice_constant = 1.55;  // Slightly larger than equilibrium for FCC (√2 ≈ 1.414)
-    let initial_temp = 0.5;  // Low temperature (solid-like)
-    let target_pressure = 0.1;  // Moderate pressure
-    
+    let n_cells = 2; // 2x2x2 FCC = 32 atoms
+    let lattice_constant = 1.55; // Slightly larger than equilibrium for FCC (√2 ≈ 1.414)
+    let initial_temp = 0.5; // Low temperature (solid-like)
+    let target_pressure = 0.1; // Moderate pressure
+
     // Create FCC cluster
     let mut positions = create_fcc_cluster(n_cells, lattice_constant);
     let n_atoms = positions.len();
-    
+
     println!("System Setup:");
     println!("  Structure: FCC cluster");
     println!("  Unit cells: {}×{}×{}", n_cells, n_cells, n_cells);
@@ -435,27 +438,32 @@ fn main() {
     // Initialize velocities
     let velocities = initialize_velocities(n_atoms, initial_temp, ARGON_MASS);
     let masses = vec![ARGON_MASS; n_atoms];
-    
+
     // Initial box - large enough to contain cluster with buffer
     let cluster_size = n_cells as f64 * lattice_constant * 1.5;
     let initial_box = Vector3::new(cluster_size, cluster_size, cluster_size);
-    
+
     // Shift positions to center of box
     let box_center = initial_box * 0.5;
     for pos in &mut positions {
         *pos += box_center;
     }
-    
-    println!("  Initial box: {:.2} × {:.2} × {:.2} σ³", 
-             initial_box.x, initial_box.y, initial_box.z);
+
+    println!(
+        "  Initial box: {:.2} × {:.2} × {:.2} σ³",
+        initial_box.x, initial_box.y, initial_box.z
+    );
     println!("  Initial volume: {:.2} σ³", initial_box.x.powi(3));
-    println!("  Initial density: {:.4} atoms/σ³", n_atoms as f64 / initial_box.x.powi(3));
+    println!(
+        "  Initial density: {:.4} atoms/σ³",
+        n_atoms as f64 / initial_box.x.powi(3)
+    );
     println!();
 
     // NPT integrator with optimized coupling parameters for clusters
-    let q_t = 100.0;   // Thermostat coupling (moderate)
-    let q_p = 2000.0;  // Barostat coupling (gentle for stability)
-    
+    let q_t = 100.0; // Thermostat coupling (moderate)
+    let q_p = 2000.0; // Barostat coupling (gentle for stability)
+
     let mut integrator = LJClusterNPT::new(
         positions,
         velocities,
@@ -468,16 +476,16 @@ fn main() {
         EPSILON,
         SIGMA,
     );
-    
+
     // Analysis
     let mut analyzer = ClusterAnalyzer::new(200);
-    
+
     // Simulation parameters
-    let dt = 0.002;  // Time step (reduced units)
+    let dt = 0.002; // Time step (reduced units)
     let total_steps = 30000;
     let output_interval = 500;
     let analysis_interval = 50;
-    
+
     println!("Simulation Parameters:");
     println!("  Time step: {:.3} τ", dt);
     println!("  Total steps: {}", total_steps);
@@ -485,23 +493,33 @@ fn main() {
     println!("  Thermostat coupling Q_T: {:.1}", q_t);
     println!("  Barostat coupling Q_P: {:.1}", q_p);
     println!();
-    
+
     // Temperature schedule (heating to observe melting)
     let heating_start = 10000;
     let heating_end = 20000;
-    let final_temp = 1.5;  // Above melting point
-    
+    let final_temp = 1.5; // Above melting point
+
     println!("Temperature Schedule:");
-    println!("  Steps 0-{}: T = {:.2} ε/k_B (equilibration)", heating_start, initial_temp);
-    println!("  Steps {}-{}: T = {:.2} → {:.2} ε/k_B (heating)", 
-             heating_start, heating_end, initial_temp, final_temp);
-    println!("  Steps {}-{}: T = {:.2} ε/k_B (equilibration)", heating_end, total_steps, final_temp);
+    println!(
+        "  Steps 0-{}: T = {:.2} ε/k_B (equilibration)",
+        heating_start, initial_temp
+    );
+    println!(
+        "  Steps {}-{}: T = {:.2} → {:.2} ε/k_B (heating)",
+        heating_start, heating_end, initial_temp, final_temp
+    );
+    println!(
+        "  Steps {}-{}: T = {:.2} ε/k_B (equilibration)",
+        heating_end, total_steps, final_temp
+    );
     println!();
 
     // Output header
     println!("┌────────┬─────────┬─────────┬─────────┬──────────┬──────────┬─────────┬─────────┐");
-    println!("│ {:>6} │ {:>7} │ {:>7} │ {:>7} │ {:>8} │ {:>8} │ {:>7} │ {:>7} │", 
-             "Step", "T_inst", "P_inst", "P_tgt", "Volume", "PE", "Box_L", "Coord#");
+    println!(
+        "│ {:>6} │ {:>7} │ {:>7} │ {:>7} │ {:>8} │ {:>8} │ {:>7} │ {:>7} │",
+        "Step", "T_inst", "P_inst", "P_tgt", "Volume", "PE", "Box_L", "Coord#"
+    );
     println!("├────────┼─────────┼─────────┼─────────┼──────────┼──────────┼─────────┼─────────┤");
 
     // Main simulation loop
@@ -515,12 +533,12 @@ fn main() {
         } else {
             final_temp
         };
-        
+
         integrator.set_target_temperature(current_target_temp);
-        
+
         // Integration step
         integrator.step(dt);
-        
+
         // Update analysis
         if step % analysis_interval == 0 {
             let pe = integrator.get_potential_energy();
@@ -529,7 +547,7 @@ fn main() {
             let volume = integrator.get_volume();
             analyzer.update(pe, temp, pressure, volume);
         }
-        
+
         // Output
         if step % output_interval == 0 {
             let temp = integrator.temperature();
@@ -537,13 +555,16 @@ fn main() {
             let volume = integrator.get_volume();
             let pe = integrator.get_potential_energy();
             let box_l = integrator.box_lengths.x;
-            let coord_num = calculate_coordination_number(&integrator.positions, integrator.box_lengths);
-            
-            println!("│ {:>6} │ {:>7.3} │ {:>7.3} │ {:>7.3} │ {:>8.2} │ {:>8.3} │ {:>7.2} │ {:>7.2} │", 
-                     step, temp, pressure, target_pressure, volume, pe, box_l, coord_num);
+            let coord_num =
+                calculate_coordination_number(&integrator.positions, integrator.box_lengths);
+
+            println!(
+                "│ {:>6} │ {:>7.3} │ {:>7.3} │ {:>7.3} │ {:>8.2} │ {:>8.3} │ {:>7.2} │ {:>7.2} │",
+                step, temp, pressure, target_pressure, volume, pe, box_l, coord_num
+            );
         }
     }
-    
+
     println!("└────────┴─────────┴─────────┴─────────┴──────────┴──────────┴─────────┴─────────┘");
     println!();
 
@@ -554,71 +575,106 @@ fn main() {
     let final_pe = integrator.get_potential_energy();
     let final_density = n_atoms as f64 / final_volume;
     let final_coord = calculate_coordination_number(&integrator.positions, integrator.box_lengths);
-    
+
     let avg_energy = analyzer.average_energy();
     let avg_pressure = analyzer.average_pressure();
     let avg_volume = analyzer.average_volume();
     let energy_fluct = analyzer.energy_fluctuation();
-    
+
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!("                            FINAL ANALYSIS                                 ");
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!();
-    
+
     println!("Instantaneous Properties:");
-    println!("  Temperature: {:.4} ε/k_B (target: {:.3})", final_temp, final_temp);
-    println!("  Pressure: {:.4} ε/σ³ (target: {:.3})", final_pressure, target_pressure);
+    println!(
+        "  Temperature: {:.4} ε/k_B (target: {:.3})",
+        final_temp, final_temp
+    );
+    println!(
+        "  Pressure: {:.4} ε/σ³ (target: {:.3})",
+        final_pressure, target_pressure
+    );
     println!("  Volume: {:.3} σ³", final_volume);
     println!("  Density: {:.4} atoms/σ³", final_density);
     println!("  Potential energy: {:.3} ε", final_pe);
     println!("  PE per atom: {:.4} ε", final_pe / n_atoms as f64);
-    println!("  Box dimensions: {:.2} × {:.2} × {:.2} σ³", 
-             integrator.box_lengths.x, integrator.box_lengths.y, integrator.box_lengths.z);
+    println!(
+        "  Box dimensions: {:.2} × {:.2} × {:.2} σ³",
+        integrator.box_lengths.x, integrator.box_lengths.y, integrator.box_lengths.z
+    );
     println!("  Coordination number: {:.2}", final_coord);
     println!();
-    
-    println!("Averaged Properties (last {} samples):", analyzer.energy_history.len());
+
+    println!(
+        "Averaged Properties (last {} samples):",
+        analyzer.energy_history.len()
+    );
     println!("  <Energy>: {:.3} ε", avg_energy);
     println!("  <Pressure>: {:.3} ε/σ³", avg_pressure);
     println!("  <Volume>: {:.3} σ³", avg_volume);
     println!("  Energy fluctuation: {:.3} ε", energy_fluct);
-    println!("  Relative fluctuation: {:.2}%", 100.0 * energy_fluct / avg_energy.abs());
+    println!(
+        "  Relative fluctuation: {:.2}%",
+        100.0 * energy_fluct / avg_energy.abs()
+    );
     println!();
-    
+
     // Phase identification
     println!("Structural Analysis:");
-    
+
     // Coordination number analysis
     if final_coord > 10.0 {
-        println!("  🧊 SOLID-LIKE structure (high coordination: {:.1})", final_coord);
+        println!(
+            "  🧊 SOLID-LIKE structure (high coordination: {:.1})",
+            final_coord
+        );
         println!("     Atoms are closely packed in crystalline arrangement");
     } else if final_coord > 6.0 {
-        println!("  🌊 LIQUID-LIKE structure (moderate coordination: {:.1})", final_coord);
+        println!(
+            "  🌊 LIQUID-LIKE structure (moderate coordination: {:.1})",
+            final_coord
+        );
         println!("     Atoms maintain local order but with mobility");
     } else {
-        println!("  💨 GAS-LIKE structure (low coordination: {:.1})", final_coord);
+        println!(
+            "  💨 GAS-LIKE structure (low coordination: {:.1})",
+            final_coord
+        );
         println!("     Atoms are dispersed with few neighbors");
     }
-    
+
     // Energy per atom analysis
     let pe_per_atom = final_pe / n_atoms as f64;
     if pe_per_atom < -4.0 {
-        println!("  ❄️  Very stable structure (PE/atom = {:.2} ε)", pe_per_atom);
+        println!(
+            "  ❄️  Very stable structure (PE/atom = {:.2} ε)",
+            pe_per_atom
+        );
     } else if pe_per_atom < -2.0 {
         println!("  📊 Moderately stable (PE/atom = {:.2} ε)", pe_per_atom);
     } else {
         println!("  🔥 High energy state (PE/atom = {:.2} ε)", pe_per_atom);
     }
-    
+
     // Density analysis
     if final_density > 0.8 {
-        println!("  📦 High density: {:.3} atoms/σ³ (condensed phase)", final_density);
+        println!(
+            "  📦 High density: {:.3} atoms/σ³ (condensed phase)",
+            final_density
+        );
     } else if final_density > 0.3 {
-        println!("  📊 Medium density: {:.3} atoms/σ³ (intermediate)", final_density);
+        println!(
+            "  📊 Medium density: {:.3} atoms/σ³ (intermediate)",
+            final_density
+        );
     } else {
-        println!("  🌫️  Low density: {:.3} atoms/σ³ (expanded/gas)", final_density);
+        println!(
+            "  🌫️  Low density: {:.3} atoms/σ³ (expanded/gas)",
+            final_density
+        );
     }
-    
+
     println!();
     println!("═══════════════════════════════════════════════════════════════════════════");
     println!("                         KEY INSIGHTS                                      ");
@@ -631,7 +687,10 @@ fn main() {
     println!("   • System explored phase space at constant (N,P,T)");
     println!();
     println!("🔬 Cluster Behavior:");
-    println!("   • FCC cluster underwent heating from T={:.2} to T={:.2}", initial_temp, final_temp);
+    println!(
+        "   • FCC cluster underwent heating from T={:.2} to T={:.2}",
+        initial_temp, final_temp
+    );
     println!("   • Coordination number changed during heating");
     println!("   • Energy fluctuations indicate thermal motion");
     println!("   • Volume responded to pressure balance");
@@ -643,4 +702,3 @@ fn main() {
     println!("   • Coordination number is a key structural order parameter");
     println!();
 }
-
