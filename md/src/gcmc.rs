@@ -655,6 +655,7 @@ impl GCMCResults {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+    use nalgebra::{Matrix3, Vector3};
 
     #[test]
     fn test_gcmc_creation() {
@@ -764,5 +765,30 @@ mod tests {
         assert_relative_eq!(gcmc.move_probabilities[0], 0.6, epsilon = 1e-10);
         assert_relative_eq!(gcmc.move_probabilities[1], 0.2, epsilon = 1e-10);
         assert_relative_eq!(gcmc.move_probabilities[2], 0.2, epsilon = 1e-10);
+    }
+
+    #[test]
+    fn test_gcmc_from_lattice_initialization() {
+        let lattice = Matrix3::from_columns(&[
+            Vector3::new(8.0, 0.0, 0.0),
+            Vector3::new(2.0, 7.0, 0.0),
+            Vector3::new(0.5, 0.5, 6.0),
+        ]);
+
+        let mut gcmc = GCMC::from_lattice(1.0, 1.0, lattice, 1.2, -4.0);
+        let volume = gcmc.lj.volume();
+        let target_density = 0.15;
+        gcmc.initialize_random(target_density);
+
+        let expected_particles = (target_density * volume) as usize;
+        assert_eq!(gcmc.n_particles(), expected_particles);
+        assert_relative_eq!(volume, lattice.determinant().abs(), epsilon = 1e-12);
+
+        for pos in &gcmc.positions {
+            let frac = gcmc.lj.lattice_inv * *pos;
+            assert!(frac.x >= 0.0 && frac.x < 1.0);
+            assert!(frac.y >= 0.0 && frac.y < 1.0);
+            assert!(frac.z >= 0.0 && frac.z < 1.0);
+        }
     }
 }
