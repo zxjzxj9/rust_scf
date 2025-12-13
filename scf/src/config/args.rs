@@ -61,4 +61,10 @@ pub struct Args {
     /// Use spin-polarized SCF (UHF) instead of restricted SCF
     #[arg(long)]
     pub spin_polarized: bool,
+
+    /// Electronic structure method: "hf" (default) or "lda"
+    ///
+    /// Note: "lda" enables a very simple grid-based KS-DFT LDA (exchange-only) implementation.
+    #[arg(long)]
+    pub method: Option<String>,
 }

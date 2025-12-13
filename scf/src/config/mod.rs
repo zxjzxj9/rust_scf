@@ -38,6 +38,8 @@ pub struct ScfParams {
     pub max_cycle: Option<usize>,
     pub diis_subspace_size: Option<usize>,
     pub convergence_threshold: Option<f64>,
+    /// Electronic method: "hf" (default) or "lda"
+    pub method: Option<String>,
 }
 
 impl Default for ScfParams {
@@ -47,6 +49,7 @@ impl Default for ScfParams {
             max_cycle: Some(100),
             diis_subspace_size: Some(8),
             convergence_threshold: Some(1e-6),
+            method: Some("hf".to_string()),
         }
     }
 }
@@ -66,6 +69,9 @@ impl ScfParams {
         }
         if self.convergence_threshold.is_none() {
             self.convergence_threshold = defaults.convergence_threshold;
+        }
+        if self.method.is_none() {
+            self.method = defaults.method;
         }
         self
     }

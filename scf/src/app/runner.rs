@@ -42,6 +42,13 @@ fn configure_restricted(scf: &mut SimpleSCF<Basis631G>, args: &Args, config: &Co
         .unwrap();
     scf.set_convergence_threshold(convergence);
 
+    let method = args
+        .method
+        .clone()
+        .or_else(|| config.scf_params.method.clone())
+        .unwrap_or_else(|| "hf".to_string());
+    scf.set_method_from_string(&method);
+
     if let Some(diis_size) = resolve_diis_size(args, config) {
         info!(
             "Enabling DIIS acceleration with subspace size {}",
@@ -75,6 +82,9 @@ fn configure_spin(
     scf.set_convergence_threshold(convergence);
     scf.set_charge(charge);
     scf.set_multiplicity(multiplicity);
+
+    // For now, keep SpinSCF as HF/UHF-only. We accept the CLI/YAML knob but ignore it here.
+    // (Implementing LSDA is straightforward but larger; we can add it next if you want.)
 
     if let Some(diis_size) = resolve_diis_size(args, config) {
         info!(

@@ -11,6 +11,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
+use super::dft::{build_becke_atom_grid, lda_xc_on_grid, DftGridParams, GridPoint};
+
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
     pub num_atoms: usize,
@@ -31,6 +33,13 @@ pub struct SimpleSCF<B: AOBasis> {
     pub diis: Option<super::DIIS>,
     /// maps each contracted GTO (index in `mo_basis`) to the parent atom index
     basis_atom_map: Vec<usize>,
+
+    /// If set, run a simple KS-DFT LDA (exchange-only) instead of RHF.
+    dft_grid: Option<Vec<GridPoint>>,
+    dft_params: Option<DftGridParams>,
+    xc_energy: f64,
+    v_xc_matrix: DMatrix<f64>,
+    j_matrix: DMatrix<f64>,
 }
 
 /// Decomposes the total analytic force into physically meaningful pieces.
@@ -70,6 +79,30 @@ where
             convergence_threshold: 1e-6,
             diis: None,
             basis_atom_map: Vec::new(),
+
+            dft_grid: None,
+            dft_params: None,
+            xc_energy: 0.0,
+            v_xc_matrix: DMatrix::zeros(0, 0),
+            j_matrix: DMatrix::zeros(0, 0),
+        }
+    }
+
+    /// Configure electronic structure method.
+    ///
+    /// - `"hf"`: Restricted Hartree–Fock (default)
+    /// - `"lda"`: Simple KS-DFT LDA (exchange-only), numerical grid
+    pub fn set_method_from_string(&mut self, method: &str) {
+        match method.to_lowercase().as_str() {
+            "lda" => {
+                info!("Electronic method set to LDA (exchange-only KS-DFT)");
+                self.dft_params = Some(DftGridParams::default());
+            }
+            _ => {
+                info!("Electronic method set to HF (RHF)");
+                self.dft_params = None;
+                self.dft_grid = None;
+            }
         }
     }
 
@@ -96,6 +129,11 @@ where
     }
 
     pub fn update_fock_matrix(&mut self) {
+        if self.dft_params.is_some() {
+            self.update_fock_matrix_lda();
+            return;
+        }
+
         let mut g_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
 
@@ -136,6 +174,60 @@ where
         }
 
         self.fock_matrix = self.h_core.clone() + g_matrix;
+    }
+
+    fn update_fock_matrix_lda(&mut self) {
+        // Build Coulomb matrix J only (no HF exchange), then add LDA V_x.
+        let mut j_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+        let p = &self.density_matrix;
+
+        let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+            .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+            .collect();
+
+        let j_values: Vec<f64> = ij_pairs
+            .par_iter()
+            .map(|&(i, j)| {
+                let mut j_ij = 0.0;
+                for k in 0..self.num_basis {
+                    for l in 0..self.num_basis {
+                        let coulomb = B::BasisType::JKabcd(
+                            &self.mo_basis[i],
+                            &self.mo_basis[j],
+                            &self.mo_basis[k],
+                            &self.mo_basis[l],
+                        );
+                        j_ij += p[(k, l)] * coulomb;
+                    }
+                }
+                j_ij
+            })
+            .collect();
+
+        for (idx, &(i, j)) in ij_pairs.iter().enumerate() {
+            j_matrix[(i, j)] = j_values[idx];
+        }
+
+        // XC grid contribution (exchange-only LDA)
+        let grid = match self.dft_grid.as_deref() {
+            Some(g) => g,
+            None => {
+                // Lazily build grid if not available (should normally be built in init_geometry)
+                let params = self.dft_params.clone().unwrap_or_default();
+                self.dft_grid = Some(build_becke_atom_grid(&self.coords, &params));
+                self.dft_grid.as_deref().unwrap()
+            }
+        };
+
+        let (exc, vxc) = lda_xc_on_grid(p, self.num_basis, grid, |r| {
+            self.mo_basis.iter().map(|b| b.evaluate(r)).collect()
+        });
+
+        self.xc_energy = exc;
+        self.v_xc_matrix = vxc.clone();
+        self.j_matrix = j_matrix.clone();
+
+        self.fock_matrix = self.h_core.clone() + j_matrix + vxc;
     }
 
     /// Compute the inverse square-root of the overlap matrix (orthogonalizer).
@@ -597,6 +689,19 @@ where
         self.coeffs = DMatrix::zeros(self.num_basis, self.num_basis);
         self.e_level = DVector::zeros(self.num_basis);
         self.overlap_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+
+        self.v_xc_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+        self.j_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+
+        if let Some(params) = self.dft_params.clone() {
+            info!(
+                "Building DFT grid (radial_points={}, r_max={})",
+                params.radial_points, params.r_max
+            );
+            self.dft_grid = Some(build_becke_atom_grid(&self.coords, &params));
+        } else {
+            self.dft_grid = None;
+        }
     }
 
     fn init_density_matrix(&mut self) {
@@ -806,6 +911,48 @@ where
     }
 
     fn calculate_total_energy(&self) -> f64 {
+        if self.dft_params.is_some() {
+            // KS-DFT (LDA exchange-only) energy:
+            // E = Tr(P H_core) + 0.5 Tr(P J) + E_xc + E_nn
+            let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+                .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+                .collect();
+
+            let one_electron_energy: f64 = ij_pairs
+                .par_iter()
+                .map(|&(i, j)| self.density_matrix[(i, j)] * self.h_core[(i, j)])
+                .sum::<f64>();
+
+            let coulomb_energy: f64 = ij_pairs
+                .par_iter()
+                .map(|&(i, j)| self.density_matrix[(i, j)] * self.j_matrix[(i, j)])
+                .sum::<f64>()
+                * 0.5;
+
+            let electronic_energy = one_electron_energy + coulomb_energy + self.xc_energy;
+
+            let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
+                .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))
+                .collect();
+
+            let nuclear_repulsion: f64 = atom_pairs
+                .par_iter()
+                .map(|&(i, j)| {
+                    let z_i = self.elems[i].get_atomic_number() as f64;
+                    let z_j = self.elems[j].get_atomic_number() as f64;
+                    let r_ij = (self.coords[i] - self.coords[j]).norm();
+                    if r_ij > 1e-10 {
+                        z_i * z_j / r_ij
+                    } else {
+                        0.0
+                    }
+                })
+                .sum::<f64>();
+
+            let total_energy = electronic_energy + nuclear_repulsion;
+            return if total_energy.is_finite() { total_energy } else { 0.0 };
+        }
+
         // Alternative SCF energy formula: E_electronic = Tr(P * H_core) + 0.5 * Tr(P * G)
         // where G is the two-electron part of the Fock matrix (F = H_core + G)
         let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)

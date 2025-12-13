@@ -44,6 +44,9 @@ pub struct SpinSCF<B: AOBasis> {
     pub multiplicity: usize,
     // Molecular charge
     pub charge: i32,
+
+    /// maps each contracted GTO (index in `mo_basis`) to the parent atom index
+    basis_atom_map: Vec<usize>,
 }
 
 impl<B: AOBasis + Clone> SpinSCF<B> {
@@ -73,6 +76,7 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             diis_beta: None,
             multiplicity: 1, // Default to singlet (no unpaired electrons)
             charge: 0,       // Default to neutral molecule
+            basis_atom_map: Vec::new(),
         }
     }
 
@@ -227,13 +231,17 @@ where
         self.coords = coords.clone();
 
         self.mo_basis.clear();
+        self.basis_atom_map.clear();
         self.num_basis = 0;
-        for ao in &self.ao_basis {
+        for (atom_idx, ao) in self.ao_basis.iter().enumerate() {
             let ao_locked = ao.lock().unwrap();
             for tb in ao_locked.get_basis() {
                 self.mo_basis.push(tb.clone());
             }
-            self.num_basis += ao_locked.basis_size();
+            let n = ao_locked.basis_size();
+            self.basis_atom_map
+                .extend(std::iter::repeat(atom_idx).take(n));
+            self.num_basis += n;
         }
         info!(
             "  Rebuilt MO basis with {} basis functions.",
@@ -1297,36 +1305,117 @@ where
             }
         }
 
-        // Step 4: Calculate Pulay forces (derivatives w.r.t. basis function centers)
+        // Step 4: Pulay forces (basis-centre derivatives of one-electron integrals)
         info!("  Step 4: Pulay forces (basis function derivatives)...");
         for atom_idx in 0..self.num_atoms {
-            // Core Hamiltonian Pulay forces
             for i in 0..self.num_basis {
                 for j in 0..self.num_basis {
                     let p_total_ij =
                         self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
-
-                    // Overlap matrix derivatives (weighted by Energy Weighted Density matrix elements)
-                    let ds_dr =
-                        B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
                     let w_total_ij = w_matrix_alpha[(i, j)] + w_matrix_beta[(i, j)];
-                    forces[atom_idx] -= w_total_ij * ds_dr;
 
-                    // Kinetic energy derivatives
-                    let dt_dr =
-                        B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], atom_idx);
-                    forces[atom_idx] -= p_total_ij * dt_dr;
+                    // Contributions from derivative w.r.t. centre of i
+                    if self.basis_atom_map[i] == atom_idx {
+                        let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        forces[atom_idx] -= w_total_ij * ds_dr;
 
-                    // Nuclear attraction Pulay forces
-                    for k in 0..self.num_atoms {
-                        let dv_dr_basis = B::BasisType::dVab_dRbasis(
-                            &self.mo_basis[i],
-                            &self.mo_basis[j],
-                            self.coords[k],
-                            self.elems[k].get_atomic_number() as u32,
-                            atom_idx,
-                        );
+                        let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 0);
+                        forces[atom_idx] -= p_total_ij * dt_dr;
+
+                        let mut dv_dr_basis = Vector3::zeros();
+                        for k in 0..self.num_atoms {
+                            dv_dr_basis += B::BasisType::dVab_dRbasis(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                self.coords[k],
+                                self.elems[k].get_atomic_number() as u32,
+                                0,
+                            );
+                        }
                         forces[atom_idx] -= p_total_ij * dv_dr_basis;
+                    }
+
+                    // Contributions from derivative w.r.t. centre of j
+                    if self.basis_atom_map[j] == atom_idx {
+                        let ds_dr = B::BasisType::dSab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                        forces[atom_idx] -= w_total_ij * ds_dr;
+
+                        let dt_dr = B::BasisType::dTab_dR(&self.mo_basis[i], &self.mo_basis[j], 1);
+                        forces[atom_idx] -= p_total_ij * dt_dr;
+
+                        let mut dv_dr_basis = Vector3::zeros();
+                        for k in 0..self.num_atoms {
+                            dv_dr_basis += B::BasisType::dVab_dRbasis(
+                                &self.mo_basis[i],
+                                &self.mo_basis[j],
+                                self.coords[k],
+                                self.elems[k].get_atomic_number() as u32,
+                                1,
+                            );
+                        }
+                        forces[atom_idx] -= p_total_ij * dv_dr_basis;
+                    }
+                }
+            }
+        }
+
+        // Step 5: Two-electron Pulay forces (basis-centre derivatives of ERIs)
+        info!("  Step 5: Two-electron Pulay forces (ERI basis derivatives)...");
+        for atom_idx in 0..self.num_atoms {
+            for i in 0..self.num_basis {
+                for j in 0..self.num_basis {
+                    let p_total_ij =
+                        self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                    let p_alpha_ij = self.density_matrix_alpha[(i, j)];
+                    let p_beta_ij = self.density_matrix_beta[(i, j)];
+
+                    for k in 0..self.num_basis {
+                        for l in 0..self.num_basis {
+                            let p_total_kl = self.density_matrix_alpha[(k, l)]
+                                + self.density_matrix_beta[(k, l)];
+                            let p_alpha_kl = self.density_matrix_alpha[(k, l)];
+                            let p_beta_kl = self.density_matrix_beta[(k, l)];
+
+                            // Accumulate ERI basis-centre derivatives for this atom.
+                            let mut accumulate = |gto_idx: usize| {
+                                let centre_basis_idx = match gto_idx {
+                                    0 => i,
+                                    1 => j,
+                                    2 => k,
+                                    3 => l,
+                                    _ => unreachable!(),
+                                };
+                                if self.basis_atom_map[centre_basis_idx] != atom_idx {
+                                    return;
+                                }
+
+                                // Coulomb derivative: ∂(ij|kl)/∂R_A
+                                let d_j = B::BasisType::dJKabcd_dRbasis(
+                                    &self.mo_basis[i],
+                                    &self.mo_basis[j],
+                                    &self.mo_basis[k],
+                                    &self.mo_basis[l],
+                                    gto_idx,
+                                );
+                                forces[atom_idx] -= 0.5 * p_total_ij * p_total_kl * d_j;
+
+                                // Exchange derivative (same-spin only): ∂(ik|jl)/∂R_A
+                                let d_k = B::BasisType::dJKabcd_dRbasis(
+                                    &self.mo_basis[i],
+                                    &self.mo_basis[k],
+                                    &self.mo_basis[j],
+                                    &self.mo_basis[l],
+                                    gto_idx,
+                                );
+                                forces[atom_idx] += 0.5 * p_alpha_ij * p_alpha_kl * d_k;
+                                forces[atom_idx] += 0.5 * p_beta_ij * p_beta_kl * d_k;
+                            };
+
+                            accumulate(0);
+                            accumulate(1);
+                            accumulate(2);
+                            accumulate(3);
+                        }
                     }
                 }
             }

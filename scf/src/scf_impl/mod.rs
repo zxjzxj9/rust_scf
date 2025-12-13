@@ -5,6 +5,7 @@
 
 mod simple;
 mod simple_spin;
+mod dft;
 #[cfg(test)]
 mod tests;
 
