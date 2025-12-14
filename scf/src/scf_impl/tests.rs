@@ -339,6 +339,77 @@ fn test_ch4_631g_energy() {
     );
 }
 
+#[test]
+fn test_h2o_631g_energy_regression() {
+    // Geometry matches `test_h2o_sto3g_energy` (in bohr)
+    let coords = vec![
+        Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+        Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+        Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+    ];
+    let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+    let h_basis = load_631g_basis("H");
+    let o_basis = load_631g_basis("O");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+    basis_map.insert("O", &o_basis);
+
+    // --- HF (RHF) ---
+    let mut scf_hf = SimpleSCF::<Basis631G>::new();
+    scf_hf.max_cycle = 30;
+    scf_hf.init_basis(&elems, basis_map.clone());
+    scf_hf.init_geometry(&coords, &elems);
+    scf_hf.init_density_matrix();
+    scf_hf.init_fock_matrix();
+    scf_hf.scf_cycle();
+    let e_hf = scf_hf.calculate_total_energy();
+    assert!(e_hf.is_finite(), "HF energy should be finite");
+    let expected_hf = -75.982924570141;
+    let tol_hf = 5e-3;
+    assert!(
+        (e_hf - expected_hf).abs() < tol_hf,
+        "H2O/6-31G HF energy mismatch: got {:.12}, expected {:.12} (tol {:.1e})",
+        e_hf,
+        expected_hf,
+        tol_hf
+    );
+
+    // --- LDA (exchange-only KS-DFT) ---
+    let mut scf_lda = SimpleSCF::<Basis631G>::new();
+    scf_lda.set_method_from_string("lda");
+    scf_lda.max_cycle = 30;
+    scf_lda.init_basis(&elems, basis_map);
+    scf_lda.init_geometry(&coords, &elems);
+    scf_lda.init_density_matrix();
+    scf_lda.init_fock_matrix();
+    scf_lda.scf_cycle();
+    let e_lda = scf_lda.calculate_total_energy();
+    assert!(e_lda.is_finite(), "LDA energy should be finite");
+    let expected_lda = -75.162785121506;
+    let tol_lda = 5e-3;
+    assert!(
+        (e_lda - expected_lda).abs() < tol_lda,
+        "H2O/6-31G LDA energy mismatch: got {:.12}, expected {:.12} (tol {:.1e})",
+        e_lda,
+        expected_lda,
+        tol_lda
+    );
+
+    // We also want to ensure the method switch is actually doing something.
+    // LDA exchange-only should differ measurably from HF for H2O/6-31G.
+    assert!(
+        (e_lda - e_hf).abs() > 1e-3,
+        "LDA and HF energies should differ (got HF={:.10}, LDA={:.10})",
+        e_hf,
+        e_lda
+    );
+
+    // Print references to ease updating if the numeric implementation changes.
+    println!("H2O/6-31G HF energy:  {:.12} au (ref {:.12})", e_hf, expected_hf);
+    println!("H2O/6-31G LDA energy: {:.12} au (ref {:.12})", e_lda, expected_lda);
+}
+
 // === Force Calculation Tests ===
 
 fn calculate_numerical_force(
