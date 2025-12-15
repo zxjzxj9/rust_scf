@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use super::dft::{build_becke_atom_grid, lda_xc_on_grid, DftGridParams, GridPoint};
+use super::dft::{build_becke_atom_grid, xc_on_grid_fdiff, DftGridParams, GridPoint, XcFunctional};
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
@@ -37,6 +37,7 @@ pub struct SimpleSCF<B: AOBasis> {
     /// If set, run a simple KS-DFT LDA (exchange-only) instead of RHF.
     dft_grid: Option<Vec<GridPoint>>,
     dft_params: Option<DftGridParams>,
+    xc_functional: Option<XcFunctional>,
     xc_energy: f64,
     v_xc_matrix: DMatrix<f64>,
     j_matrix: DMatrix<f64>,
@@ -82,6 +83,7 @@ where
 
             dft_grid: None,
             dft_params: None,
+            xc_functional: None,
             xc_energy: 0.0,
             v_xc_matrix: DMatrix::zeros(0, 0),
             j_matrix: DMatrix::zeros(0, 0),
@@ -97,11 +99,18 @@ where
             "lda" => {
                 info!("Electronic method set to LDA (exchange-only KS-DFT)");
                 self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::LdaX);
+            }
+            "pbe" | "gga" => {
+                info!("Electronic method set to PBE (GGA exchange-only KS-DFT)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::PbeX);
             }
             _ => {
                 info!("Electronic method set to HF (RHF)");
                 self.dft_params = None;
                 self.dft_grid = None;
+                self.xc_functional = None;
             }
         }
     }
@@ -129,8 +138,8 @@ where
     }
 
     pub fn update_fock_matrix(&mut self) {
-        if self.dft_params.is_some() {
-            self.update_fock_matrix_lda();
+        if self.dft_params.is_some() && self.xc_functional.is_some() {
+            self.update_fock_matrix_dft();
             return;
         }
 
@@ -176,7 +185,7 @@ where
         self.fock_matrix = self.h_core.clone() + g_matrix;
     }
 
-    fn update_fock_matrix_lda(&mut self) {
+    fn update_fock_matrix_dft(&mut self) {
         // Build Coulomb matrix J only (no HF exchange), then add LDA V_x.
         let mut j_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
@@ -219,7 +228,8 @@ where
             }
         };
 
-        let (exc, vxc) = lda_xc_on_grid(p, self.num_basis, grid, |r| {
+        let functional = self.xc_functional.unwrap_or(XcFunctional::LdaX);
+        let (exc, vxc) = xc_on_grid_fdiff(functional, p, self.num_basis, grid, 1e-3, |r| {
             self.mo_basis.iter().map(|b| b.evaluate(r)).collect()
         });
 
@@ -911,7 +921,7 @@ where
     }
 
     fn calculate_total_energy(&self) -> f64 {
-        if self.dft_params.is_some() {
+        if self.dft_params.is_some() && self.xc_functional.is_some() {
             // KS-DFT (LDA exchange-only) energy:
             // E = Tr(P H_core) + 0.5 Tr(P J) + E_xc + E_nn
             let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)

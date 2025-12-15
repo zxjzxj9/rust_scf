@@ -410,6 +410,40 @@ fn test_h2o_631g_energy_regression() {
     println!("H2O/6-31G LDA energy: {:.12} au (ref {:.12})", e_lda, expected_lda);
 }
 
+#[test]
+fn test_h2o_631g_pbe_sanity() {
+    // Same geometry as other H2O tests (bohr)
+    let coords = vec![
+        Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+        Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+        Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+    ];
+    let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+    let h_basis = load_631g_basis("H");
+    let o_basis = load_631g_basis("O");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+    basis_map.insert("O", &o_basis);
+
+    let mut scf_pbe = SimpleSCF::<Basis631G>::new();
+    scf_pbe.set_method_from_string("pbe");
+    scf_pbe.max_cycle = 30;
+    scf_pbe.init_basis(&elems, basis_map);
+    scf_pbe.init_geometry(&coords, &elems);
+    scf_pbe.init_density_matrix();
+    scf_pbe.init_fock_matrix();
+    scf_pbe.scf_cycle();
+
+    let e_pbe = scf_pbe.calculate_total_energy();
+    assert!(e_pbe.is_finite(), "PBE energy should be finite");
+    assert!(
+        e_pbe < -50.0 && e_pbe > -300.0,
+        "PBE energy should be reasonable: {:.10}",
+        e_pbe
+    );
+}
+
 // === Force Calculation Tests ===
 
 fn calculate_numerical_force(

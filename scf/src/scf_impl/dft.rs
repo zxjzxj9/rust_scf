@@ -10,6 +10,14 @@ extern crate nalgebra as na;
 use na::{DMatrix, Vector3};
 use rayon::prelude::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum XcFunctional {
+    /// Local-density approximation exchange only (Slater exchange)
+    LdaX,
+    /// PBE GGA exchange only (no correlation)
+    PbeX,
+}
+
 /// Exchange-only LDA (Slater exchange), unpolarized.
 ///
 /// Energy density:  e_x(ρ) = c_x ρ^(4/3),  c_x = -(3/4) (3/π)^(1/3)
@@ -27,6 +35,87 @@ pub(crate) fn lda_x_potential(rho: f64) -> f64 {
         return 0.0;
     }
     -(3.0 / std::f64::consts::PI).powf(1.0 / 3.0) * rho.powf(1.0 / 3.0)
+}
+
+// ---------------------------------------------------------------------------
+// PBE exchange-only (GGA) helpers
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn pbe_kappa() -> f64 {
+    0.804
+}
+
+#[inline]
+fn pbe_mu() -> f64 {
+    0.219_514_972_764_517_1
+}
+
+#[inline]
+fn c_x() -> f64 {
+    -0.75 * (3.0 / std::f64::consts::PI).powf(1.0 / 3.0)
+}
+
+/// PBE exchange enhancement factor F_x(s)
+#[inline]
+fn pbe_fx(s: f64) -> f64 {
+    let kappa = pbe_kappa();
+    let mu = pbe_mu();
+    let t = 1.0 + (mu / kappa) * s * s;
+    1.0 + kappa - kappa / t
+}
+
+/// dF_x/ds
+#[inline]
+fn pbe_dfx_ds(s: f64) -> f64 {
+    let kappa = pbe_kappa();
+    let mu = pbe_mu();
+    let t = 1.0 + (mu / kappa) * s * s;
+    // d/ds [ 1 + kappa - kappa / t ] = kappa * (1/t^2) * d t/ds
+    // dt/ds = 2 (mu/kappa) s
+    2.0 * mu * s / (t * t)
+}
+
+/// Compute PBE exchange energy density e_x (per volume), and partial derivatives w.r.t.
+/// rho and grad_rho (vector), using the reduced gradient
+///
+/// s = |∇ρ| / ( 2 (3π^2)^(1/3) ρ^(4/3) )
+fn pbe_x_energy_density_and_partials(rho: f64, grad_rho: Vector3<f64>) -> (f64, f64, Vector3<f64>) {
+    if rho <= 0.0 {
+        return (0.0, 0.0, Vector3::zeros());
+    }
+
+    let g = grad_rho.norm();
+
+    // LDA exchange energy density (per volume)
+    let e_lda = c_x() * rho.powf(4.0 / 3.0);
+    let de_lda_drho = (4.0 / 3.0) * c_x() * rho.powf(1.0 / 3.0);
+
+    // s denominator: 2 (3π^2)^(1/3) ρ^(4/3)
+    let c = 2.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI).powf(1.0 / 3.0);
+    let denom = c * rho.powf(4.0 / 3.0);
+    let s = if denom > 0.0 { g / denom } else { 0.0 };
+
+    let fx = pbe_fx(s);
+    let dfx_ds = pbe_dfx_ds(s);
+
+    let e = e_lda * fx;
+
+    // ∂s/∂ρ = -(4/3) * s / ρ  (for fixed |∇ρ|)
+    let ds_drho = if rho > 0.0 { -(4.0 / 3.0) * s / rho } else { 0.0 };
+
+    // ∂s/∂(∇ρ) = (1/denom) * (∇ρ / |∇ρ|)
+    let ds_dgrad = if g > 1e-14 && denom > 0.0 {
+        (1.0 / denom) * (grad_rho / g)
+    } else {
+        Vector3::zeros()
+    };
+
+    // ∂e/∂ρ and ∂e/∂(∇ρ)
+    let de_drho = de_lda_drho * fx + e_lda * dfx_ds * ds_drho;
+    let de_dgrad = e_lda * dfx_ds * ds_dgrad;
+
+    (e, de_drho, de_dgrad)
 }
 
 #[derive(Clone, Debug)]
@@ -136,6 +225,158 @@ where
         );
 
     (e_x, v_x)
+}
+
+/// Compute (E_xc, V_xc) for either LDA-x or PBE-x on a fixed grid, using finite-difference
+/// gradients of the density (so we don't need analytic AO gradients yet).
+///
+/// This yields a *discretisation-consistent* approximate functional derivative with respect to
+/// the AO density matrix elements.
+pub fn xc_on_grid_fdiff<F>(
+    functional: XcFunctional,
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    fd_delta: f64,
+    basis_values: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> Vec<f64> + Sync,
+{
+    match functional {
+        XcFunctional::LdaX => lda_xc_on_grid(density, num_basis, grid, basis_values),
+        XcFunctional::PbeX => pbe_xc_on_grid_fdiff(density, num_basis, grid, fd_delta, basis_values),
+    }
+}
+
+fn pbe_xc_on_grid_fdiff<F>(
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    fd_delta: f64,
+    basis_values: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> Vec<f64> + Sync,
+{
+    let delta = fd_delta.max(1e-6);
+
+    let (e_x, v_x) = grid
+        .par_iter()
+        .fold(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(mut e_acc, mut v_acc), gp| {
+                // AO values at r and shifted points for finite-difference rho gradients
+                let r0 = gp.r;
+                let rxp = r0 + Vector3::new(delta, 0.0, 0.0);
+                let rxm = r0 - Vector3::new(delta, 0.0, 0.0);
+                let ryp = r0 + Vector3::new(0.0, delta, 0.0);
+                let rym = r0 - Vector3::new(0.0, delta, 0.0);
+                let rzp = r0 + Vector3::new(0.0, 0.0, delta);
+                let rzm = r0 - Vector3::new(0.0, 0.0, delta);
+
+                let phi0 = basis_values(&r0);
+                if phi0.len() != num_basis {
+                    return (e_acc, v_acc);
+                }
+
+                let phixp = basis_values(&rxp);
+                let phixm = basis_values(&rxm);
+                let phiyp = basis_values(&ryp);
+                let phiym = basis_values(&rym);
+                let phizp = basis_values(&rzp);
+                let phizm = basis_values(&rzm);
+                if phixp.len() != num_basis
+                    || phixm.len() != num_basis
+                    || phiyp.len() != num_basis
+                    || phiym.len() != num_basis
+                    || phizp.len() != num_basis
+                    || phizm.len() != num_basis
+                {
+                    return (e_acc, v_acc);
+                }
+
+                let rho0 = rho_from_phi(density, &phi0);
+                if !rho0.is_finite() || rho0 <= 1e-14 {
+                    return (e_acc, v_acc);
+                }
+
+                let rhoxp = rho_from_phi(density, &phixp);
+                let rhoxm = rho_from_phi(density, &phixm);
+                let rhoyp = rho_from_phi(density, &phiyp);
+                let rhoym = rho_from_phi(density, &phiym);
+                let rhozp = rho_from_phi(density, &phizp);
+                let rhozm = rho_from_phi(density, &phizm);
+                if !rhoxp.is_finite()
+                    || !rhoxm.is_finite()
+                    || !rhoyp.is_finite()
+                    || !rhoym.is_finite()
+                    || !rhozp.is_finite()
+                    || !rhozm.is_finite()
+                {
+                    return (e_acc, v_acc);
+                }
+
+                let grad_rho = Vector3::new(
+                    (rhoxp - rhoxm) / (2.0 * delta),
+                    (rhoyp - rhoym) / (2.0 * delta),
+                    (rhozp - rhozm) / (2.0 * delta),
+                );
+
+                let (e, de_drho, de_dgrad) = pbe_x_energy_density_and_partials(rho0, grad_rho);
+                e_acc += gp.w * e;
+
+                // dE/dP_ij = Σ_p w_p [ (∂e/∂ρ)_p * φ_i(r_p) φ_j(r_p)
+                //                   + Σ_a (∂e/∂(∂_a ρ))_p * ∂(∂_a ρ)/∂P_ij ]
+                //
+                // with ∂(∂x ρ)/∂P_ij = (φ_i(r+dx)φ_j(r+dx) - φ_i(r-dx)φ_j(r-dx)) / (2δ)
+                // and similarly for y,z.
+                let w0 = gp.w * de_drho;
+                for i in 0..num_basis {
+                    let pi = phi0[i];
+                    for j in 0..num_basis {
+                        v_acc[(i, j)] += w0 * pi * phi0[j];
+                    }
+                }
+
+                let wx = gp.w * de_dgrad.x / (2.0 * delta);
+                let wy = gp.w * de_dgrad.y / (2.0 * delta);
+                let wz = gp.w * de_dgrad.z / (2.0 * delta);
+
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        v_acc[(i, j)] += wx * (phixp[i] * phixp[j] - phixm[i] * phixm[j]);
+                        v_acc[(i, j)] += wy * (phiyp[i] * phiyp[j] - phiym[i] * phiym[j]);
+                        v_acc[(i, j)] += wz * (phizp[i] * phizp[j] - phizm[i] * phizm[j]);
+                    }
+                }
+
+                (e_acc, v_acc)
+            },
+        )
+        .reduce(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(e1, v1), (e2, v2)| (e1 + e2, v1 + v2),
+        );
+
+    (e_x, v_x)
+}
+
+fn rho_from_phi(density: &DMatrix<f64>, phi: &[f64]) -> f64 {
+    let n = phi.len();
+    let mut tmp = vec![0.0_f64; n];
+    for i in 0..n {
+        let mut s = 0.0;
+        for j in 0..n {
+            s += density[(i, j)] * phi[j];
+        }
+        tmp[i] = s;
+    }
+    let mut rho = 0.0;
+    for i in 0..n {
+        rho += phi[i] * tmp[i];
+    }
+    rho
 }
 
 // ---------------------------------------------------------------------------
