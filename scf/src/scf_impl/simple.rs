@@ -101,10 +101,20 @@ where
                 self.dft_params = Some(DftGridParams::default());
                 self.xc_functional = Some(XcFunctional::LdaX);
             }
-            "pbe" | "gga" => {
-                info!("Electronic method set to PBE (GGA exchange-only KS-DFT)");
+            "pbe" => {
+                info!("Electronic method set to PBE (full GGA XC, unpolarized)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::PbeXc);
+            }
+            "pbe_x" => {
+                info!("Electronic method set to PBE-x (GGA exchange-only KS-DFT)");
                 self.dft_params = Some(DftGridParams::default());
                 self.xc_functional = Some(XcFunctional::PbeX);
+            }
+            "gga" => {
+                info!("Electronic method set to PBE (full GGA XC, unpolarized)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::PbeXc);
             }
             _ => {
                 info!("Electronic method set to HF (RHF)");

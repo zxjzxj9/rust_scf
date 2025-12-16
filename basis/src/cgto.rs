@@ -378,6 +378,14 @@ impl Basis for ContractedGTO {
             .sum()
     }
 
+    fn evaluate_grad(&self, r: &Vector3<f64>) -> Vector3<f64> {
+        self.coefficients
+            .par_iter()
+            .zip(self.primitives.par_iter())
+            .map(|(c, gto)| gto.evaluate_grad(r) * *c)
+            .reduce(|| Vector3::zeros(), |a, b| a + b)
+    }
+
     fn Sab(a: &Self, b: &Self) -> f64 {
         let na = a.primitives.len();
         let nb = b.primitives.len();

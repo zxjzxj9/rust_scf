@@ -1372,6 +1372,49 @@ mod tests {
     }
 
     #[test]
+    fn test_gto_evaluate_grad_matches_finite_difference() {
+        let gto_s = GTO::new(0.7, Vector3::new(0, 0, 0), Vector3::new(0.2, -0.1, 0.3));
+        let gto_px = GTO::new(1.1, Vector3::new(1, 0, 0), Vector3::new(-0.3, 0.4, -0.2));
+
+        let points = [
+            Vector3::new(0.1, 0.2, -0.3),
+            Vector3::new(-0.7, 0.05, 0.9),
+        ];
+
+        let h = 1e-6;
+        let tol = 1e-6;
+
+        for r in &points {
+            for gto in [&gto_s, &gto_px] {
+                let grad = gto.evaluate_grad(r);
+
+                let fxp = gto.evaluate(&Vector3::new(r.x + h, r.y, r.z));
+                let fxm = gto.evaluate(&Vector3::new(r.x - h, r.y, r.z));
+                let fyp = gto.evaluate(&Vector3::new(r.x, r.y + h, r.z));
+                let fym = gto.evaluate(&Vector3::new(r.x, r.y - h, r.z));
+                let fzp = gto.evaluate(&Vector3::new(r.x, r.y, r.z + h));
+                let fzm = gto.evaluate(&Vector3::new(r.x, r.y, r.z - h));
+
+                let grad_fd = Vector3::new(
+                    (fxp - fxm) / (2.0 * h),
+                    (fyp - fym) / (2.0 * h),
+                    (fzp - fzm) / (2.0 * h),
+                );
+
+                let err = (grad - grad_fd).norm();
+                assert!(
+                    err < tol,
+                    "Gradient mismatch at r={:?}: analytic={:?}, fd={:?}, err={:.3e}",
+                    r,
+                    grad,
+                    grad_fd,
+                    err
+                );
+            }
+        }
+    }
+
+    #[test]
     fn test_gto_normalization_different_exponents() {
         // Test normalization for different exponent values
         let alphas = [0.1, 0.5, 1.0, 2.0, 5.0];

@@ -335,6 +335,20 @@ impl Basis for GTO {
         self.gto1d[0].evaluate(r.x) * self.gto1d[1].evaluate(r.y) * self.gto1d[2].evaluate(r.z)
     }
 
+    fn evaluate_grad(&self, r: &Vector3<f64>) -> Vector3<f64> {
+        // φ(x,y,z) = φx(x) φy(y) φz(z)
+        // ∂φ/∂x = φx'(x) φy(y) φz(z), etc.
+        let fx = self.gto1d[0].evaluate(r.x);
+        let fy = self.gto1d[1].evaluate(r.y);
+        let fz = self.gto1d[2].evaluate(r.z);
+
+        let dfx = self.gto1d[0].derivative(r.x);
+        let dfy = self.gto1d[1].derivative(r.y);
+        let dfz = self.gto1d[2].derivative(r.z);
+
+        Vector3::new(dfx * fy * fz, fx * dfy * fz, fx * fy * dfz)
+    }
+
     fn Sab(a: &GTO, b: &GTO) -> f64 {
         GTO1d::Sab(&a.gto1d[0], &b.gto1d[0])
             * GTO1d::Sab(&a.gto1d[1], &b.gto1d[1])

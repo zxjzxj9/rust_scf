@@ -16,6 +16,8 @@ pub enum XcFunctional {
     LdaX,
     /// PBE GGA exchange only (no correlation)
     PbeX,
+    /// Full PBE GGA exchange + correlation (unpolarized)
+    PbeXc,
 }
 
 /// Exchange-only LDA (Slater exchange), unpolarized.
@@ -116,6 +118,153 @@ fn pbe_x_energy_density_and_partials(rho: f64, grad_rho: Vector3<f64>) -> (f64, 
     let de_dgrad = e_lda * dfx_ds * ds_dgrad;
 
     (e, de_drho, de_dgrad)
+}
+
+// ---------------------------------------------------------------------------
+// PW92 LDA correlation (unpolarized) + PBE correlation gradient correction
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn pbe_beta() -> f64 {
+    0.066_724_550_603_149_22
+}
+
+#[inline]
+fn pbe_gamma() -> f64 {
+    0.031_090_690_869_654_895
+}
+
+/// Wigner-Seitz radius rs(ρ) = (3/(4πρ))^(1/3)
+#[inline]
+fn rs_from_rho(rho: f64) -> f64 {
+    (3.0 / (4.0 * std::f64::consts::PI * rho)).powf(1.0 / 3.0)
+}
+
+/// PW92 LDA correlation energy per particle ε_c(rs) for unpolarized system, and derivative dε/drs.
+///
+/// Reference: Perdew & Wang, Phys. Rev. B 45, 13244 (1992) (parametrization).
+fn pw92_eps_c_unpol_and_deriv(rs: f64) -> (f64, f64) {
+    // Constants for unpolarized case
+    let a = 0.031_090_7;
+    let a1 = 0.213_70;
+    let b1 = 7.595_7;
+    let b2 = 3.587_6;
+    let b3 = 1.638_2;
+    let b4 = 0.492_94;
+
+    let s = rs.sqrt();
+    let q = 2.0 * a * (b1 * s + b2 * rs + b3 * rs * s + b4 * rs * rs);
+    let x = 1.0 + 1.0 / q;
+    let eps = -2.0 * a * (1.0 + a1 * rs) * x.ln();
+
+    // derivative
+    // eps = -2a(1+a1 rs) ln(1+1/q)
+    // d/d rs: -2a[ a1 ln(x) + (1+a1 rs) * (1/x) * d x/d rs ]
+    // x = 1 + 1/q => dx/drs = -(1/q^2) dq/drs
+    // dq/drs = 2a[ b1*(1/(2sqrt(rs))) + b2 + b3*(3/2)s + b4*2rs ]
+    let dq_drs = 2.0
+        * a
+        * (b1 * (0.5 / s)
+            + b2
+            + b3 * (1.5 * s)
+            + b4 * (2.0 * rs));
+    let dx_drs = -(dq_drs) / (q * q);
+    let deps_drs = -2.0
+        * a
+        * (a1 * x.ln() + (1.0 + a1 * rs) * (1.0 / x) * dx_drs);
+
+    (eps, deps_drs)
+}
+
+/// Compute PBE correlation energy density (per volume) and partial derivatives w.r.t rho and grad_rho.
+///
+/// Uses unpolarized formulation: e_c = ρ(ε_c^LDA(rs) + H(rs, t)).
+fn pbe_c_energy_density_and_partials(rho: f64, grad_rho: Vector3<f64>) -> (f64, f64, Vector3<f64>) {
+    if rho <= 0.0 {
+        return (0.0, 0.0, Vector3::zeros());
+    }
+    let g = grad_rho.norm();
+
+    let rs = rs_from_rho(rho);
+    let (eps_lda, deps_drs) = pw92_eps_c_unpol_and_deriv(rs);
+
+    // drs/drho = -(1/3) rs / rho
+    let drs_drho = -(1.0 / 3.0) * rs / rho;
+    let deps_drho = deps_drs * drs_drho;
+
+    // Correlation reduced gradient t = |∇ρ| / (2 k_s ρ)
+    // k_s = sqrt(4 k_F / π), k_F = (3π^2 ρ)^(1/3)
+    let kf = (3.0 * std::f64::consts::PI * std::f64::consts::PI * rho).powf(1.0 / 3.0);
+    let ks = (4.0 * kf / std::f64::consts::PI).sqrt();
+    let denom = 2.0 * rho * ks;
+    let t = if denom > 0.0 { g / denom } else { 0.0 };
+
+    let gamma = pbe_gamma();
+    let beta = pbe_beta();
+
+    // A = (β/γ) / (exp(-ε_c^LDA/γ) - 1)
+    let exp_arg = (-eps_lda / gamma).exp();
+    let b = exp_arg - 1.0;
+    let a_corr = if b.abs() > 1e-14 { (beta / gamma) / b } else { 0.0 };
+
+    // H = γ ln(1 + Q), Q = (β/γ) t^2 * (1 + u) / (1 + u + u^2), u = A t^2
+    let u = a_corr * t * t;
+    let den_u = 1.0 + u + u * u;
+    let f = if den_u > 0.0 { (1.0 + u) / den_u } else { 0.0 };
+    let q = (beta / gamma) * t * t * f;
+    let h = gamma * (1.0 + q).ln();
+
+    // Derivatives: dH/dt and dH/dA (via u)
+    let dH_dQ = if (1.0 + q) > 0.0 { gamma / (1.0 + q) } else { 0.0 };
+
+    // f'(u) = -(u(2+u)) / (1+u+u^2)^2
+    let fprime = if den_u > 0.0 {
+        -(u * (2.0 + u)) / (den_u * den_u)
+    } else {
+        0.0
+    };
+
+    // dQ/dt = (β/γ)[2 t f + t^2 f'(u) * d u/dt], du/dt = 2 A t
+    let dQ_dt = (beta / gamma) * (2.0 * t * f + t * t * fprime * (2.0 * a_corr * t));
+    let dH_dt = dH_dQ * dQ_dt;
+
+    // dQ/dA = (β/γ) t^2 * f'(u) * du/dA, du/dA = t^2
+    let dQ_dA = (beta / gamma) * (t * t) * fprime * (t * t);
+    let dH_dA = dH_dQ * dQ_dA;
+
+    // dA/dε = (β/γ) * exp(-ε/γ) / (γ (exp(-ε/γ)-1)^2)
+    let dA_deps = if b.abs() > 1e-14 {
+        (beta / gamma) * exp_arg / (gamma * b * b)
+    } else {
+        0.0
+    };
+    let dA_drho = dA_deps * deps_drho;
+
+    // dt/drho = -(7/6) t / rho  (derived for ks ∝ ρ^(1/6))
+    let dt_drho = if rho > 0.0 { -(7.0 / 6.0) * t / rho } else { 0.0 };
+    // dt/d(∇ρ) = (1/denom) * ∇ρ/|∇ρ|
+    let dt_dgrad = if g > 1e-14 && denom > 0.0 {
+        (1.0 / denom) * (grad_rho / g)
+    } else {
+        Vector3::zeros()
+    };
+
+    // Total derivatives of H
+    let dH_drho = dH_dA * dA_drho + dH_dt * dt_drho;
+    let dH_dgrad = dH_dt * dt_dgrad;
+
+    // e_c = ρ (ε_lda + H)
+    let e = rho * (eps_lda + h);
+    let de_drho = eps_lda + h + rho * (deps_drho + dH_drho);
+    let de_dgrad = rho * dH_dgrad;
+
+    (e, de_drho, de_dgrad)
+}
+
+fn pbe_xc_energy_density_and_partials(rho: f64, grad_rho: Vector3<f64>) -> (f64, f64, Vector3<f64>) {
+    let (ex, dex_drho, dex_dgrad) = pbe_x_energy_density_and_partials(rho, grad_rho);
+    let (ec, dec_drho, dec_dgrad) = pbe_c_energy_density_and_partials(rho, grad_rho);
+    (ex + ec, dex_drho + dec_drho, dex_dgrad + dec_dgrad)
 }
 
 #[derive(Clone, Debug)]
@@ -246,6 +395,14 @@ where
     match functional {
         XcFunctional::LdaX => lda_xc_on_grid(density, num_basis, grid, basis_values),
         XcFunctional::PbeX => pbe_xc_on_grid_fdiff(density, num_basis, grid, fd_delta, basis_values),
+        XcFunctional::PbeXc => pbe_xc_on_grid_fdiff_impl(
+            density,
+            num_basis,
+            grid,
+            fd_delta,
+            basis_values,
+            true,
+        ),
     }
 }
 
@@ -255,6 +412,20 @@ fn pbe_xc_on_grid_fdiff<F>(
     grid: &[GridPoint],
     fd_delta: f64,
     basis_values: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> Vec<f64> + Sync,
+{
+    pbe_xc_on_grid_fdiff_impl(density, num_basis, grid, fd_delta, basis_values, false)
+}
+
+fn pbe_xc_on_grid_fdiff_impl<F>(
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    fd_delta: f64,
+    basis_values: F,
+    include_correlation: bool,
 ) -> (f64, DMatrix<f64>)
 where
     F: Fn(&Vector3<f64>) -> Vec<f64> + Sync,
@@ -323,7 +494,11 @@ where
                     (rhozp - rhozm) / (2.0 * delta),
                 );
 
-                let (e, de_drho, de_dgrad) = pbe_x_energy_density_and_partials(rho0, grad_rho);
+                let (e, de_drho, de_dgrad) = if include_correlation {
+                    pbe_xc_energy_density_and_partials(rho0, grad_rho)
+                } else {
+                    pbe_x_energy_density_and_partials(rho0, grad_rho)
+                };
                 e_acc += gp.w * e;
 
                 // dE/dP_ij = Σ_p w_p [ (∂e/∂ρ)_p * φ_i(r_p) φ_j(r_p)
