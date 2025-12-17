@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use super::dft::{build_becke_atom_grid, xc_on_grid_fdiff, DftGridParams, GridPoint, XcFunctional};
+use super::dft::{build_becke_atom_grid, xc_on_grid_ao_grad, DftGridParams, GridPoint, XcFunctional};
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
@@ -239,8 +239,10 @@ where
         };
 
         let functional = self.xc_functional.unwrap_or(XcFunctional::LdaX);
-        let (exc, vxc) = xc_on_grid_fdiff(functional, p, self.num_basis, grid, 1e-3, |r| {
-            self.mo_basis.iter().map(|b| b.evaluate(r)).collect()
+        let (exc, vxc) = xc_on_grid_ao_grad(functional, p, self.num_basis, grid, |r| {
+            let phi: Vec<f64> = self.mo_basis.iter().map(|b| b.evaluate(r)).collect();
+            let grad_phi: Vec<Vector3<f64>> = self.mo_basis.iter().map(|b| b.evaluate_grad(r)).collect();
+            (phi, grad_phi)
         });
 
         self.xc_energy = exc;

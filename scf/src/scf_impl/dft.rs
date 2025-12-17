@@ -406,6 +406,114 @@ where
     }
 }
 
+/// Compute (E_xc, V_xc) for either LDA-x, PBE-x, or PBE-xc on a fixed grid using AO
+/// values and AO analytic gradients (∇φ).
+///
+/// This avoids finite-difference gradients of the density and is substantially faster for GGA.
+///
+/// - `basis_values_and_grads(r)` must return `(phi, grad_phi)` where:
+///   - `phi[i] = φ_i(r)`
+///   - `grad_phi[i] = ∇φ_i(r)`
+pub fn xc_on_grid_ao_grad<F>(
+    functional: XcFunctional,
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    match functional {
+        XcFunctional::LdaX => {
+            // LDA does not depend on ∇ρ; fall back to the simpler (and faster) implementation.
+            lda_xc_on_grid(density, num_basis, grid, |r| basis_values_and_grads(r).0)
+        }
+        XcFunctional::PbeX => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, false),
+        XcFunctional::PbeXc => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, true),
+    }
+}
+
+fn pbe_xc_on_grid_ao_grad_impl<F>(
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+    include_correlation: bool,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, v_xc) = grid
+        .par_iter()
+        .fold(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(mut e_acc, mut v_acc), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, v_acc);
+                }
+
+                // tmp = P * phi, tmp_t = P^T * phi
+                let mut tmp = vec![0.0_f64; num_basis];
+                let mut tmp_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut s1 = 0.0;
+                    let mut s2 = 0.0;
+                    for j in 0..num_basis {
+                        s1 += density[(i, j)] * phi[j];
+                        s2 += density[(j, i)] * phi[j];
+                    }
+                    tmp[i] = s1;
+                    tmp_t[i] = s2;
+                }
+
+                let mut rho = 0.0;
+                for i in 0..num_basis {
+                    rho += phi[i] * tmp[i];
+                }
+
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, v_acc);
+                }
+
+                // ∇ρ = (∇φ)^T P φ + φ^T P ∇φ = Σ_i (tmp_i + tmp_t_i) ∇φ_i
+                let mut grad_rho = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_rho += (tmp[i] + tmp_t[i]) * grad_phi[i];
+                }
+
+                let (e, de_drho, de_dgrad) = if include_correlation {
+                    pbe_xc_energy_density_and_partials(rho, grad_rho)
+                } else {
+                    pbe_x_energy_density_and_partials(rho, grad_rho)
+                };
+
+                e_acc += gp.w * e;
+
+                // Vxc_ij = w * [ (∂e/∂ρ) φ_i φ_j + (∂e/∂∇ρ) · (φ_i ∇φ_j + φ_j ∇φ_i) ]
+                let w0 = gp.w * de_drho;
+                let wg = gp.w * de_dgrad;
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm = wg.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        v_acc[(i, j)] += w0 * phi_i * phi_j + gterm;
+                    }
+                }
+
+                (e_acc, v_acc)
+            },
+        )
+        .reduce(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(e1, v1), (e2, v2)| (e1 + e2, v1 + v2),
+        );
+
+    (e_xc, v_xc)
+}
+
 fn pbe_xc_on_grid_fdiff<F>(
     density: &DMatrix<f64>,
     num_basis: usize,
