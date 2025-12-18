@@ -426,6 +426,7 @@ fn test_h2o_631g_pbe_sanity() {
     basis_map.insert("H", &h_basis);
     basis_map.insert("O", &o_basis);
 
+    // PBE uses AO analytic gradients (Basis::evaluate_grad) in the XC build.
     let mut scf_pbe = SimpleSCF::<Basis631G>::new();
     scf_pbe.set_method_from_string("pbe");
     scf_pbe.max_cycle = 30;
