@@ -445,6 +445,41 @@ fn test_h2o_631g_pbe_sanity() {
     );
 }
 
+#[test]
+fn test_h2o_631g_tpss_sanity() {
+    // Same geometry as other H2O tests (bohr)
+    let coords = vec![
+        Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+        Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+        Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+    ];
+    let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+    let h_basis = load_631g_basis("H");
+    let o_basis = load_631g_basis("O");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+    basis_map.insert("O", &o_basis);
+
+    // TPSS uses AO analytic gradients (Basis::evaluate_grad) and adds a meta-GGA τ term.
+    let mut scf_tpss = SimpleSCF::<Basis631G>::new();
+    scf_tpss.set_method_from_string("tpss");
+    scf_tpss.max_cycle = 30;
+    scf_tpss.init_basis(&elems, basis_map);
+    scf_tpss.init_geometry(&coords, &elems);
+    scf_tpss.init_density_matrix();
+    scf_tpss.init_fock_matrix();
+    scf_tpss.scf_cycle();
+
+    let e_tpss = scf_tpss.calculate_total_energy();
+    assert!(e_tpss.is_finite(), "TPSS energy should be finite");
+    assert!(
+        e_tpss < -50.0 && e_tpss > -300.0,
+        "TPSS energy should be reasonable: {:.10}",
+        e_tpss
+    );
+}
+
 // === Force Calculation Tests ===
 
 fn calculate_numerical_force(

@@ -975,4 +975,147 @@ fn legendre_pn(n: usize, z: f64) -> (f64, f64) {
     (p1, p2)
 }
 
+// ---------------------------------------------------------------------------
+// Tests: TPSS pointwise validation vs libxc (via PySCF) reference values
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tpss_libxc_tests {
+    use super::*;
+
+    // Reference computed with PySCF 2.11.0 / libxc TPSS (unpolarized), deriv=1.
+    // Each tuple: (rho, sigma, tau, e_xc (per volume), v_rho, v_tau)
+    // vsigma is stored separately.
+    const PTS: &[(f64, f64, f64, f64, f64, f64)] = &[
+        (
+            1.0000000000000000e-04,
+            0.0000000000000000e+00,
+            1.0000000000000001e-05,
+            -5.0712079476622230e-06,
+            -6.5836612109578363e-02,
+            -9.2857189164466706e-04,
+        ),
+        (
+            5.0000000000000001e-04,
+            1.0000000000000000e-08,
+            2.0000000000000001e-04,
+            -4.0138796717388800e-05,
+            -1.0923603651460345e-01,
+            -1.7636158006858368e-04,
+        ),
+        (
+            1.0000000000000000e-03,
+            4.9999999999999998e-07,
+            5.0000000000000001e-04,
+            -9.3096334126821417e-05,
+            -1.1756427979044015e-01,
+            1.0888942038989459e-03,
+        ),
+        (
+            5.0000000000000001e-03,
+            1.0000000000000001e-05,
+            1.0000000000000000e-03,
+            -7.8376618808975414e-04,
+            -2.1022466161666603e-01,
+            1.2614464047130368e-02,
+        ),
+        (
+            1.0000000000000000e-02,
+            2.0000000000000002e-05,
+            2.0000000000000000e-03,
+            -1.9528054628853548e-03,
+            -2.5739964226812639e-01,
+            -4.8274562906389589e-04,
+        ),
+        (
+            5.0000000000000003e-02,
+            2.0000000000000001e-04,
+            1.0000000000000000e-02,
+            -1.6065709566612404e-02,
+            -4.2393861313765163e-01,
+            1.3481972218290408e-02,
+        ),
+        (
+            1.0000000000000001e-01,
+            5.0000000000000001e-04,
+            2.0000000000000000e-02,
+            -3.9860738889608588e-02,
+            -5.2513757647946646e-01,
+            1.2996255900385740e-02,
+        ),
+        (
+            2.0000000000000001e-01,
+            1.0000000000000000e-03,
+            5.0000000000000003e-02,
+            -9.8827156501358024e-02,
+            -6.5100875681488979e-01,
+            1.0033254562963398e-02,
+        ),
+        (
+            5.0000000000000000e-01,
+            2.0000000000000000e-03,
+            1.0000000000000001e-01,
+            -3.2938611252821226e-01,
+            -8.6690775253081309e-01,
+            7.7670079315106276e-03,
+        ),
+        (
+            1.0000000000000000e+00,
+            5.0000000000000001e-03,
+            2.0000000000000001e-01,
+            -8.1924856555239789e-01,
+            -1.0787559551060983e+00,
+            6.1913486698805479e-03,
+        ),
+    ];
+
+    const VSIGMA: &[f64] = &[
+        8.4555064525813293e+02,
+        9.5058772105076912e+01,
+        -3.8195838599402236e+00,
+        3.7317277083545486e-01,
+        6.5325427159490812e-01,
+        1.2604788181334370e-02,
+        -1.7021012411849848e-02,
+        -1.1687848678876074e-02,
+        -1.6634850372869131e-02,
+        -1.2208347165107953e-02,
+    ];
+
+    fn assert_close(label: &str, got: f64, want: f64, rel: f64, abs: f64) {
+        let err = (got - want).abs();
+        let tol = abs + rel * want.abs();
+        assert!(
+            err <= tol,
+            "{label}: got {got:.16e}, want {want:.16e}, err {err:.3e}, tol {tol:.3e}"
+        );
+    }
+
+    #[test]
+    fn test_tpss_pointwise_against_libxc_reference() {
+        for (idx, &(rho, sigma, tau, e_ref, vrho_ref, vtau_ref)) in PTS.iter().enumerate() {
+            let grad = if sigma > 0.0 {
+                Vector3::new(sigma.sqrt(), 0.0, 0.0)
+            } else {
+                Vector3::zeros()
+            };
+            let (e, vrho, vgrad, vtau) = tpss_xc_energy_density_and_partials_numeric(rho, grad, tau);
+
+            // energy density is deterministic but may differ at ~1e-10 level due to
+            // floating-point ordering and transcendental implementations.
+            assert_close("e_xc", e, e_ref, 1e-6, 5e-10);
+            // numerical partials: allow looser tolerance
+            assert_close("v_rho", vrho, vrho_ref, 2e-3, 1e-6);
+            assert_close("v_tau", vtau, vtau_ref, 2e-3, 1e-6);
+
+            // Infer v_sigma from v_grad = ∂e/∂∇n = 2 v_sigma ∇n
+            if sigma > 1e-18 {
+                let vsigma = vgrad.dot(&grad) / (2.0 * sigma);
+                let vsigma_ref = VSIGMA[idx];
+                assert_close("v_sigma", vsigma, vsigma_ref, 5e-3, 1e-6);
+            }
+        }
+    }
+}
+
 
