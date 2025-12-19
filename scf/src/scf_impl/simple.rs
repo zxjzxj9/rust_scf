@@ -94,6 +94,8 @@ where
     ///
     /// - `"hf"`: Restricted Hartree–Fock (default)
     /// - `"lda"`: Simple KS-DFT LDA (exchange-only), numerical grid
+    /// - `"pbe"` / `"gga"`: Simple KS-DFT PBE GGA (full XC, unpolarized), numerical grid
+    /// - `"tpss"`: Simple KS-DFT TPSS meta-GGA (full XC, unpolarized), numerical grid
     pub fn set_method_from_string(&mut self, method: &str) {
         match method.to_lowercase().as_str() {
             "lda" => {
@@ -115,6 +117,11 @@ where
                 info!("Electronic method set to PBE (full GGA XC, unpolarized)");
                 self.dft_params = Some(DftGridParams::default());
                 self.xc_functional = Some(XcFunctional::PbeXc);
+            }
+            "tpss" => {
+                info!("Electronic method set to TPSS (meta-GGA XC, unpolarized)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::TpssXc);
             }
             _ => {
                 info!("Electronic method set to HF (RHF)");

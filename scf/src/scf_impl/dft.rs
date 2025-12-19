@@ -1,9 +1,9 @@
-//! Minimal grid-based DFT helpers (currently: LDA exchange-only).
+//! Minimal grid-based DFT helpers (LDA / PBE / TPSS on a Becke atom grid).
 //!
 //! This is intentionally simple:
 //! - Atom-centered grid: Gauss–Legendre radial × 6-point octahedral angular grid
 //! - Becke partitioning to avoid double-counting overlapping atom grids
-//! - LDA exchange only (Slater exchange), no correlation
+//! - LDA exchange (Slater), PBE GGA (x / xc), TPSS meta-GGA (xc, unpolarized)
 
 extern crate nalgebra as na;
 
@@ -18,6 +18,8 @@ pub enum XcFunctional {
     PbeX,
     /// Full PBE GGA exchange + correlation (unpolarized)
     PbeXc,
+    /// Full TPSS meta-GGA exchange + correlation (unpolarized)
+    TpssXc,
 }
 
 /// Exchange-only LDA (Slater exchange), unpolarized.
@@ -401,6 +403,7 @@ where
         }
         XcFunctional::PbeX => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, false),
         XcFunctional::PbeXc => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, true),
+        XcFunctional::TpssXc => tpss_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads),
     }
 }
 
@@ -470,6 +473,390 @@ where
                         let phi_j = phi[j];
                         let gterm = wg.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
                         v_acc[(i, j)] += w0 * phi_i * phi_j + gterm;
+                    }
+                }
+
+                (e_acc, v_acc)
+            },
+        )
+        .reduce(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(e1, v1), (e2, v2)| (e1 + e2, v1 + v2),
+        );
+
+    (e_xc, v_xc)
+}
+
+// ---------------------------------------------------------------------------
+// TPSS meta-GGA (unpolarized) helpers
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn tpss_c() -> f64 {
+    1.590_96
+}
+
+#[inline]
+fn tpss_e() -> f64 {
+    1.537
+}
+
+#[inline]
+fn tpss_b() -> f64 {
+    0.40
+}
+
+#[inline]
+fn tpss_d() -> f64 {
+    2.8 // hartree^-1
+}
+
+#[inline]
+fn tpss_kappa() -> f64 {
+    0.804
+}
+
+/// Uniform-gas exchange energy per particle: ε_x^unif(n) = -(3/(4π)) (3π^2 n)^(1/3)
+#[inline]
+fn eps_x_unif(n: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    -3.0 / (4.0 * std::f64::consts::PI)
+        * (3.0 * std::f64::consts::PI * std::f64::consts::PI * n).powf(1.0 / 3.0)
+}
+
+/// Uniform-gas kinetic energy density τ_unif(n) = (3/10) (3π^2)^(2/3) n^(5/3)
+#[inline]
+fn tau_unif(n: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    (3.0 / 10.0) * (3.0 * std::f64::consts::PI * std::f64::consts::PI).powf(2.0 / 3.0) * n.powf(5.0 / 3.0)
+}
+
+/// PW92 LDA correlation ε_c(rs) per particle for unpolarized or fully polarized cases.
+/// (Perdew & Wang, Phys. Rev. B 45, 13244 (1992))
+fn pw92_eps_c(rs: f64, fully_polarized: bool) -> f64 {
+    if rs <= 0.0 || !rs.is_finite() {
+        return 0.0;
+    }
+    // Constants for the PW92 parametrization.
+    // Unpolarized (ζ=0) and fully polarized (ζ=1) parameter sets.
+    let (a, a1, b1, b2, b3, b4) = if fully_polarized {
+        // ζ = 1
+        (0.015_545_35, 0.205_48, 14.118_9, 6.197_7, 3.366_2, 0.625_17)
+    } else {
+        // ζ = 0
+        (0.031_090_7, 0.213_70, 7.595_7, 3.587_6, 1.638_2, 0.492_94)
+    };
+
+    let s = rs.sqrt();
+    let q = 2.0 * a * (b1 * s + b2 * rs + b3 * rs * s + b4 * rs * rs);
+    let x = 1.0 + 1.0 / q;
+    -2.0 * a * (1.0 + a1 * rs) * x.ln()
+}
+
+#[inline]
+fn rs_from_n(n: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    (3.0 / (4.0 * std::f64::consts::PI * n)).powf(1.0 / 3.0)
+}
+
+#[inline]
+fn phi_from_zeta(zeta: f64) -> f64 {
+    // φ(ζ) = [ (1+ζ)^(2/3) + (1-ζ)^(2/3) ] / 2
+    let zp = (1.0 + zeta).max(0.0);
+    let zm = (1.0 - zeta).max(0.0);
+    0.5 * (zp.powf(2.0 / 3.0) + zm.powf(2.0 / 3.0))
+}
+
+/// PBE correlation ε_c per particle for a (possibly spin-polarized) density, using the standard PBE form:
+/// ε_c = ε_c^LDA(rs, ζ) + H(rs, ζ, t)
+/// with H = γ φ^3 ln(1 + (β/γ) t^2 (1 + A t^2)/(1 + A t^2 + (A t^2)^2)),
+/// A = (β/γ) / (exp(-ε_c^LDA/(γ φ^3)) - 1),
+/// t = |∇n| / (2 φ k_s n), k_s = sqrt(4 k_F/π), k_F = (3π^2 n)^(1/3).
+fn pbe_eps_c(n: f64, grad_n: Vector3<f64>, zeta: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    let g = grad_n.norm();
+    let rs = rs_from_n(n);
+    let fully_polarized = zeta >= 1.0 - 1e-14;
+    let eps_lda = pw92_eps_c(rs, fully_polarized);
+
+    let phi = phi_from_zeta(zeta);
+    let phi3 = phi * phi * phi;
+
+    let kf = (3.0 * std::f64::consts::PI * std::f64::consts::PI * n).powf(1.0 / 3.0);
+    let ks = (4.0 * kf / std::f64::consts::PI).sqrt();
+    let denom = 2.0 * phi * ks * n;
+    let t = if denom > 0.0 { g / denom } else { 0.0 };
+
+    let gamma = pbe_gamma();
+    let beta = pbe_beta();
+
+    let exp_arg = (-eps_lda / (gamma * phi3)).exp();
+    let b = exp_arg - 1.0;
+    let a_corr = if b.abs() > 1e-14 { (beta / gamma) / b } else { 0.0 };
+
+    let u = a_corr * t * t;
+    let den_u = 1.0 + u + u * u;
+    let f = if den_u > 0.0 { (1.0 + u) / den_u } else { 0.0 };
+    let q = (beta / gamma) * t * t * f;
+    let h = gamma * phi3 * (1.0 + q).ln();
+
+    eps_lda + h
+}
+
+/// TPSS exchange enhancement factor F_x(p,z) for unpolarized case.
+fn tpss_fx(p: f64, z: f64, qtilde_b: f64) -> f64 {
+    let kappa = tpss_kappa();
+    let c = tpss_c();
+    let e = tpss_e();
+    let mu = pbe_mu();
+
+    let z2 = z * z;
+    let one_plus_z2 = 1.0 + z2;
+
+    // Eq. (10) from Tao et al. PRL 91, 146401 (2003).
+    // x = { [10/81 + c z^2/(1+z^2)^2] p + 146/2025 q~_b^2
+    //       - 73/405 q~_b sqrt( 1/2 (3/5 z)^2 + 1/2 p^2 )
+    //       + (1/κ)(10/81)^2 p^2
+    //       + 2√e (10/81) (3/5 z)^2
+    //       + e μ p^3 } / (1 + √e p)^2
+    let term1 = (10.0 / 81.0 + c * (z2 / (one_plus_z2 * one_plus_z2))) * p;
+    let term2 = (146.0 / 2025.0) * qtilde_b * qtilde_b;
+    let sqrt_arg = 0.5 * (3.0 / 5.0 * z).powi(2) + 0.5 * p * p;
+    let term3 = -(73.0 / 405.0) * qtilde_b * sqrt_arg.max(0.0).sqrt();
+    let a = 10.0_f64 / 81.0;
+    let term4 = (1.0 / kappa) * (a * a) * p * p;
+    let term5 = 2.0 * e.sqrt() * (10.0 / 81.0) * (3.0 / 5.0 * z).powi(2);
+    let term6 = e * mu * p * p * p;
+
+    let denom = (1.0 + e.sqrt() * p).powi(2);
+    let x = (term1 + term2 + term3 + term4 + term5 + term6) / denom;
+
+    // Eq. (5): F_x = 1 + κ - κ/(1 + x/κ)
+    let t = 1.0 + x / kappa;
+    1.0 + kappa - kappa / t
+}
+
+/// TPSS exchange + correlation energy density per volume e_xc(n, |∇n|^2, τ) for unpolarized case.
+fn tpss_xc_energy_density(n: f64, sigma: f64, tau: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    let sigma = sigma.max(0.0);
+    let tau = tau.max(0.0);
+
+    let tau_w = sigma / (8.0 * n);
+    let z = if tau > 1e-20 { (tau_w / tau).clamp(0.0, 1.0) } else { 1.0 };
+    let t_unif = tau_unif(n);
+    let alpha = if t_unif > 1e-30 { (tau - tau_w) / t_unif } else { 0.0 };
+
+    // p = s^2 = |∇n|^2 / [4 (3π^2)^(2/3) n^(8/3)]
+    let denom_p = 4.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI).powf(2.0 / 3.0) * n.powf(8.0 / 3.0);
+    let p = if denom_p > 0.0 { sigma / denom_p } else { 0.0 };
+
+    // q~_b (Eq. 7)
+    let b = tpss_b();
+    let qtilde_b = {
+        let num = alpha - 1.0;
+        let den = (1.0 + b * alpha * (alpha - 1.0)).max(1e-14).sqrt();
+        (9.0 / 20.0) * (num / den) + (2.0 / 3.0) * p
+    };
+
+    // Exchange: e_x = n ε_x^unif(n) F_x(p,z)
+    let fx = tpss_fx(p, z, qtilde_b);
+    let ex = n * eps_x_unif(n) * fx;
+
+    // Correlation (TPSS revPKZB construction, Eqs. 11-14) for unpolarized density:
+    // ζ = 0 => C(ζ, ξ) = C(0,0) = 0.53 (since ∇ζ = 0 => ξ = 0)
+    let c_self = 0.53;
+    let d = tpss_d();
+
+    // ε_c^PBE(n↑=n/2,n↓=n/2)   and   ε_c^PBE(n↑=n/2,n↓=0) for the "tilde" term.
+    // For the spin-channel densities, we approximate |∇nσ| = |∇n|/2 with the same direction.
+    let grad_n = if sigma > 0.0 {
+        // direction doesn't matter for |∇n| in PBE correlation formula, but we need a Vector3.
+        // Put everything on x-axis for determinism.
+        Vector3::new(sigma.sqrt(), 0.0, 0.0)
+    } else {
+        Vector3::zeros()
+    };
+    let eps_pbe_unpol = pbe_eps_c(n, grad_n, 0.0);
+    let eps_pbe_spin_channel = pbe_eps_c(0.5 * n, 0.5 * grad_n, 1.0);
+    let eps_tilde = eps_pbe_spin_channel.max(eps_pbe_unpol);
+
+    // Eq. (12) unpolarized simplification (Σσ nσ/n = 1):
+    let z2 = z * z;
+    let eps_rev = eps_pbe_unpol * (1.0 + c_self * z2) - (1.0 + c_self) * z2 * eps_tilde;
+
+    // Eq. (11): e_c = n ε_rev [1 + d ε_rev z^3]
+    let ec = n * eps_rev * (1.0 + d * eps_rev * z.powi(3));
+
+    ex + ec
+}
+
+/// Numerical partial derivatives for TPSS meta-GGA:
+/// returns (e, ∂e/∂n, ∂e/∂∇n (vector), ∂e/∂τ)
+fn tpss_xc_energy_density_and_partials_numeric(
+    n: f64,
+    grad_n: Vector3<f64>,
+    tau: f64,
+) -> (f64, f64, Vector3<f64>, f64) {
+    if n <= 0.0 {
+        return (0.0, 0.0, Vector3::zeros(), 0.0);
+    }
+    let sigma = grad_n.dot(&grad_n).max(0.0);
+    let tau = tau.max(0.0);
+
+    let e0 = tpss_xc_energy_density(n, sigma, tau);
+
+    // Steps (relative with floors), keep positivity where needed.
+    let dn = (1e-6 * n).max(1e-8);
+    let ds = (1e-6 * sigma).max(1e-10);
+    let dt = (1e-6 * tau).max(1e-10);
+
+    // ∂e/∂n
+    let (n1, n2) = if n > dn { (n - dn, n + dn) } else { (n, n + dn) };
+    let e_n1 = tpss_xc_energy_density(n1, sigma, tau);
+    let e_n2 = tpss_xc_energy_density(n2, sigma, tau);
+    let de_dn = if n1 != n2 { (e_n2 - e_n1) / (n2 - n1) } else { 0.0 };
+
+    // ∂e/∂σ
+    let (s1, s2) = if sigma > ds { (sigma - ds, sigma + ds) } else { (sigma, sigma + ds) };
+    let e_s1 = tpss_xc_energy_density(n, s1, tau);
+    let e_s2 = tpss_xc_energy_density(n, s2, tau);
+    let de_dsigma = if s1 != s2 { (e_s2 - e_s1) / (s2 - s1) } else { 0.0 };
+
+    // ∂e/∂τ
+    let (t1, t2) = if tau > dt { (tau - dt, tau + dt) } else { (tau, tau + dt) };
+    let e_t1 = tpss_xc_energy_density(n, sigma, t1);
+    let e_t2 = tpss_xc_energy_density(n, sigma, t2);
+    let de_dtau = if t1 != t2 { (e_t2 - e_t1) / (t2 - t1) } else { 0.0 };
+
+    // ∂e/∂∇n = 2 (∂e/∂σ) ∇n
+    let de_dgrad = 2.0 * de_dsigma * grad_n;
+
+    (e0, de_dn, de_dgrad, de_dtau)
+}
+
+fn tpss_xc_on_grid_ao_grad_impl<F>(
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, v_xc) = grid
+        .par_iter()
+        .fold(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(mut e_acc, mut v_acc), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, v_acc);
+                }
+
+                // tmp = P * phi, tmp_t = P^T * phi
+                let mut tmp = vec![0.0_f64; num_basis];
+                let mut tmp_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut s1 = 0.0;
+                    let mut s2 = 0.0;
+                    for j in 0..num_basis {
+                        s1 += density[(i, j)] * phi[j];
+                        s2 += density[(j, i)] * phi[j];
+                    }
+                    tmp[i] = s1;
+                    tmp_t[i] = s2;
+                }
+
+                let mut rho = 0.0;
+                for i in 0..num_basis {
+                    rho += phi[i] * tmp[i];
+                }
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, v_acc);
+                }
+
+                // ∇ρ = Σ_i (tmp_i + tmp_t_i) ∇φ_i
+                let mut grad_rho = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_rho += (tmp[i] + tmp_t[i]) * grad_phi[i];
+                }
+
+                // τ = 1/2 Σ_ij P_ij ∇φ_i · ∇φ_j
+                let mut gx = vec![0.0_f64; num_basis];
+                let mut gy = vec![0.0_f64; num_basis];
+                let mut gz = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    gx[i] = grad_phi[i].x;
+                    gy[i] = grad_phi[i].y;
+                    gz[i] = grad_phi[i].z;
+                }
+                let mut pgx = vec![0.0_f64; num_basis];
+                let mut pgy = vec![0.0_f64; num_basis];
+                let mut pgz = vec![0.0_f64; num_basis];
+                let mut pgx_t = vec![0.0_f64; num_basis];
+                let mut pgy_t = vec![0.0_f64; num_basis];
+                let mut pgz_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut sx1 = 0.0;
+                    let mut sy1 = 0.0;
+                    let mut sz1 = 0.0;
+                    let mut sx2 = 0.0;
+                    let mut sy2 = 0.0;
+                    let mut sz2 = 0.0;
+                    for j in 0..num_basis {
+                        let pij = density[(i, j)];
+                        let pji = density[(j, i)];
+                        sx1 += pij * gx[j];
+                        sy1 += pij * gy[j];
+                        sz1 += pij * gz[j];
+                        sx2 += pji * gx[j];
+                        sy2 += pji * gy[j];
+                        sz2 += pji * gz[j];
+                    }
+                    pgx[i] = sx1;
+                    pgy[i] = sy1;
+                    pgz[i] = sz1;
+                    pgx_t[i] = sx2;
+                    pgy_t[i] = sy2;
+                    pgz_t[i] = sz2;
+                }
+                let dot_sym = |a: &Vec<f64>, pa: &Vec<f64>, pat: &Vec<f64>| -> f64 {
+                    let mut s = 0.0;
+                    for i in 0..num_basis {
+                        s += 0.5 * (pa[i] + pat[i]) * a[i];
+                    }
+                    s
+                };
+                let tau = 0.5 * (dot_sym(&gx, &pgx, &pgx_t) + dot_sym(&gy, &pgy, &pgy_t) + dot_sym(&gz, &pgz, &pgz_t));
+
+                let (e, de_drho, de_dgrad, de_dtau) = tpss_xc_energy_density_and_partials_numeric(rho, grad_rho, tau);
+
+                e_acc += gp.w * e;
+
+                // Vxc_ij = w * [ (∂e/∂ρ) φ_i φ_j
+                //               + (∂e/∂∇ρ)·(φ_i ∇φ_j + φ_j ∇φ_i)
+                //               + (∂e/∂τ) * (1/2) (∇φ_i · ∇φ_j) ]
+                let w0 = gp.w * de_drho;
+                let wg = gp.w * de_dgrad;
+                let wt = gp.w * de_dtau;
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm = wg.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        let tterm = 0.5 * wt * grad_phi[i].dot(&grad_phi[j]);
+                        v_acc[(i, j)] += w0 * phi_i * phi_j + gterm + tterm;
                     }
                 }
 
