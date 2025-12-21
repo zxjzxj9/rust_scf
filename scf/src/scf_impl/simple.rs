@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
-use super::dft::{build_becke_atom_grid, xc_on_grid_ao_grad, DftGridParams, GridPoint, XcFunctional};
+use super::dft::{b3lyp_a0, build_becke_atom_grid, xc_on_grid_ao_grad, DftGridParams, GridPoint, XcFunctional};
 
 #[derive(Clone)]
 pub struct SimpleSCF<B: AOBasis> {
@@ -41,6 +41,7 @@ pub struct SimpleSCF<B: AOBasis> {
     xc_energy: f64,
     v_xc_matrix: DMatrix<f64>,
     j_matrix: DMatrix<f64>,
+    k_matrix: DMatrix<f64>,
 }
 
 /// Decomposes the total analytic force into physically meaningful pieces.
@@ -87,6 +88,7 @@ where
             xc_energy: 0.0,
             v_xc_matrix: DMatrix::zeros(0, 0),
             j_matrix: DMatrix::zeros(0, 0),
+            k_matrix: DMatrix::zeros(0, 0),
         }
     }
 
@@ -96,6 +98,7 @@ where
     /// - `"lda"`: Simple KS-DFT LDA (exchange-only), numerical grid
     /// - `"pbe"` / `"gga"`: Simple KS-DFT PBE GGA (full XC, unpolarized), numerical grid
     /// - `"tpss"`: Simple KS-DFT TPSS meta-GGA (full XC, unpolarized), numerical grid
+    /// - `"b3lyp"`: Hybrid KS-DFT B3LYP (unpolarized), numerical grid
     pub fn set_method_from_string(&mut self, method: &str) {
         match method.to_lowercase().as_str() {
             "lda" => {
@@ -122,6 +125,11 @@ where
                 info!("Electronic method set to TPSS (meta-GGA XC, unpolarized)");
                 self.dft_params = Some(DftGridParams::default());
                 self.xc_functional = Some(XcFunctional::TpssXc);
+            }
+            "b3lyp" => {
+                info!("Electronic method set to B3LYP (hybrid GGA XC, unpolarized)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::B3lyp);
             }
             _ => {
                 info!("Electronic method set to HF (RHF)");
@@ -205,16 +213,21 @@ where
     fn update_fock_matrix_dft(&mut self) {
         // Build Coulomb matrix J only (no HF exchange), then add LDA V_x.
         let mut j_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+        let mut k_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         let p = &self.density_matrix;
 
         let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
             .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
             .collect();
 
-        let j_values: Vec<f64> = ij_pairs
+        let functional = self.xc_functional.unwrap_or(XcFunctional::LdaX);
+        let need_k = matches!(functional, XcFunctional::B3lyp);
+
+        let jk_values: Vec<(f64, f64)> = ij_pairs
             .par_iter()
             .map(|&(i, j)| {
                 let mut j_ij = 0.0;
+                let mut k_ij = 0.0;
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
                         let coulomb = B::BasisType::JKabcd(
@@ -224,14 +237,26 @@ where
                             &self.mo_basis[l],
                         );
                         j_ij += p[(k, l)] * coulomb;
+                        if need_k {
+                            let exchange = B::BasisType::JKabcd(
+                                &self.mo_basis[i],
+                                &self.mo_basis[k],
+                                &self.mo_basis[j],
+                                &self.mo_basis[l],
+                            );
+                            k_ij += p[(k, l)] * exchange;
+                        }
                     }
                 }
-                j_ij
+                (j_ij, k_ij)
             })
             .collect();
 
         for (idx, &(i, j)) in ij_pairs.iter().enumerate() {
-            j_matrix[(i, j)] = j_values[idx];
+            j_matrix[(i, j)] = jk_values[idx].0;
+            if need_k {
+                k_matrix[(i, j)] = jk_values[idx].1;
+            }
         }
 
         // XC grid contribution (exchange-only LDA)
@@ -245,7 +270,6 @@ where
             }
         };
 
-        let functional = self.xc_functional.unwrap_or(XcFunctional::LdaX);
         let (exc, vxc) = xc_on_grid_ao_grad(functional, p, self.num_basis, grid, |r| {
             let phi: Vec<f64> = self.mo_basis.iter().map(|b| b.evaluate(r)).collect();
             let grad_phi: Vec<Vector3<f64>> = self.mo_basis.iter().map(|b| b.evaluate_grad(r)).collect();
@@ -255,8 +279,14 @@ where
         self.xc_energy = exc;
         self.v_xc_matrix = vxc.clone();
         self.j_matrix = j_matrix.clone();
+        self.k_matrix = k_matrix.clone();
 
-        self.fock_matrix = self.h_core.clone() + j_matrix + vxc;
+        if need_k {
+            let a0 = b3lyp_a0();
+            self.fock_matrix = self.h_core.clone() + j_matrix - (0.5 * a0) * k_matrix + vxc;
+        } else {
+            self.fock_matrix = self.h_core.clone() + j_matrix + vxc;
+        }
     }
 
     /// Compute the inverse square-root of the overlap matrix (orthogonalizer).
@@ -721,6 +751,7 @@ where
 
         self.v_xc_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
         self.j_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
+        self.k_matrix = DMatrix::zeros(self.num_basis, self.num_basis);
 
         if let Some(params) = self.dft_params.clone() {
             info!(
@@ -943,6 +974,9 @@ where
         if self.dft_params.is_some() && self.xc_functional.is_some() {
             // KS-DFT (LDA exchange-only) energy:
             // E = Tr(P H_core) + 0.5 Tr(P J) + E_xc + E_nn
+            //
+            // For hybrid functionals (e.g. B3LYP), include a scaled exact-exchange term:
+            // E_x^HF = -(a0/4) Tr(P K)   (closed-shell density matrix convention P = 2 C C^T)
             let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
                 .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
                 .collect();
@@ -958,7 +992,15 @@ where
                 .sum::<f64>()
                 * 0.5;
 
-            let electronic_energy = one_electron_energy + coulomb_energy + self.xc_energy;
+            let mut electronic_energy = one_electron_energy + coulomb_energy + self.xc_energy;
+
+            if matches!(self.xc_functional, Some(XcFunctional::B3lyp)) {
+                let pk_trace: f64 = ij_pairs
+                    .par_iter()
+                    .map(|&(i, j)| self.density_matrix[(i, j)] * self.k_matrix[(i, j)])
+                    .sum::<f64>();
+                electronic_energy += -0.25 * b3lyp_a0() * pk_trace;
+            }
 
             let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
                 .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))

@@ -20,6 +20,8 @@ pub enum XcFunctional {
     PbeXc,
     /// Full TPSS meta-GGA exchange + correlation (unpolarized)
     TpssXc,
+    /// B3LYP hybrid GGA (unpolarized): 20% HF exchange + B88 exchange + LYP correlation + VWN3 LDA correlation
+    B3lyp,
 }
 
 /// Exchange-only LDA (Slater exchange), unpolarized.
@@ -404,7 +406,321 @@ where
         XcFunctional::PbeX => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, false),
         XcFunctional::PbeXc => pbe_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads, true),
         XcFunctional::TpssXc => tpss_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads),
+        XcFunctional::B3lyp => b3lyp_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads),
     }
+}
+
+// ---------------------------------------------------------------------------
+// B3LYP hybrid GGA (unpolarized) helpers
+//
+// We provide the *semilocal* (DFT) part here. HF exchange mixing is handled
+// in the SCF layer by scaling the exact-exchange (K) matrix.
+// ---------------------------------------------------------------------------
+
+#[inline]
+pub(crate) fn b3lyp_a0() -> f64 {
+    0.20
+}
+
+#[inline]
+pub(crate) fn b3lyp_ax() -> f64 {
+    0.72
+}
+
+#[inline]
+pub(crate) fn b3lyp_ac() -> f64 {
+    0.81
+}
+
+/// Placeholder implementation so the crate compiles while we add the full B88/LYP/VWN3 math next.
+fn b3lyp_xc_on_grid_ao_grad_impl<F>(
+    density: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, v_xc) = grid
+        .par_iter()
+        .fold(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(mut e_acc, mut v_acc), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, v_acc);
+                }
+
+                // tmp = P * phi, tmp_t = P^T * phi
+                let mut tmp = vec![0.0_f64; num_basis];
+                let mut tmp_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut s1 = 0.0;
+                    let mut s2 = 0.0;
+                    for j in 0..num_basis {
+                        s1 += density[(i, j)] * phi[j];
+                        s2 += density[(j, i)] * phi[j];
+                    }
+                    tmp[i] = s1;
+                    tmp_t[i] = s2;
+                }
+
+                let mut rho = 0.0;
+                for i in 0..num_basis {
+                    rho += phi[i] * tmp[i];
+                }
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, v_acc);
+                }
+
+                // ∇ρ = Σ_i (tmp_i + tmp_t_i) ∇φ_i
+                let mut grad_rho = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_rho += (tmp[i] + tmp_t[i]) * grad_phi[i];
+                }
+
+                let (e, de_drho, de_dgrad) = b3lyp_xc_energy_density_and_partials_numeric(rho, grad_rho);
+
+                e_acc += gp.w * e;
+
+                // Vxc_ij = w * [ (∂e/∂ρ) φ_i φ_j + (∂e/∂∇ρ) · (φ_i ∇φ_j + φ_j ∇φ_i) ]
+                let w0 = gp.w * de_drho;
+                let wg = gp.w * de_dgrad;
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm = wg.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        v_acc[(i, j)] += w0 * phi_i * phi_j + gterm;
+                    }
+                }
+
+                (e_acc, v_acc)
+            },
+        )
+        .reduce(
+            || (0.0_f64, DMatrix::<f64>::zeros(num_basis, num_basis)),
+            |(e1, v1), (e2, v2)| (e1 + e2, v1 + v2),
+        );
+
+    (e_xc, v_xc)
+}
+
+// --- Semilocal components for B3LYP (unpolarized) --------------------------------
+
+#[inline]
+fn vwn_rpa_eps_c_unpol(rho: f64) -> f64 {
+    // Port of libxc's lda_c_vwn_rpa (VWN5_RPA) unpolarized correlation energy per particle.
+    // This is the component used by libxc's "b3lyp" functional (LDA_C_VWN_RPA).
+    if rho <= 0.0 {
+        return 0.0;
+    }
+
+    let t1 = 3.0_f64.cbrt(); // M_CBRT3
+    let t3 = (1.0 / std::f64::consts::PI).cbrt();
+    let t4 = t1 * t3;
+    let t6 = (4.0_f64.cbrt()).powi(2); // (cbrt(4))^2 = 4^(2/3)
+    let t7 = rho.cbrt();
+    let t9 = t6 / t7;
+    let t10 = t4 * t9;
+    let t11 = t10 / 4.0;
+    let t12 = t10.sqrt();
+
+    // These constants match the libxc VWN_RPA parametrization.
+    let t14 = t11 + 6.536 * t12 + 42.7198;
+    let t15 = 1.0 / t14;
+
+    let t19 = (t10 * t15 / 4.0).ln();
+    let t21 = t12 + 13.072;
+    let t24 = (0.044_899_888_641_287_296_627 / t21).atan();
+    let t26 = t12 / 2.0;
+    let t27 = t26 + 0.409_286;
+    let t30 = (t27 * t27 * t15).ln();
+
+    0.031_090_7 * t19 + 20.521_972_937_837_503 * t24 + 0.004_431_373_767_749_538_5 * t30
+}
+
+#[inline]
+fn vwn_rpa_c_energy_density(rho: f64) -> f64 {
+    rho * vwn_rpa_eps_c_unpol(rho)
+}
+
+#[inline]
+fn b88_x_eps_unpol(rho: f64, sigma: f64) -> f64 {
+    // Port of libxc's gga_x_b88 unpolarized exchange energy per particle.
+    if rho <= 0.0 {
+        return 0.0;
+    }
+    let sigma = sigma.max(0.0);
+
+    let beta = 0.0042;
+    let gamma = 6.0;
+
+    let cbrt3 = 3.0_f64.cbrt();
+    let cbrtpi = std::f64::consts::PI.cbrt();
+    let t6 = cbrt3 / cbrtpi; // (3/pi)^(1/3)
+    let rho13 = rho.cbrt();
+
+    // gradient correction factor (libxc algebraic form)
+    let t20 = cbrt3 * cbrt3; // 3^(2/3)
+    let t21 = beta * t20;
+    let t23 = (1.0 / std::f64::consts::PI).cbrt();
+    let t24 = 1.0 / t23; // pi^(1/3)
+    let t25 = 4.0_f64.cbrt(); // 4^(1/3)
+    let t26 = t24 * t25; // (4 pi)^(1/3)
+    let t27 = t21 * t26;
+
+    let cbrt2 = 2.0_f64.cbrt();
+    let t29 = cbrt2 * cbrt2; // 2^(2/3)
+    let t30 = sigma * t29;
+
+    let rho2 = rho * rho;
+    let rho23 = rho13 * rho13; // rho^(2/3)
+    let t34 = 1.0 / (rho23 * rho2); // rho^(-8/3)
+
+    let t35 = gamma * beta;
+    let s = sigma.sqrt();
+    let t37 = t35 * s;
+    let t39 = 1.0 / (rho13 * rho); // rho^(-4/3)
+
+    // asinh argument: sqrt(sigma) * 2^(1/3) * rho^(-4/3)
+    let arg = s * cbrt2 * t39;
+    let asinh = (arg + (arg * arg + 1.0).sqrt()).ln();
+    let t44 = cbrt2 * t39 * asinh;
+    let t46 = t37 * t44 + 1.0;
+    let t47 = 1.0 / t46;
+
+    let t48 = t34 * t47;
+    let t52 = 1.0 + (2.0 / 9.0) * t27 * t30 * t48;
+
+    // eps_x = -(3/4) (3/pi)^(1/3) rho^(1/3) * t52
+    -3.0 / 4.0 * t6 * rho13 * t52
+}
+
+#[inline]
+fn b88_x_energy_density(rho: f64, sigma: f64) -> f64 {
+    rho * b88_x_eps_unpol(rho, sigma)
+}
+
+#[inline]
+fn lyp_c_eps_unpol(rho: f64, sigma: f64) -> f64 {
+    // Port of libxc's gga_c_lyp unpolarized correlation energy per particle.
+    if rho <= 0.0 {
+        return 0.0;
+    }
+    let sigma = sigma.max(0.0);
+
+    let a = 0.04918;
+    let b = 0.132;
+    let c = 0.2533;
+    let d = 0.349;
+
+    let rho13 = rho.cbrt();
+    let t2 = 1.0 / rho13; // rho^(-1/3)
+    let t4 = d * t2 + 1.0;
+    let t5 = 1.0 / t4;
+    let t7 = (-c * t2).exp();
+    let t8 = b * t7;
+
+    let rho2 = rho * rho;
+    let rho23 = rho13 * rho13;
+    let t12 = 1.0 / (rho23 * rho2); // rho^(-8/3)
+    let t13 = sigma * t12;
+
+    let t15 = d * t5 + c;
+    let t16 = t15 * t2;
+
+    let t18 = -1.0 / 72.0 - (7.0 / 72.0) * t16;
+
+    let cbrt3 = 3.0_f64.cbrt();
+    let t21 = cbrt3 * cbrt3; // 3^(2/3)
+    let t24 = (std::f64::consts::PI * std::f64::consts::PI).cbrt().powi(2); // pi^(4/3)
+
+    // Unpolarized => spin-scaling factors are exactly 1.
+    let t31 = 1.0;
+    let t35 = 5.0 / 2.0 - t16 / 18.0;
+    let t36 = t35 * sigma;
+    let t37 = t12 * t31;
+    let t40 = t16 - 11.0;
+    let t41 = t40 * sigma;
+    let t44 = 1.0;
+    let t45 = t12 * t44;
+
+    let cbrt2 = 2.0_f64.cbrt();
+    let t49 = cbrt2 * cbrt2; // 2^(2/3)
+    let t50 = sigma * t49;
+    let t53 = 1.0;
+    let t54 = t53 * sigma;
+    let t56 = t49 * t12 * t31;
+
+    let t62 = -t13 * t18
+        - (3.0 / 10.0) * t21 * t24 * t31
+        + t36 * t37 / 8.0
+        + t41 * t45 / 144.0
+        - cbrt2 * ((4.0 / 3.0) * t50 * t37 - t54 * t56 / 2.0) / 8.0;
+
+    a * (t8 * t5 * t62 - t5)
+}
+
+#[inline]
+fn lyp_c_energy_density(rho: f64, sigma: f64) -> f64 {
+    rho * lyp_c_eps_unpol(rho, sigma)
+}
+
+#[inline]
+fn b3lyp_semilocal_energy_density(rho: f64, sigma: f64) -> f64 {
+    // Match libxc's "b3lyp" mixing: LDA_X + B88 + VWN_RPA + LYP with coefficients set_ext_params.
+    let a0 = b3lyp_a0();
+    let ax = b3lyp_ax();
+    let ac = b3lyp_ac();
+
+    let e_lda_x = lda_x_energy_density(rho);
+    let e_b88_x = b88_x_energy_density(rho, sigma);
+    let e_vwn_c = vwn_rpa_c_energy_density(rho);
+    let e_lyp_c = lyp_c_energy_density(rho, sigma);
+
+    let c_lda_x = 1.0 - a0 - ax;
+    let c_b88_x = ax;
+    let c_vwn_c = 1.0 - ac;
+    let c_lyp_c = ac;
+
+    c_lda_x * e_lda_x + c_b88_x * e_b88_x + c_vwn_c * e_vwn_c + c_lyp_c * e_lyp_c
+}
+
+/// Numerical partial derivatives for B3LYP semilocal part (unpolarized):
+/// returns (e, ∂e/∂ρ, ∂e/∂∇ρ (vector))
+fn b3lyp_xc_energy_density_and_partials_numeric(
+    rho: f64,
+    grad_rho: Vector3<f64>,
+) -> (f64, f64, Vector3<f64>) {
+    if rho <= 0.0 {
+        return (0.0, 0.0, Vector3::zeros());
+    }
+    let sigma = grad_rho.dot(&grad_rho).max(0.0);
+
+    let e0 = b3lyp_semilocal_energy_density(rho, sigma);
+
+    // Steps (relative with floors), keep positivity where needed.
+    let dr = (1e-6 * rho).max(1e-8);
+    let ds = (1e-6 * sigma).max(1e-10);
+
+    // ∂e/∂ρ
+    let (r1, r2) = if rho > dr { (rho - dr, rho + dr) } else { (rho, rho + dr) };
+    let e_r1 = b3lyp_semilocal_energy_density(r1, sigma);
+    let e_r2 = b3lyp_semilocal_energy_density(r2, sigma);
+    let de_drho = if r1 != r2 { (e_r2 - e_r1) / (r2 - r1) } else { 0.0 };
+
+    // ∂e/∂σ
+    let (s1, s2) = if sigma > ds { (sigma - ds, sigma + ds) } else { (sigma, sigma + ds) };
+    let e_s1 = b3lyp_semilocal_energy_density(rho, s1);
+    let e_s2 = b3lyp_semilocal_energy_density(rho, s2);
+    let de_dsigma = if s1 != s2 { (e_s2 - e_s1) / (s2 - s1) } else { 0.0 };
+
+    // ∂e/∂∇ρ = 2 (∂e/∂σ) ∇ρ
+    let de_dgrad = 2.0 * de_dsigma * grad_rho;
+
+    (e0, de_drho, de_dgrad)
 }
 
 fn pbe_xc_on_grid_ao_grad_impl<F>(
@@ -1113,6 +1429,354 @@ mod tpss_libxc_tests {
                 let vsigma = vgrad.dot(&grad) / (2.0 * sigma);
                 let vsigma_ref = VSIGMA[idx];
                 assert_close("v_sigma", vsigma, vsigma_ref, 5e-3, 1e-6);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests: B3LYP pointwise validation vs libxc (via PySCF) reference values
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod b3lyp_libxc_tests {
+    use super::*;
+
+    // Reference computed with PySCF/libxc (unpolarized), deriv=1.
+    // For GGA functionals: (rho, sigma, e_xc(per volume), v_rho, v_sigma)
+    // For LDA VWN_RPA: (rho, e_c(per volume), v_rho)
+    const GGA_X_B88: &[(f64, f64, f64, f64, f64)] = &[
+        (
+            1.0000000000000000e-04,
+            0.0000000000000000e+00,
+            -3.4280861230056243e-06,
+            -4.5707814973408326e-02,
+            -1.1400553989698603e+03,
+        ),
+        (
+            5.0000000000000001e-04,
+            1.0000000000000000e-08,
+            -3.0469423704471393e-05,
+            -7.5674870087549542e-02,
+            -1.0456737108201582e+02,
+        ),
+        (
+            1.0000000000000000e-03,
+            4.9999999999999998e-07,
+            -8.9917234153219885e-05,
+            -8.8374936193749129e-02,
+            -2.3636032007908021e+01,
+        ),
+        (
+            5.0000000000000001e-03,
+            1.0000000000000001e-05,
+            -6.8044498969088566e-04,
+            -1.5923704702314304e-01,
+            -4.1653031677049634e+00,
+        ),
+        (
+            1.0000000000000000e-02,
+            2.0000000000000002e-05,
+            -1.6353790483612830e-03,
+            -2.0718010510624141e-01,
+            -2.0382065016118101e+00,
+        ),
+        (
+            5.0000000000000003e-02,
+            2.0000000000000001e-04,
+            -1.3660646852416140e-02,
+            -3.6133808005098944e-01,
+            -2.7617212626008553e-01,
+        ),
+        (
+            1.0000000000000001e-01,
+            5.0000000000000001e-04,
+            -3.4337367221577188e-02,
+            -4.5633722968746854e-01,
+            -1.1207499501704532e-01,
+        ),
+        (
+            2.0000000000000001e-01,
+            1.0000000000000000e-03,
+            -8.6427470978363535e-02,
+            -5.7558331568172727e-01,
+            -4.4986813052221283e-02,
+        ),
+        (
+            5.0000000000000000e-01,
+            2.0000000000000000e-03,
+            -2.9312389551588430e-01,
+            -7.8152163391965745e-01,
+            -1.3320699003182201e-02,
+        ),
+        (
+            1.0000000000000000e+00,
+            5.0000000000000001e-03,
+            -7.3858521944010125e-01,
+            -9.8470976516783337e-01,
+            -5.2895564226193136e-03,
+        ),
+    ];
+
+    const GGA_C_LYP: &[(f64, f64, f64, f64, f64)] = &[
+        (
+            1.0000000000000000e-04,
+            0.0000000000000000e+00,
+            -5.7823265425130663e-07,
+            -7.5004931627035568e-03,
+            9.9281146390467629e+00,
+        ),
+        (
+            5.0000000000000001e-04,
+            1.0000000000000000e-08,
+            -4.5594337289015110e-06,
+            -1.1997369001996347e-02,
+            6.7693125357085728e+00,
+        ),
+        (
+            1.0000000000000000e-03,
+            4.9999999999999998e-07,
+            -9.1959285714335435e-06,
+            -1.6163635173048942e-02,
+            4.1739983641468541e+00,
+        ),
+        (
+            5.0000000000000001e-03,
+            1.0000000000000001e-05,
+            -7.9499983543007975e-05,
+            -2.4131355746138096e-02,
+            8.3298476322037329e-01,
+        ),
+        (
+            1.0000000000000000e-02,
+            2.0000000000000002e-05,
+            -2.0255162051378205e-04,
+            -2.7060528557089750e-02,
+            3.5598201699276016e-01,
+        ),
+        (
+            5.0000000000000003e-02,
+            2.0000000000000001e-04,
+            -1.4956903043288076e-03,
+            -3.6272844064469616e-02,
+            3.8485303497764793e-02,
+        ),
+        (
+            1.0000000000000001e-01,
+            5.0000000000000001e-04,
+            -3.4169235189881264e-03,
+            -4.0360734859113963e-02,
+            1.3598460610504166e-02,
+        ),
+        (
+            2.0000000000000001e-01,
+            1.0000000000000000e-03,
+            -7.6691935793294363e-03,
+            -4.4278565896831573e-02,
+            4.6296504727869640e-03,
+        ),
+        (
+            5.0000000000000000e-01,
+            2.0000000000000000e-03,
+            -2.1782298436539737e-02,
+            -4.9012294113957147e-02,
+            1.0652449367544649e-03,
+        ),
+        (
+            1.0000000000000000e+00,
+            5.0000000000000001e-03,
+            -4.7180297049781515e-02,
+            -5.2159229556801287e-02,
+            3.4159045647024194e-04,
+        ),
+    ];
+
+    const LDA_C_VWN_RPA: &[(f64, f64, f64)] = &[
+        (1.0000000000000000e-04, -2.6694186983875757e-06, -3.1436423139613048e-02),
+        (5.0000000000000001e-04, -1.7525117848215038e-05, -4.0689758230132503e-02),
+        (1.0000000000000000e-03, -3.9090870033881216e-05, -4.5108811427165808e-02),
+        (5.0000000000000001e-03, -2.4729530429140644e-04, -5.6313780375023326e-02),
+        (1.0000000000000000e-02, -5.4327844704165045e-04, -6.1518688829304884e-02),
+        (5.0000000000000003e-02, -3.3243334606879180e-03, -7.4388067482312192e-02),
+        (1.0000000000000001e-01, -7.2059367828480620e-03, -8.0233973560799213e-02),
+        (2.0000000000000001e-01, -1.5562864202488109e-02, -8.6241553224425838e-02),
+        (5.0000000000000000e-01, -4.2838673547567027e-02, -9.4406865194777700e-02),
+        (1.0000000000000000e+00, -9.1800422566286941e-02, -1.0073503003852727e-01),
+    ];
+
+    const B3LYP: &[(f64, f64, f64, f64, f64)] = &[
+        (
+            1.0000000000000000e-04,
+            0.0000000000000000e+00,
+            -3.7180269010416968e-06,
+            -4.8614571837043020e-02,
+            -8.1279811440067158e+02,
+        ),
+        (
+            5.0000000000000001e-04,
+            1.0000000000000000e-08,
+            -3.1305676704180802e-05,
+            -7.8187570552752064e-02,
+            -6.9805364025127446e+01,
+        ),
+        (
+            1.0000000000000000e-03,
+            4.9999999999999998e-07,
+            -8.5524846170673097e-05,
+            -9.3171132895572092e-02,
+            -1.3637004370734822e+01,
+        ),
+        (
+            5.0000000000000001e-03,
+            1.0000000000000001e-05,
+            -6.5181819609146032e-04,
+            -1.5836781268997432e-01,
+            -2.3243006225390710e+00,
+        ),
+        (
+            1.0000000000000000e-02,
+            2.0000000000000002e-05,
+            -1.5720567625278473e-03,
+            -1.9974980537245732e-01,
+            -1.1791632473963674e+00,
+        ),
+        (
+            5.0000000000000003e-02,
+            2.0000000000000001e-04,
+            -1.2767147741356004e-02,
+            -3.3270080757935461e-01,
+            -1.6767083507407210e-01,
+        ),
+        (
+            1.0000000000000001e-01,
+            5.0000000000000001e-04,
+            -3.1602209337061586e-02,
+            -4.1306570756613820e-01,
+            -6.9679243317764247e-02,
+        ),
+        (
+            2.0000000000000001e-01,
+            1.0000000000000000e-03,
+            -7.8307358689715001e-02,
+            -5.1274211136367587e-01,
+            -2.8640488514641880e-02,
+        ),
+        (
+            5.0000000000000000e-01,
+            2.0000000000000000e-03,
+            -2.6027999373297478e-01,
+            -6.8286025038520826e-01,
+            -8.7280548835200686e-03,
+        ),
+        (
+            1.0000000000000000e+00,
+            5.0000000000000001e-03,
+            -6.4652418020535229e-01,
+            -8.4915926431658495e-01,
+            -3.5317923545450094e-03,
+        ),
+    ];
+
+    fn assert_close(label: &str, got: f64, want: f64, rel: f64, abs: f64) {
+        let err = (got - want).abs();
+        let tol = abs + rel * want.abs();
+        assert!(
+            err <= tol,
+            "{label}: got {got:.16e}, want {want:.16e}, err {err:.3e}, tol {tol:.3e}"
+        );
+    }
+
+    #[test]
+    fn test_b88_pointwise_against_libxc_reference() {
+        for &(rho, sigma, e_ref, vrho_ref, vsigma_ref) in GGA_X_B88 {
+            let grad = if sigma > 0.0 {
+                Vector3::new(sigma.sqrt(), 0.0, 0.0)
+            } else {
+                Vector3::zeros()
+            };
+            let e = b88_x_energy_density(rho, sigma);
+            // Compare energy density fairly tightly (pure algebraic function)
+            assert_close("b88 e", e, e_ref, 2e-10, 1e-12);
+
+            // Numerical derivatives are used for B3LYP assembly, so we sanity-check
+            // the underlying primitive by reconstructing vsigma from numeric partials.
+            // Use our numeric derivative helper on the full B3LYP semilocal with only this component:
+            // Here we directly finite-difference b88 energy density w.r.t rho and sigma.
+            let dr = (1e-6 * rho).max(1e-8);
+            let ds = (1e-6 * sigma).max(1e-10);
+            let (r1, r2) = if rho > dr { (rho - dr, rho + dr) } else { (rho, rho + dr) };
+            let (s1, s2) = if sigma > ds { (sigma - ds, sigma + ds) } else { (sigma, sigma + ds) };
+            let de_drho = (b88_x_energy_density(r2, sigma) - b88_x_energy_density(r1, sigma)) / (r2 - r1);
+            let de_dsigma = (b88_x_energy_density(rho, s2) - b88_x_energy_density(rho, s1)) / (s2 - s1);
+            let _vgrad = 2.0 * de_dsigma * grad;
+
+            // libxc v_rho and v_sigma correspond to derivatives of (rho * eps) w.r.t rho and sigma.
+            assert_close("b88 v_rho", de_drho, vrho_ref, 2e-4, 1e-7);
+            // v_sigma is ill-conditioned as sigma -> 0 due to sqrt(sigma) terms; libxc uses
+            // an analytic limit. We only compare for non-tiny sigma.
+            if sigma > 1e-16 {
+                assert_close("b88 v_sigma", de_dsigma, vsigma_ref, 2e-4, 1e-7);
+            }
+        }
+    }
+
+    #[test]
+    fn test_lyp_pointwise_against_libxc_reference() {
+        for &(rho, sigma, e_ref, vrho_ref, vsigma_ref) in GGA_C_LYP {
+            let grad = if sigma > 0.0 {
+                Vector3::new(sigma.sqrt(), 0.0, 0.0)
+            } else {
+                Vector3::zeros()
+            };
+            let e = lyp_c_energy_density(rho, sigma);
+            assert_close("lyp e", e, e_ref, 2e-10, 1e-12);
+
+            let dr = (1e-6 * rho).max(1e-8);
+            let ds = (1e-6 * sigma).max(1e-10);
+            let (r1, r2) = if rho > dr { (rho - dr, rho + dr) } else { (rho, rho + dr) };
+            let (s1, s2) = if sigma > ds { (sigma - ds, sigma + ds) } else { (sigma, sigma + ds) };
+            let de_drho = (lyp_c_energy_density(r2, sigma) - lyp_c_energy_density(r1, sigma)) / (r2 - r1);
+            let de_dsigma = (lyp_c_energy_density(rho, s2) - lyp_c_energy_density(rho, s1)) / (s2 - s1);
+            let _vgrad = 2.0 * de_dsigma * grad;
+
+            assert_close("lyp v_rho", de_drho, vrho_ref, 2e-4, 1e-7);
+            if sigma > 1e-16 {
+                assert_close("lyp v_sigma", de_dsigma, vsigma_ref, 2e-4, 1e-7);
+            }
+        }
+    }
+
+    #[test]
+    fn test_vwn_rpa_pointwise_against_libxc_reference() {
+        for &(rho, e_ref, vrho_ref) in LDA_C_VWN_RPA {
+            let e = vwn_rpa_c_energy_density(rho);
+            assert_close("vwn_rpa e", e, e_ref, 2e-10, 1e-12);
+
+            // finite-diff derivative w.r.t rho
+            let dr = (1e-6 * rho).max(1e-8);
+            let (r1, r2) = if rho > dr { (rho - dr, rho + dr) } else { (rho, rho + dr) };
+            let de_drho = (vwn_rpa_c_energy_density(r2) - vwn_rpa_c_energy_density(r1)) / (r2 - r1);
+            assert_close("vwn_rpa v_rho", de_drho, vrho_ref, 2e-4, 1e-7);
+        }
+    }
+
+    #[test]
+    fn test_b3lyp_pointwise_against_libxc_reference() {
+        for &(rho, sigma, e_ref, vrho_ref, vsigma_ref) in B3LYP {
+            let grad = if sigma > 0.0 {
+                Vector3::new(sigma.sqrt(), 0.0, 0.0)
+            } else {
+                Vector3::zeros()
+            };
+
+            let (e, vrho, vgrad) = b3lyp_xc_energy_density_and_partials_numeric(rho, grad);
+
+            assert_close("b3lyp e", e, e_ref, 2e-6, 2e-10);
+            // numerical derivatives => looser tolerance
+            assert_close("b3lyp v_rho", vrho, vrho_ref, 5e-3, 1e-6);
+            if sigma > 1e-18 {
+                let vsigma = vgrad.dot(&grad) / (2.0 * sigma);
+                assert_close("b3lyp v_sigma", vsigma, vsigma_ref, 8e-3, 1e-6);
             }
         }
     }

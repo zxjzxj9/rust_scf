@@ -480,6 +480,37 @@ fn test_h2o_631g_tpss_sanity() {
     );
 }
 
+#[test]
+fn test_h2o_631g_b3lyp_sanity() {
+    // Same geometry as other H2O tests (bohr)
+    let coords = vec![
+        Vector3::new(0.0, 0.0, 0.1173 * 1.88973),
+        Vector3::new(0.0, 0.7572 * 1.88973, -0.4692 * 1.88973),
+        Vector3::new(0.0, -0.7572 * 1.88973, -0.4692 * 1.88973),
+    ];
+    let elems = vec![Element::Oxygen, Element::Hydrogen, Element::Hydrogen];
+
+    let h_basis = load_631g_basis("H");
+    let o_basis = load_631g_basis("O");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+    basis_map.insert("O", &o_basis);
+
+    // B3LYP uses AO analytic gradients for the GGA part and includes 20% exact exchange.
+    let mut scf_b3lyp = SimpleSCF::<Basis631G>::new();
+    scf_b3lyp.set_method_from_string("b3lyp");
+    scf_b3lyp.max_cycle = 30;
+    scf_b3lyp.init_basis(&elems, basis_map);
+    scf_b3lyp.init_geometry(&coords, &elems);
+    scf_b3lyp.init_density_matrix();
+    scf_b3lyp.init_fock_matrix();
+    scf_b3lyp.scf_cycle();
+
+    let e = scf_b3lyp.calculate_total_energy();
+    assert!(e.is_finite(), "B3LYP energy should be finite");
+    assert!(e < -50.0 && e > -300.0, "B3LYP energy should be reasonable: {e:.10}");
+}
+
 // === Force Calculation Tests ===
 
 fn calculate_numerical_force(
