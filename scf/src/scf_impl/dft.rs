@@ -24,6 +24,41 @@ pub enum XcFunctional {
     B3lyp,
 }
 
+// ---------------------------------------------------------------------------
+// Spin-polarized (collinear) helpers
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn clamp_zeta(z: f64) -> f64 {
+    z.clamp(-1.0 + 1e-14, 1.0 - 1e-14)
+}
+
+/// Spin interpolation factor used for LDA correlation: f(ζ) in many LDA/GGA correlations.
+/// f(ζ) = [ (1+ζ)^(4/3) + (1-ζ)^(4/3) - 2 ] / (2^(4/3) - 2)
+#[inline]
+fn f_zeta(zeta: f64) -> f64 {
+    let z = clamp_zeta(zeta);
+    let zp = (1.0 + z).max(0.0);
+    let zm = (1.0 - z).max(0.0);
+    let num = zp.powf(4.0 / 3.0) + zm.powf(4.0 / 3.0) - 2.0;
+    let den = 2.0_f64.powf(4.0 / 3.0) - 2.0;
+    if den.abs() > 1e-14 { num / den } else { 0.0 }
+}
+
+#[inline]
+fn df_dzeta(zeta: f64) -> f64 {
+    let z = clamp_zeta(zeta);
+    let zp = (1.0 + z).max(0.0);
+    let zm = (1.0 - z).max(0.0);
+    let den = 2.0_f64.powf(4.0 / 3.0) - 2.0;
+    if den.abs() < 1e-14 {
+        return 0.0;
+    }
+    // d/dζ (1+ζ)^(4/3) = (4/3) (1+ζ)^(1/3)
+    // d/dζ (1-ζ)^(4/3) = -(4/3) (1-ζ)^(1/3)
+    (4.0 / 3.0) * (zp.powf(1.0 / 3.0) - zm.powf(1.0 / 3.0)) / den
+}
+
 /// Exchange-only LDA (Slater exchange), unpolarized.
 ///
 /// Energy density:  e_x(ρ) = c_x ρ^(4/3),  c_x = -(3/4) (3/π)^(1/3)
@@ -178,6 +213,167 @@ fn pw92_eps_c_unpol_and_deriv(rs: f64) -> (f64, f64) {
         * (a1 * x.ln() + (1.0 + a1 * rs) * (1.0 / x) * dx_drs);
 
     (eps, deps_drs)
+}
+
+/// PW92 LDA correlation energy per particle ε_c(rs) for the fully-polarized case (ζ=1),
+/// and derivative dε/drs. Parameter set from Perdew & Wang (1992).
+fn pw92_eps_c_pol_and_deriv(rs: f64) -> (f64, f64) {
+    // Constants for fully polarized case
+    let a = 0.015_545_35;
+    let a1 = 0.205_48;
+    let b1 = 14.118_9;
+    let b2 = 6.197_7;
+    let b3 = 3.366_2;
+    let b4 = 0.625_17;
+
+    let s = rs.sqrt();
+    let q = 2.0 * a * (b1 * s + b2 * rs + b3 * rs * s + b4 * rs * rs);
+    let x = 1.0 + 1.0 / q;
+    let eps = -2.0 * a * (1.0 + a1 * rs) * x.ln();
+
+    let dq_drs = 2.0
+        * a
+        * (b1 * (0.5 / s)
+            + b2
+            + b3 * (1.5 * s)
+            + b4 * (2.0 * rs));
+    let dx_drs = -(dq_drs) / (q * q);
+    let deps_drs = -2.0
+        * a
+        * (a1 * x.ln() + (1.0 + a1 * rs) * (1.0 / x) * dx_drs);
+
+    (eps, deps_drs)
+}
+
+/// Spin-interpolated PW92 LDA correlation ε_c(rs, ζ) and partials wrt rs and ζ.
+fn pw92_eps_c_spin_and_partials(rs: f64, zeta: f64) -> (f64, f64, f64) {
+    if rs <= 0.0 || !rs.is_finite() {
+        return (0.0, 0.0, 0.0);
+    }
+    let z = clamp_zeta(zeta);
+    let (e0, de0_drs) = pw92_eps_c_unpol_and_deriv(rs);
+    let (e1, de1_drs) = pw92_eps_c_pol_and_deriv(rs);
+    let f = f_zeta(z);
+    let df = df_dzeta(z);
+
+    let eps = e0 + f * (e1 - e0);
+    let deps_drs = de0_drs + f * (de1_drs - de0_drs);
+    let deps_dzeta = df * (e1 - e0);
+    (eps, deps_drs, deps_dzeta)
+}
+
+/// Spin-polarized PBE correlation energy density (per volume) and partial derivatives w.r.t:
+/// - total rho (n)
+/// - total grad_rho (vector)
+/// - zeta (spin polarization)
+///
+/// This keeps the same algebra as the unpolarized implementation, with the standard PBE
+/// phi(ζ) factors. The ∂/∂ζ derivative is computed numerically for robustness.
+fn pbe_c_energy_density_and_partials_spin(
+    rho: f64,
+    grad_rho: Vector3<f64>,
+    zeta: f64,
+) -> (f64, f64, Vector3<f64>, f64) {
+    if rho <= 0.0 {
+        return (0.0, 0.0, Vector3::zeros(), 0.0);
+    }
+
+    let z = clamp_zeta(zeta);
+
+    // Use analytic ∂/∂rho and ∂/∂grad_rho, and numeric ∂/∂zeta.
+    let eval = |zz: f64| -> (f64, f64, Vector3<f64>) {
+        let zz = clamp_zeta(zz);
+        let g = grad_rho.norm();
+
+        let rs = rs_from_rho(rho);
+        let (eps_lda, deps_drs, _deps_dz) = pw92_eps_c_spin_and_partials(rs, zz);
+
+        // drs/drho = -(1/3) rs / rho
+        let drs_drho = -(1.0 / 3.0) * rs / rho;
+        let deps_drho = deps_drs * drs_drho;
+
+        // Correlation reduced gradient t = |∇ρ| / (2 φ k_s ρ)
+        // k_s = sqrt(4 k_F / π), k_F = (3π^2 ρ)^(1/3)
+        let phi = phi_from_zeta(zz);
+        let phi3 = phi * phi * phi;
+        let kf = (3.0 * std::f64::consts::PI * std::f64::consts::PI * rho).powf(1.0 / 3.0);
+        let ks = (4.0 * kf / std::f64::consts::PI).sqrt();
+        let denom = 2.0 * rho * ks * phi;
+        let t = if denom > 0.0 { g / denom } else { 0.0 };
+
+        let gamma = pbe_gamma();
+        let beta = pbe_beta();
+
+        // A = (β/γ) / (exp(-ε_c^LDA/(γ φ^3)) - 1)
+        let exp_arg = (-eps_lda / (gamma * phi3)).exp();
+        let b = exp_arg - 1.0;
+        let a_corr = if b.abs() > 1e-14 { (beta / gamma) / b } else { 0.0 };
+
+        // H = γ φ^3 ln(1 + Q), Q = (β/γ) t^2 * (1 + u) / (1 + u + u^2), u = A t^2
+        let u = a_corr * t * t;
+        let den_u = 1.0 + u + u * u;
+        let f = if den_u > 0.0 { (1.0 + u) / den_u } else { 0.0 };
+        let q = (beta / gamma) * t * t * f;
+        let h = gamma * phi3 * (1.0 + q).ln();
+
+        // Derivatives w.r.t t and A (same as unpolarized, but scaled by phi^3 in H)
+        let dH_dQ = if (1.0 + q) > 0.0 { gamma * phi3 / (1.0 + q) } else { 0.0 };
+
+        // f'(u) = -(u(2+u)) / (1+u+u^2)^2
+        let fprime = if den_u > 0.0 {
+            -(u * (2.0 + u)) / (den_u * den_u)
+        } else {
+            0.0
+        };
+
+        // dQ/dt = (β/γ)[2 t f + t^2 f'(u) * d u/dt], du/dt = 2 A t
+        let dQ_dt = (beta / gamma) * (2.0 * t * f + t * t * fprime * (2.0 * a_corr * t));
+        let dH_dt = dH_dQ * dQ_dt;
+
+        // dQ/dA = (β/γ) t^2 * f'(u) * du/dA, du/dA = t^2
+        let dQ_dA = (beta / gamma) * (t * t) * fprime * (t * t);
+        let dH_dA = dH_dQ * dQ_dA;
+
+        // dA/dε = (β/γ) * exp(-ε/(γ φ^3)) / (γ φ^3 (exp(-ε/(γ φ^3))-1)^2)
+        let dA_deps = if b.abs() > 1e-14 {
+            (beta / gamma) * exp_arg / (gamma * phi3 * b * b)
+        } else {
+            0.0
+        };
+        let dA_drho = dA_deps * deps_drho;
+
+        // dt/drho = -(7/6) t / rho  (derived for ks ∝ ρ^(1/6) and φ treated constant here)
+        let dt_drho = if rho > 0.0 { -(7.0 / 6.0) * t / rho } else { 0.0 };
+        // dt/d(∇ρ) = (1/denom) * ∇ρ/|∇ρ|
+        let dt_dgrad = if g > 1e-14 && denom > 0.0 {
+            (1.0 / denom) * (grad_rho / g)
+        } else {
+            Vector3::zeros()
+        };
+
+        // Total derivatives of H
+        let dH_drho = dH_dA * dA_drho + dH_dt * dt_drho;
+        let dH_dgrad = dH_dt * dt_dgrad;
+
+        // e_c = ρ (ε_lda + H)
+        let e = rho * (eps_lda + h);
+        let de_drho = eps_lda + h + rho * (deps_drho + dH_drho);
+        let de_dgrad = rho * dH_dgrad;
+
+        (e, de_drho, de_dgrad)
+    };
+
+    let (e0, de_drho, de_dgrad) = eval(z);
+
+    // numeric ∂/∂ζ (robust, avoids long analytic expression)
+    let dz = 1e-5;
+    let z1 = clamp_zeta(z - dz);
+    let z2 = clamp_zeta(z + dz);
+    let e1 = eval(z1).0;
+    let e2 = eval(z2).0;
+    let de_dzeta = if (z2 - z1).abs() > 1e-14 { (e2 - e1) / (z2 - z1) } else { 0.0 };
+
+    (e0, de_drho, de_dgrad, de_dzeta)
 }
 
 /// Compute PBE correlation energy density (per volume) and partial derivatives w.r.t rho and grad_rho.
@@ -408,6 +604,251 @@ where
         XcFunctional::TpssXc => tpss_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads),
         XcFunctional::B3lyp => b3lyp_xc_on_grid_ao_grad_impl(density, num_basis, grid, basis_values_and_grads),
     }
+}
+
+/// Spin-polarized (collinear) variant of `xc_on_grid_ao_grad`.
+///
+/// Returns (E_xc, V_xc_alpha, V_xc_beta).
+pub fn xc_on_grid_ao_grad_spin<F>(
+    functional: XcFunctional,
+    density_alpha: &DMatrix<f64>,
+    density_beta: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    match functional {
+        // LDA exchange: spin-scaling of the existing unpolarized expression.
+        XcFunctional::LdaX => {
+            let (e_xc, vxa, vxb) = grid
+                .par_iter()
+                .fold(
+                    || {
+                        (
+                            0.0_f64,
+                            DMatrix::<f64>::zeros(num_basis, num_basis),
+                            DMatrix::<f64>::zeros(num_basis, num_basis),
+                        )
+                    },
+                    |(mut e_acc, mut va, mut vb), gp| {
+                        let (phi, _grad_phi) = basis_values_and_grads(&gp.r);
+                        if phi.len() != num_basis {
+                            return (e_acc, va, vb);
+                        }
+
+                        let mut tmp_a = vec![0.0_f64; num_basis];
+                        let mut tmp_b = vec![0.0_f64; num_basis];
+                        for i in 0..num_basis {
+                            let mut sa = 0.0;
+                            let mut sb = 0.0;
+                            for j in 0..num_basis {
+                                sa += density_alpha[(i, j)] * phi[j];
+                                sb += density_beta[(i, j)] * phi[j];
+                            }
+                            tmp_a[i] = sa;
+                            tmp_b[i] = sb;
+                        }
+                        let mut rho_a = 0.0;
+                        let mut rho_b = 0.0;
+                        for i in 0..num_basis {
+                            rho_a += phi[i] * tmp_a[i];
+                            rho_b += phi[i] * tmp_b[i];
+                        }
+                        if !rho_a.is_finite() || !rho_b.is_finite() || (rho_a + rho_b) <= 1e-14 {
+                            return (e_acc, va, vb);
+                        }
+
+                        // Spin scaling: E = 1/2 e(2 rho_a) + 1/2 e(2 rho_b)
+                        let e = 0.5 * lda_x_energy_density(2.0 * rho_a) + 0.5 * lda_x_energy_density(2.0 * rho_b);
+                        let v_rho_a = lda_x_potential(2.0 * rho_a);
+                        let v_rho_b = lda_x_potential(2.0 * rho_b);
+
+                        e_acc += gp.w * e;
+
+                        let wa = gp.w * v_rho_a;
+                        let wb = gp.w * v_rho_b;
+                        for i in 0..num_basis {
+                            let pi = phi[i];
+                            for j in 0..num_basis {
+                                let pj = phi[j];
+                                va[(i, j)] += wa * pi * pj;
+                                vb[(i, j)] += wb * pi * pj;
+                            }
+                        }
+
+                        (e_acc, va, vb)
+                    },
+                )
+                .reduce(
+                    || {
+                        (
+                            0.0_f64,
+                            DMatrix::<f64>::zeros(num_basis, num_basis),
+                            DMatrix::<f64>::zeros(num_basis, num_basis),
+                        )
+                    },
+                    |(e1, va1, vb1), (e2, va2, vb2)| (e1 + e2, va1 + va2, vb1 + vb2),
+                );
+            (e_xc, vxa, vxb)
+        }
+        // UKS PBE exchange-only
+        XcFunctional::PbeX => xc_gga_spin_impl(
+            density_alpha,
+            density_beta,
+            num_basis,
+            grid,
+            basis_values_and_grads,
+            false,
+        ),
+        // UKS PBE exchange+correlation
+        XcFunctional::PbeXc => xc_gga_spin_impl(
+            density_alpha,
+            density_beta,
+            num_basis,
+            grid,
+            basis_values_and_grads,
+            true,
+        ),
+        // For now: treat TPSS/B3LYP semilocal as unpolarized (same Vxc for both spins).
+        // This still enables spin via different alpha/beta densities and (for hybrids) exact exchange.
+        XcFunctional::TpssXc | XcFunctional::B3lyp => {
+            let total = density_alpha + density_beta;
+            let (e, v) = xc_on_grid_ao_grad(functional, &total, num_basis, grid, basis_values_and_grads);
+            (e, v.clone(), v)
+        }
+    }
+}
+
+fn xc_gga_spin_impl<F>(
+    density_alpha: &DMatrix<f64>,
+    density_beta: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+    include_correlation: bool,
+) -> (f64, DMatrix<f64>, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, vxa, vxb) = grid
+        .par_iter()
+        .fold(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(mut e_acc, mut va, mut vb), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, va, vb);
+                }
+
+                // tmpσ = Pσ * phi and tmpσ_t = Pσ^T * phi for symmetric-safe ∇ρ
+                let mut tmp_a = vec![0.0_f64; num_basis];
+                let mut tmp_a_t = vec![0.0_f64; num_basis];
+                let mut tmp_b = vec![0.0_f64; num_basis];
+                let mut tmp_b_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut sa1 = 0.0;
+                    let mut sa2 = 0.0;
+                    let mut sb1 = 0.0;
+                    let mut sb2 = 0.0;
+                    for j in 0..num_basis {
+                        sa1 += density_alpha[(i, j)] * phi[j];
+                        sa2 += density_alpha[(j, i)] * phi[j];
+                        sb1 += density_beta[(i, j)] * phi[j];
+                        sb2 += density_beta[(j, i)] * phi[j];
+                    }
+                    tmp_a[i] = sa1;
+                    tmp_a_t[i] = sa2;
+                    tmp_b[i] = sb1;
+                    tmp_b_t[i] = sb2;
+                }
+
+                let mut rho_a = 0.0;
+                let mut rho_b = 0.0;
+                for i in 0..num_basis {
+                    rho_a += phi[i] * tmp_a[i];
+                    rho_b += phi[i] * tmp_b[i];
+                }
+                let rho = rho_a + rho_b;
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, va, vb);
+                }
+
+                let mut grad_a = Vector3::zeros();
+                let mut grad_b = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_a += (tmp_a[i] + tmp_a_t[i]) * grad_phi[i];
+                    grad_b += (tmp_b[i] + tmp_b_t[i]) * grad_phi[i];
+                }
+                let grad = grad_a + grad_b;
+
+                let zeta = if rho > 1e-14 { clamp_zeta((rho_a - rho_b) / rho) } else { 0.0 };
+
+                // Exchange spin scaling: Ex = 1/2 Ex[2ρa] + 1/2 Ex[2ρb]
+                let (ex_a, dex_dn_a, dex_dgrad_a) = pbe_x_energy_density_and_partials(2.0 * rho_a, 2.0 * grad_a);
+                let (ex_b, dex_dn_b, dex_dgrad_b) = pbe_x_energy_density_and_partials(2.0 * rho_b, 2.0 * grad_b);
+                let mut e = 0.5 * ex_a + 0.5 * ex_b;
+                let mut v_rho_a = dex_dn_a;
+                let mut v_rho_b = dex_dn_b;
+                let mut v_grad_a = dex_dgrad_a;
+                let mut v_grad_b = dex_dgrad_b;
+
+                if include_correlation {
+                    let (ec, dec_drho, dec_dgrad, dec_dzeta) = pbe_c_energy_density_and_partials_spin(rho, grad, zeta);
+                    e += ec;
+
+                    // Chain rule: n = rho_a + rho_b, zeta = (rho_a - rho_b)/n
+                    let dz_da = if rho > 1e-14 { (1.0 - zeta) / rho } else { 0.0 };
+                    let dz_db = if rho > 1e-14 { -(1.0 + zeta) / rho } else { 0.0 };
+
+                    v_rho_a += dec_drho + dec_dzeta * dz_da;
+                    v_rho_b += dec_drho + dec_dzeta * dz_db;
+                    v_grad_a += dec_dgrad;
+                    v_grad_b += dec_dgrad;
+                }
+
+                e_acc += gp.w * e;
+
+                // Matrix assembly:
+                // Vσ_ij = w * [ v_rhoσ φ_i φ_j + v_gradσ · (φ_i ∇φ_j + φ_j ∇φ_i) ]
+                let w0a = gp.w * v_rho_a;
+                let w0b = gp.w * v_rho_b;
+                let wga = gp.w * v_grad_a;
+                let wgb = gp.w * v_grad_b;
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm_a = wga.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        let gterm_b = wgb.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        va[(i, j)] += w0a * phi_i * phi_j + gterm_a;
+                        vb[(i, j)] += w0b * phi_i * phi_j + gterm_b;
+                    }
+                }
+
+                (e_acc, va, vb)
+            },
+        )
+        .reduce(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(e1, va1, vb1), (e2, va2, vb2)| (e1 + e2, va1 + va2, vb1 + vb2),
+        );
+
+    (e_xc, vxa, vxb)
 }
 
 // ---------------------------------------------------------------------------

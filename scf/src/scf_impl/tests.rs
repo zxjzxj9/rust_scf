@@ -871,6 +871,46 @@ fn test_hydrogen_atom_doublet() {
 }
 
 #[test]
+fn test_hydrogen_atom_doublet_uks_lda_pbe_sanity() {
+    // Open-shell H atom: verify UKS path runs and produces finite energies.
+    let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+    let elems = vec![Element::Hydrogen];
+
+    // STO-3G basis is loaded via the helper that reads NWChem formatted files.
+    let h_basis = load_basis_from_file_or_panic("H");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+
+    // UKS-LDA
+    let mut scf_lda = SpinSCF::<Basis631G>::new();
+    scf_lda.set_method_from_string("lda");
+    scf_lda.set_multiplicity(2);
+    scf_lda.max_cycle = 30;
+    scf_lda.init_basis(&elems, basis_map.clone());
+    scf_lda.init_geometry(&coords, &elems);
+    scf_lda.init_density_matrix();
+    scf_lda.scf_cycle();
+    let e_lda = scf_lda.calculate_total_energy();
+    assert!(e_lda.is_finite(), "UKS-LDA energy should be finite");
+
+    // UKS-PBE
+    let mut scf_pbe = SpinSCF::<Basis631G>::new();
+    scf_pbe.set_method_from_string("pbe");
+    scf_pbe.set_multiplicity(2);
+    scf_pbe.max_cycle = 30;
+    scf_pbe.init_basis(&elems, basis_map);
+    scf_pbe.init_geometry(&coords, &elems);
+    scf_pbe.init_density_matrix();
+    scf_pbe.scf_cycle();
+    let e_pbe = scf_pbe.calculate_total_energy();
+    assert!(e_pbe.is_finite(), "UKS-PBE energy should be finite");
+
+    // Very loose sanity: energies should be negative for H atom in a bound basis.
+    assert!(e_lda < 0.0);
+    assert!(e_pbe < 0.0);
+}
+
+#[test]
 fn test_spin_density_conservation() {
     use super::SpinSCF;
 

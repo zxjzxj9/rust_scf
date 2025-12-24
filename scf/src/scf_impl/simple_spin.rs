@@ -4,6 +4,7 @@ extern crate nalgebra as na;
 
 use super::{DIIS, SCF};
 use basis::basis::{AOBasis, Basis};
+use super::dft::{b3lyp_a0, build_becke_atom_grid, xc_on_grid_ao_grad_spin, DftGridParams, GridPoint, XcFunctional};
 use na::{DMatrix, DVector, Vector3};
 use periodic_table_on_an_enum::Element;
 use rayon::prelude::*;
@@ -47,6 +48,17 @@ pub struct SpinSCF<B: AOBasis> {
 
     /// maps each contracted GTO (index in `mo_basis`) to the parent atom index
     basis_atom_map: Vec<usize>,
+
+    // --- DFT / UKS options ---
+    dft_params: Option<DftGridParams>,
+    dft_grid: Option<Vec<GridPoint>>,
+    xc_functional: Option<XcFunctional>,
+    xc_energy: f64,
+    v_xc_alpha: DMatrix<f64>,
+    v_xc_beta: DMatrix<f64>,
+    j_matrix: DMatrix<f64>,
+    k_matrix_alpha: DMatrix<f64>,
+    k_matrix_beta: DMatrix<f64>,
 }
 
 impl<B: AOBasis + Clone> SpinSCF<B> {
@@ -77,6 +89,54 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
             multiplicity: 1, // Default to singlet (no unpaired electrons)
             charge: 0,       // Default to neutral molecule
             basis_atom_map: Vec::new(),
+
+            dft_params: None,
+            dft_grid: None,
+            xc_functional: None,
+            xc_energy: 0.0,
+            v_xc_alpha: DMatrix::zeros(0, 0),
+            v_xc_beta: DMatrix::zeros(0, 0),
+            j_matrix: DMatrix::zeros(0, 0),
+            k_matrix_alpha: DMatrix::zeros(0, 0),
+            k_matrix_beta: DMatrix::zeros(0, 0),
+        }
+    }
+
+    /// Select electronic method for unrestricted calculations.
+    /// Supported: "hf" (default), "lda", "pbe_x", "pbe", "pbe_xc", "tpss", "b3lyp".
+    pub fn set_method_from_string(&mut self, method: &str) {
+        match method.to_lowercase().as_str() {
+            "lda" | "uks_lda" => {
+                info!("Electronic method set to UKS-LDA (spin-polarized exchange)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::LdaX);
+            }
+            "pbe_x" | "uks_pbe_x" => {
+                info!("Electronic method set to UKS-PBE-x (spin-polarized exchange only)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::PbeX);
+            }
+            "pbe" | "pbe_xc" | "uks_pbe" | "uks_pbe_xc" => {
+                info!("Electronic method set to UKS-PBE (spin-polarized XC)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::PbeXc);
+            }
+            "tpss" | "uks_tpss" => {
+                info!("Electronic method set to UKS-TPSS (spin-polarized via shared-Vxc fallback for now)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::TpssXc);
+            }
+            "b3lyp" | "uks_b3lyp" => {
+                info!("Electronic method set to UKS-B3LYP (hybrid; semilocal Vxc shared-Vxc fallback for now)");
+                self.dft_params = Some(DftGridParams::default());
+                self.xc_functional = Some(XcFunctional::B3lyp);
+            }
+            _ => {
+                info!("Electronic method set to HF (UHF)");
+                self.dft_params = None;
+                self.dft_grid = None;
+                self.xc_functional = None;
+            }
         }
     }
 
@@ -177,6 +237,18 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
 
         Ok(())
+    }
+
+    fn ensure_dft_grid(&mut self) {
+        if self.dft_params.is_none() || self.xc_functional.is_none() {
+            return;
+        }
+        if self.dft_grid.is_none() {
+            let params = self.dft_params.clone().unwrap_or_default();
+            let grid = build_becke_atom_grid(&self.coords, &params);
+            info!("Built DFT grid with {} points", grid.len());
+            self.dft_grid = Some(grid);
+        }
     }
 }
 
@@ -737,9 +809,58 @@ where
                 }
             }
 
-            // Build Fock matrices: H_core + J - K
-            let mut fock_alpha = h_core.clone() + j_matrix.clone() - k_alpha;
-            let mut fock_beta = h_core + j_matrix - k_beta;
+            // Build Fock matrices
+            let mut fock_alpha;
+            let mut fock_beta;
+
+            if self.dft_params.is_some() && self.xc_functional.is_some() {
+                self.ensure_dft_grid();
+                let grid = self.dft_grid.as_ref().expect("DFT grid should be initialized");
+                let functional = self.xc_functional.unwrap_or(XcFunctional::LdaX);
+
+                let (exc, vxc_a, vxc_b) = xc_on_grid_ao_grad_spin(
+                    functional,
+                    &self.density_matrix_alpha,
+                    &self.density_matrix_beta,
+                    self.num_basis,
+                    grid,
+                    |r| {
+                        let phi: Vec<f64> = self.mo_basis.iter().map(|b| b.evaluate(r)).collect();
+                        let grad_phi: Vec<Vector3<f64>> =
+                            self.mo_basis.iter().map(|b| b.evaluate_grad(r)).collect();
+                        (phi, grad_phi)
+                    },
+                );
+
+                self.xc_energy = exc;
+                self.v_xc_alpha = vxc_a.clone();
+                self.v_xc_beta = vxc_b.clone();
+
+                // J uses total density
+                self.j_matrix = j_matrix.clone();
+
+                fock_alpha = h_core.clone() + j_matrix.clone() + vxc_a;
+                fock_beta = h_core.clone() + j_matrix.clone() + vxc_b;
+
+                // Add exact exchange for hybrids (B3LYP): Fσ -= a0 Kσ
+                if matches!(self.xc_functional, Some(XcFunctional::B3lyp)) {
+                    let a0 = b3lyp_a0();
+                    self.k_matrix_alpha = k_alpha.clone();
+                    self.k_matrix_beta = k_beta.clone();
+                    fock_alpha -= a0 * k_alpha;
+                    fock_beta -= a0 * k_beta;
+                } else {
+                    self.k_matrix_alpha = DMatrix::zeros(self.num_basis, self.num_basis);
+                    self.k_matrix_beta = DMatrix::zeros(self.num_basis, self.num_basis);
+                }
+            } else {
+                // UHF: H_core + J - Kσ
+                self.j_matrix = j_matrix.clone();
+                self.k_matrix_alpha = k_alpha.clone();
+                self.k_matrix_beta = k_beta.clone();
+                fock_alpha = h_core.clone() + j_matrix.clone() - k_alpha;
+                fock_beta = h_core + j_matrix - k_beta;
+            }
 
             // Apply level shifting for numerical stability if needed
             if level_shift > 0.0 {
@@ -1122,7 +1243,70 @@ where
     }
 
     fn calculate_total_energy(&self) -> f64 {
-        // Use efficient energy formula similar to SimpleSCF
+        // If running UKS/DFT: compute KS total energy explicitly:
+        // E = Tr(P_total H) + 0.5 Tr(P_total J) + E_xc + E_nuc + E_x_exact(hybrid)
+        if self.dft_params.is_some() && self.xc_functional.is_some() {
+            let ij_pairs: Vec<(usize, usize)> = (0..self.num_basis)
+                .flat_map(|i| (0..self.num_basis).map(move |j| (i, j)))
+                .collect();
+
+            let one_electron_energy: f64 = ij_pairs
+                .par_iter()
+                .map(|&(i, j)| {
+                    let p_total_ij =
+                        self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                    self.h_core[(i, j)] * p_total_ij
+                })
+                .sum();
+
+            let coulomb_energy: f64 = 0.5
+                * ij_pairs
+                    .par_iter()
+                    .map(|&(i, j)| {
+                        let p_total_ij =
+                            self.density_matrix_alpha[(i, j)] + self.density_matrix_beta[(i, j)];
+                        self.j_matrix[(i, j)] * p_total_ij
+                    })
+                    .sum::<f64>();
+
+            let mut exact_exchange_energy = 0.0;
+            if matches!(self.xc_functional, Some(XcFunctional::B3lyp)) {
+                let a0 = b3lyp_a0();
+                // UHF-style exchange energy: -1/2 sumσ Tr(Pσ Kσ)
+                let exx: f64 = -0.5
+                    * ij_pairs
+                        .par_iter()
+                        .map(|&(i, j)| {
+                            self.density_matrix_alpha[(i, j)] * self.k_matrix_alpha[(i, j)]
+                                + self.density_matrix_beta[(i, j)] * self.k_matrix_beta[(i, j)]
+                        })
+                        .sum::<f64>();
+                exact_exchange_energy = a0 * exx;
+            }
+
+            // Nuclear repulsion energy
+            let atom_pairs: Vec<(usize, usize)> = (0..self.num_atoms)
+                .flat_map(|i| ((i + 1)..self.num_atoms).map(move |j| (i, j)))
+                .collect();
+            let nuclear_repulsion: f64 = atom_pairs
+                .par_iter()
+                .map(|&(i, j)| {
+                    let z_i = self.elems[i].get_atomic_number() as f64;
+                    let z_j = self.elems[j].get_atomic_number() as f64;
+                    let r_ij = (self.coords[i] - self.coords[j]).norm();
+                    if r_ij > 1e-10 {
+                        z_i * z_j / r_ij
+                    } else {
+                        0.0
+                    }
+                })
+                .sum();
+
+            let total_energy = one_electron_energy + coulomb_energy + self.xc_energy + exact_exchange_energy + nuclear_repulsion;
+            return if total_energy.is_finite() { total_energy } else { 0.0 };
+        }
+
+        // Otherwise: UHF energy via Fock matrices
         // E = Tr(P_alpha * H_core) + Tr(P_beta * H_core) +
         //     0.5 * [Tr(P_alpha * G_alpha) + Tr(P_beta * G_beta)]
         // where G = F - H_core
