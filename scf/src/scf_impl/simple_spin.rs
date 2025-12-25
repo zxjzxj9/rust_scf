@@ -102,6 +102,16 @@ impl<B: AOBasis + Clone> SpinSCF<B> {
         }
     }
 
+    /// Read-only access to the alpha-spin XC potential matrix (UKS methods).
+    pub fn v_xc_alpha(&self) -> &DMatrix<f64> {
+        &self.v_xc_alpha
+    }
+
+    /// Read-only access to the beta-spin XC potential matrix (UKS methods).
+    pub fn v_xc_beta(&self) -> &DMatrix<f64> {
+        &self.v_xc_beta
+    }
+
     /// Select electronic method for unrestricted calculations.
     /// Supported: "hf" (default), "lda", "pbe_x", "pbe", "pbe_xc", "tpss", "b3lyp".
     pub fn set_method_from_string(&mut self, method: &str) {

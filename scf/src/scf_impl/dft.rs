@@ -712,14 +712,648 @@ where
             basis_values_and_grads,
             true,
         ),
-        // For now: treat TPSS/B3LYP semilocal as unpolarized (same Vxc for both spins).
-        // This still enables spin via different alpha/beta densities and (for hybrids) exact exchange.
-        XcFunctional::TpssXc | XcFunctional::B3lyp => {
-            let total = density_alpha + density_beta;
-            let (e, v) = xc_on_grid_ao_grad(functional, &total, num_basis, grid, basis_values_and_grads);
-            (e, v.clone(), v)
+        XcFunctional::TpssXc => tpss_xc_on_grid_ao_grad_spin_impl(
+            density_alpha,
+            density_beta,
+            num_basis,
+            grid,
+            basis_values_and_grads,
+        ),
+        XcFunctional::B3lyp => b3lyp_xc_on_grid_ao_grad_spin_impl(
+            density_alpha,
+            density_beta,
+            num_basis,
+            grid,
+            basis_values_and_grads,
+        ),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// UKS TPSS meta-GGA (spin-dependent; numeric partials)
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn tpss_x_energy_density_unpol(n: f64, sigma: f64, tau: f64) -> f64 {
+    if n <= 0.0 {
+        return 0.0;
+    }
+    let sigma = sigma.max(0.0);
+    let tau = tau.max(0.0);
+
+    let tau_w = sigma / (8.0 * n);
+    let z = if tau > 1e-20 { (tau_w / tau).clamp(0.0, 1.0) } else { 1.0 };
+    let t_unif = tau_unif(n);
+    let alpha = if t_unif > 1e-30 { (tau - tau_w) / t_unif } else { 0.0 };
+
+    // p = s^2 = |∇n|^2 / [4 (3π^2)^(2/3) n^(8/3)]
+    let denom_p =
+        4.0 * (3.0 * std::f64::consts::PI * std::f64::consts::PI).powf(2.0 / 3.0) * n.powf(8.0 / 3.0);
+    let p = if denom_p > 0.0 { sigma / denom_p } else { 0.0 };
+
+    // q~_b (Eq. 7)
+    let b = tpss_b();
+    let qtilde_b = {
+        let num = alpha - 1.0;
+        let den = (1.0 + b * alpha * (alpha - 1.0)).max(1e-14).sqrt();
+        (9.0 / 20.0) * (num / den) + (2.0 / 3.0) * p
+    };
+
+    // Exchange: e_x = n ε_x^unif(n) F_x(p,z)
+    let fx = tpss_fx(p, z, qtilde_b);
+    n * eps_x_unif(n) * fx
+}
+
+#[inline]
+fn tpss_c_energy_density_spin_approx(
+    rho_a: f64,
+    rho_b: f64,
+    grad_a: Vector3<f64>,
+    grad_b: Vector3<f64>,
+    tau_a: f64,
+    tau_b: f64,
+) -> f64 {
+    // A pragmatic spin-generalization of the *same* TPSS correlation construction used above:
+    // - use general ζ from (ρa,ρb)
+    // - use full ∇n from ∇ρa+∇ρb
+    // - use τ = τa+τb and τw built from |∇n|^2
+    // - keep C(zeta,xi) simplified (no ∇ζ dependence yet)
+    let n = rho_a + rho_b;
+    if n <= 1e-14 {
+        return 0.0;
+    }
+    let grad = grad_a + grad_b;
+    let sigma = grad.dot(&grad).max(0.0);
+    let tau = (tau_a + tau_b).max(0.0);
+
+    let zeta = clamp_zeta((rho_a - rho_b) / n);
+
+    let tau_w = sigma / (8.0 * n);
+    let z = if tau > 1e-20 { (tau_w / tau).clamp(0.0, 1.0) } else { 1.0 };
+
+    // C(ζ, ξ) -> simplified constant (matches our unpolarized construction at ζ=0)
+    let c_self = 0.53;
+    let d = tpss_d();
+
+    // Use PBE correlation per particle for given (n, ∇n, ζ)
+    let eps_pbe = {
+        let (ec, _, _, _) = pbe_c_energy_density_and_partials_spin(n, grad, zeta);
+        ec / n
+    };
+
+    // Spin-channel "tilde" term: max over fully polarized channels and the mixed state.
+    let eps_a = if rho_a > 1e-14 {
+        let (ec, _, _, _) = pbe_c_energy_density_and_partials_spin(rho_a, grad_a, 1.0);
+        ec / rho_a
+    } else {
+        0.0
+    };
+    let eps_b = if rho_b > 1e-14 {
+        let (ec, _, _, _) = pbe_c_energy_density_and_partials_spin(rho_b, grad_b, 1.0);
+        ec / rho_b
+    } else {
+        0.0
+    };
+    let eps_tilde = eps_pbe.max(eps_a.max(eps_b));
+
+    // Σσ (nσ/n)^2 = (na^2 + nb^2)/n^2
+    let sumsq = (rho_a * rho_a + rho_b * rho_b) / (n * n);
+
+    // revPKZB-style combination (spin-extended)
+    let z2 = z * z;
+    let eps_rev = eps_pbe * (1.0 + c_self * z2) - (1.0 + c_self) * z2 * sumsq * eps_tilde;
+
+    n * eps_rev * (1.0 + d * eps_rev * z.powi(3))
+}
+
+fn tpss_xc_energy_density_spin_approx(
+    rho_a: f64,
+    rho_b: f64,
+    grad_a: Vector3<f64>,
+    grad_b: Vector3<f64>,
+    tau_a: f64,
+    tau_b: f64,
+) -> f64 {
+    if rho_a <= 0.0 && rho_b <= 0.0 {
+        return 0.0;
+    }
+
+    // Exchange: spin-scaling of unpolarized TPSS exchange.
+    let sigma_a = grad_a.dot(&grad_a).max(0.0);
+    let sigma_b = grad_b.dot(&grad_b).max(0.0);
+    let ex = 0.5 * tpss_x_energy_density_unpol(2.0 * rho_a, 4.0 * sigma_a, 2.0 * tau_a)
+        + 0.5 * tpss_x_energy_density_unpol(2.0 * rho_b, 4.0 * sigma_b, 2.0 * tau_b);
+
+    let ec = tpss_c_energy_density_spin_approx(rho_a, rho_b, grad_a, grad_b, tau_a, tau_b);
+    ex + ec
+}
+
+fn tpss_xc_energy_density_and_partials_spin_numeric(
+    rho_a: f64,
+    rho_b: f64,
+    grad_a: Vector3<f64>,
+    grad_b: Vector3<f64>,
+    tau_a: f64,
+    tau_b: f64,
+) -> (f64, f64, Vector3<f64>, f64, f64, Vector3<f64>, f64) {
+    let e0 = tpss_xc_energy_density_spin_approx(rho_a, rho_b, grad_a, grad_b, tau_a, tau_b);
+
+    let ra = rho_a.max(0.0);
+    let rb = rho_b.max(0.0);
+    let da = (1e-6 * ra).max(1e-8);
+    let db = (1e-6 * rb).max(1e-8);
+
+    // grads: use sigma scale to set step
+    let sa = grad_a.dot(&grad_a).max(0.0);
+    let sb = grad_b.dot(&grad_b).max(0.0);
+    let dga = (1e-6 * sa.sqrt()).max(1e-8);
+    let dgb = (1e-6 * sb.sqrt()).max(1e-8);
+
+    let ta = tau_a.max(0.0);
+    let tb = tau_b.max(0.0);
+    let dta = (1e-6 * ta).max(1e-10);
+    let dtb = (1e-6 * tb).max(1e-10);
+
+    // ∂e/∂ρa
+    let (ra1, ra2) = if ra > da { (ra - da, ra + da) } else { (ra, ra + da) };
+    let e_ra1 = tpss_xc_energy_density_spin_approx(ra1, rb, grad_a, grad_b, tau_a, tau_b);
+    let e_ra2 = tpss_xc_energy_density_spin_approx(ra2, rb, grad_a, grad_b, tau_a, tau_b);
+    let de_dra = if ra1 != ra2 { (e_ra2 - e_ra1) / (ra2 - ra1) } else { 0.0 };
+
+    // ∂e/∂ρb
+    let (rb1, rb2) = if rb > db { (rb - db, rb + db) } else { (rb, rb + db) };
+    let e_rb1 = tpss_xc_energy_density_spin_approx(ra, rb1, grad_a, grad_b, tau_a, tau_b);
+    let e_rb2 = tpss_xc_energy_density_spin_approx(ra, rb2, grad_a, grad_b, tau_a, tau_b);
+    let de_drb = if rb1 != rb2 { (e_rb2 - e_rb1) / (rb2 - rb1) } else { 0.0 };
+
+    // ∂e/∂∇ρa (vector) by symmetric differences along each axis
+    let mut de_dga = Vector3::zeros();
+    for k in 0..3 {
+        let mut ga1 = grad_a;
+        let mut ga2 = grad_a;
+        if k == 0 {
+            ga1.x -= dga;
+            ga2.x += dga;
+        } else if k == 1 {
+            ga1.y -= dga;
+            ga2.y += dga;
+        } else {
+            ga1.z -= dga;
+            ga2.z += dga;
+        }
+        let e1 = tpss_xc_energy_density_spin_approx(ra, rb, ga1, grad_b, tau_a, tau_b);
+        let e2 = tpss_xc_energy_density_spin_approx(ra, rb, ga2, grad_b, tau_a, tau_b);
+        let d = if (2.0 * dga) > 0.0 { (e2 - e1) / (2.0 * dga) } else { 0.0 };
+        if k == 0 {
+            de_dga.x = d;
+        } else if k == 1 {
+            de_dga.y = d;
+        } else {
+            de_dga.z = d;
         }
     }
+
+    // ∂e/∂∇ρb
+    let mut de_dgb = Vector3::zeros();
+    for k in 0..3 {
+        let mut gb1 = grad_b;
+        let mut gb2 = grad_b;
+        if k == 0 {
+            gb1.x -= dgb;
+            gb2.x += dgb;
+        } else if k == 1 {
+            gb1.y -= dgb;
+            gb2.y += dgb;
+        } else {
+            gb1.z -= dgb;
+            gb2.z += dgb;
+        }
+        let e1 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, gb1, tau_a, tau_b);
+        let e2 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, gb2, tau_a, tau_b);
+        let d = if (2.0 * dgb) > 0.0 { (e2 - e1) / (2.0 * dgb) } else { 0.0 };
+        if k == 0 {
+            de_dgb.x = d;
+        } else if k == 1 {
+            de_dgb.y = d;
+        } else {
+            de_dgb.z = d;
+        }
+    }
+
+    // ∂e/∂τa
+    let (ta1, ta2) = if ta > dta { (ta - dta, ta + dta) } else { (ta, ta + dta) };
+    let e_ta1 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, grad_b, ta1, tau_b);
+    let e_ta2 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, grad_b, ta2, tau_b);
+    let de_dta = if ta1 != ta2 { (e_ta2 - e_ta1) / (ta2 - ta1) } else { 0.0 };
+
+    // ∂e/∂τb
+    let (tb1, tb2) = if tb > dtb { (tb - dtb, tb + dtb) } else { (tb, tb + dtb) };
+    let e_tb1 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, grad_b, tau_a, tb1);
+    let e_tb2 = tpss_xc_energy_density_spin_approx(ra, rb, grad_a, grad_b, tau_a, tb2);
+    let de_dtb = if tb1 != tb2 { (e_tb2 - e_tb1) / (tb2 - tb1) } else { 0.0 };
+
+    (e0, de_dra, de_dga, de_dta, de_drb, de_dgb, de_dtb)
+}
+
+fn tpss_xc_on_grid_ao_grad_spin_impl<F>(
+    density_alpha: &DMatrix<f64>,
+    density_beta: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, vxa, vxb) = grid
+        .par_iter()
+        .fold(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(mut e_acc, mut va, mut vb), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, va, vb);
+                }
+
+                // tmpσ = Pσ * phi, tmpσ_t = Pσ^T * phi
+                let mut tmp_a = vec![0.0_f64; num_basis];
+                let mut tmp_a_t = vec![0.0_f64; num_basis];
+                let mut tmp_b = vec![0.0_f64; num_basis];
+                let mut tmp_b_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut sa1 = 0.0;
+                    let mut sa2 = 0.0;
+                    let mut sb1 = 0.0;
+                    let mut sb2 = 0.0;
+                    for j in 0..num_basis {
+                        sa1 += density_alpha[(i, j)] * phi[j];
+                        sa2 += density_alpha[(j, i)] * phi[j];
+                        sb1 += density_beta[(i, j)] * phi[j];
+                        sb2 += density_beta[(j, i)] * phi[j];
+                    }
+                    tmp_a[i] = sa1;
+                    tmp_a_t[i] = sa2;
+                    tmp_b[i] = sb1;
+                    tmp_b_t[i] = sb2;
+                }
+
+                let mut rho_a = 0.0;
+                let mut rho_b = 0.0;
+                for i in 0..num_basis {
+                    rho_a += phi[i] * tmp_a[i];
+                    rho_b += phi[i] * tmp_b[i];
+                }
+                let rho = rho_a + rho_b;
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, va, vb);
+                }
+
+                let mut grad_a = Vector3::zeros();
+                let mut grad_b = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_a += (tmp_a[i] + tmp_a_t[i]) * grad_phi[i];
+                    grad_b += (tmp_b[i] + tmp_b_t[i]) * grad_phi[i];
+                }
+
+                // τσ = 1/2 Σ_ij Pσ_ij ∇φ_i · ∇φ_j
+                let mut tau_from_p = |p: &DMatrix<f64>| -> f64 {
+                    let mut gx = vec![0.0_f64; num_basis];
+                    let mut gy = vec![0.0_f64; num_basis];
+                    let mut gz = vec![0.0_f64; num_basis];
+                    for i in 0..num_basis {
+                        gx[i] = grad_phi[i].x;
+                        gy[i] = grad_phi[i].y;
+                        gz[i] = grad_phi[i].z;
+                    }
+                    let mut pgx = vec![0.0_f64; num_basis];
+                    let mut pgy = vec![0.0_f64; num_basis];
+                    let mut pgz = vec![0.0_f64; num_basis];
+                    let mut pgx_t = vec![0.0_f64; num_basis];
+                    let mut pgy_t = vec![0.0_f64; num_basis];
+                    let mut pgz_t = vec![0.0_f64; num_basis];
+                    for i in 0..num_basis {
+                        let mut sx1 = 0.0;
+                        let mut sy1 = 0.0;
+                        let mut sz1 = 0.0;
+                        let mut sx2 = 0.0;
+                        let mut sy2 = 0.0;
+                        let mut sz2 = 0.0;
+                        for j in 0..num_basis {
+                            let pij = p[(i, j)];
+                            let pji = p[(j, i)];
+                            sx1 += pij * gx[j];
+                            sy1 += pij * gy[j];
+                            sz1 += pij * gz[j];
+                            sx2 += pji * gx[j];
+                            sy2 += pji * gy[j];
+                            sz2 += pji * gz[j];
+                        }
+                        pgx[i] = sx1;
+                        pgy[i] = sy1;
+                        pgz[i] = sz1;
+                        pgx_t[i] = sx2;
+                        pgy_t[i] = sy2;
+                        pgz_t[i] = sz2;
+                    }
+                    let dot_sym = |a: &Vec<f64>, pa: &Vec<f64>, pat: &Vec<f64>| -> f64 {
+                        let mut s = 0.0;
+                        for i in 0..num_basis {
+                            s += 0.5 * (pa[i] + pat[i]) * a[i];
+                        }
+                        s
+                    };
+                    0.5 * (dot_sym(&gx, &pgx, &pgx_t) + dot_sym(&gy, &pgy, &pgy_t) + dot_sym(&gz, &pgz, &pgz_t))
+                };
+
+                let tau_a = tau_from_p(density_alpha);
+                let tau_b = tau_from_p(density_beta);
+
+                let (e, v_rho_a, v_grad_a, v_tau_a, v_rho_b, v_grad_b, v_tau_b) =
+                    tpss_xc_energy_density_and_partials_spin_numeric(rho_a, rho_b, grad_a, grad_b, tau_a, tau_b);
+
+                e_acc += gp.w * e;
+
+                let w0a = gp.w * v_rho_a;
+                let w0b = gp.w * v_rho_b;
+                let wga = gp.w * v_grad_a;
+                let wgb = gp.w * v_grad_b;
+                let wta = gp.w * v_tau_a;
+                let wtb = gp.w * v_tau_b;
+
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm_a = wga.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        let gterm_b = wgb.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        let tterm_a = 0.5 * wta * grad_phi[i].dot(&grad_phi[j]);
+                        let tterm_b = 0.5 * wtb * grad_phi[i].dot(&grad_phi[j]);
+                        va[(i, j)] += w0a * phi_i * phi_j + gterm_a + tterm_a;
+                        vb[(i, j)] += w0b * phi_i * phi_j + gterm_b + tterm_b;
+                    }
+                }
+
+                (e_acc, va, vb)
+            },
+        )
+        .reduce(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(e1, va1, vb1), (e2, va2, vb2)| (e1 + e2, va1 + va2, vb1 + vb2),
+        );
+
+    (e_xc, vxa, vxb)
+}
+
+// ---------------------------------------------------------------------------
+// UKS B3LYP semilocal (spin-dependent; pragmatic numeric partials)
+// ---------------------------------------------------------------------------
+
+#[inline]
+fn b3lyp_semilocal_energy_density_spin_approx(
+    rho_a: f64,
+    rho_b: f64,
+    grad_a: Vector3<f64>,
+    grad_b: Vector3<f64>,
+) -> f64 {
+    let a0 = b3lyp_a0();
+    let ax = b3lyp_ax();
+    let ac = b3lyp_ac();
+
+    let c_lda_x = 1.0 - a0 - ax;
+    let c_b88_x = ax;
+    let c_vwn_c = 1.0 - ac;
+    let c_lyp_c = ac;
+
+    let rho = rho_a + rho_b;
+    if rho <= 1e-14 {
+        return 0.0;
+    }
+    let grad = grad_a + grad_b;
+    let sigma = grad.dot(&grad).max(0.0);
+
+    // Exchange: spin scaling
+    let sigma_a = grad_a.dot(&grad_a).max(0.0);
+    let sigma_b = grad_b.dot(&grad_b).max(0.0);
+
+    let e_lda_x = 0.5 * lda_x_energy_density(2.0 * rho_a) + 0.5 * lda_x_energy_density(2.0 * rho_b);
+    let e_b88_x = 0.5 * b88_x_energy_density(2.0 * rho_a, 4.0 * sigma_a) + 0.5 * b88_x_energy_density(2.0 * rho_b, 4.0 * sigma_b);
+
+    // Correlation: current codebase has only unpolarized ports; we extend with a simple ζ-interpolation.
+    let zeta = clamp_zeta((rho_a - rho_b) / rho);
+    let f = f_zeta(zeta);
+
+    let e_vwn0 = vwn_rpa_c_energy_density(rho);
+    let e_vwn1 = vwn_rpa_c_energy_density(2.0 * rho); // crude proxy for ζ=1
+    let e_vwn = e_vwn0 + f * (e_vwn1 - e_vwn0);
+
+    let e_lyp0 = lyp_c_energy_density(rho, sigma);
+    let e_lyp1 = lyp_c_energy_density(2.0 * rho, 4.0 * sigma); // crude proxy for ζ=1
+    let e_lyp = e_lyp0 + f * (e_lyp1 - e_lyp0);
+
+    c_lda_x * e_lda_x + c_b88_x * e_b88_x + c_vwn_c * e_vwn + c_lyp_c * e_lyp
+}
+
+fn b3lyp_xc_energy_density_and_partials_spin_numeric(
+    rho_a: f64,
+    rho_b: f64,
+    grad_a: Vector3<f64>,
+    grad_b: Vector3<f64>,
+) -> (f64, f64, Vector3<f64>, f64, Vector3<f64>) {
+    let e0 = b3lyp_semilocal_energy_density_spin_approx(rho_a, rho_b, grad_a, grad_b);
+
+    let ra = rho_a.max(0.0);
+    let rb = rho_b.max(0.0);
+    let da = (1e-6 * ra).max(1e-8);
+    let db = (1e-6 * rb).max(1e-8);
+
+    let sa = grad_a.dot(&grad_a).max(0.0);
+    let sb = grad_b.dot(&grad_b).max(0.0);
+    let dga = (1e-6 * sa.sqrt()).max(1e-8);
+    let dgb = (1e-6 * sb.sqrt()).max(1e-8);
+
+    // ∂e/∂ρa
+    let (ra1, ra2) = if ra > da { (ra - da, ra + da) } else { (ra, ra + da) };
+    let e_ra1 = b3lyp_semilocal_energy_density_spin_approx(ra1, rb, grad_a, grad_b);
+    let e_ra2 = b3lyp_semilocal_energy_density_spin_approx(ra2, rb, grad_a, grad_b);
+    let de_dra = if ra1 != ra2 { (e_ra2 - e_ra1) / (ra2 - ra1) } else { 0.0 };
+
+    // ∂e/∂ρb
+    let (rb1, rb2) = if rb > db { (rb - db, rb + db) } else { (rb, rb + db) };
+    let e_rb1 = b3lyp_semilocal_energy_density_spin_approx(ra, rb1, grad_a, grad_b);
+    let e_rb2 = b3lyp_semilocal_energy_density_spin_approx(ra, rb2, grad_a, grad_b);
+    let de_drb = if rb1 != rb2 { (e_rb2 - e_rb1) / (rb2 - rb1) } else { 0.0 };
+
+    // ∂e/∂∇ρa
+    let mut de_dga = Vector3::zeros();
+    for k in 0..3 {
+        let mut ga1 = grad_a;
+        let mut ga2 = grad_a;
+        if k == 0 {
+            ga1.x -= dga;
+            ga2.x += dga;
+        } else if k == 1 {
+            ga1.y -= dga;
+            ga2.y += dga;
+        } else {
+            ga1.z -= dga;
+            ga2.z += dga;
+        }
+        let e1 = b3lyp_semilocal_energy_density_spin_approx(ra, rb, ga1, grad_b);
+        let e2 = b3lyp_semilocal_energy_density_spin_approx(ra, rb, ga2, grad_b);
+        let d = if (2.0 * dga) > 0.0 { (e2 - e1) / (2.0 * dga) } else { 0.0 };
+        if k == 0 {
+            de_dga.x = d;
+        } else if k == 1 {
+            de_dga.y = d;
+        } else {
+            de_dga.z = d;
+        }
+    }
+
+    // ∂e/∂∇ρb
+    let mut de_dgb = Vector3::zeros();
+    for k in 0..3 {
+        let mut gb1 = grad_b;
+        let mut gb2 = grad_b;
+        if k == 0 {
+            gb1.x -= dgb;
+            gb2.x += dgb;
+        } else if k == 1 {
+            gb1.y -= dgb;
+            gb2.y += dgb;
+        } else {
+            gb1.z -= dgb;
+            gb2.z += dgb;
+        }
+        let e1 = b3lyp_semilocal_energy_density_spin_approx(ra, rb, grad_a, gb1);
+        let e2 = b3lyp_semilocal_energy_density_spin_approx(ra, rb, grad_a, gb2);
+        let d = if (2.0 * dgb) > 0.0 { (e2 - e1) / (2.0 * dgb) } else { 0.0 };
+        if k == 0 {
+            de_dgb.x = d;
+        } else if k == 1 {
+            de_dgb.y = d;
+        } else {
+            de_dgb.z = d;
+        }
+    }
+
+    (e0, de_dra, de_dga, de_drb, de_dgb)
+}
+
+fn b3lyp_xc_on_grid_ao_grad_spin_impl<F>(
+    density_alpha: &DMatrix<f64>,
+    density_beta: &DMatrix<f64>,
+    num_basis: usize,
+    grid: &[GridPoint],
+    basis_values_and_grads: F,
+) -> (f64, DMatrix<f64>, DMatrix<f64>)
+where
+    F: Fn(&Vector3<f64>) -> (Vec<f64>, Vec<Vector3<f64>>) + Sync,
+{
+    let (e_xc, vxa, vxb) = grid
+        .par_iter()
+        .fold(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(mut e_acc, mut va, mut vb), gp| {
+                let (phi, grad_phi) = basis_values_and_grads(&gp.r);
+                if phi.len() != num_basis || grad_phi.len() != num_basis {
+                    return (e_acc, va, vb);
+                }
+
+                // tmpσ = Pσ * phi, tmpσ_t = Pσ^T * phi
+                let mut tmp_a = vec![0.0_f64; num_basis];
+                let mut tmp_a_t = vec![0.0_f64; num_basis];
+                let mut tmp_b = vec![0.0_f64; num_basis];
+                let mut tmp_b_t = vec![0.0_f64; num_basis];
+                for i in 0..num_basis {
+                    let mut sa1 = 0.0;
+                    let mut sa2 = 0.0;
+                    let mut sb1 = 0.0;
+                    let mut sb2 = 0.0;
+                    for j in 0..num_basis {
+                        sa1 += density_alpha[(i, j)] * phi[j];
+                        sa2 += density_alpha[(j, i)] * phi[j];
+                        sb1 += density_beta[(i, j)] * phi[j];
+                        sb2 += density_beta[(j, i)] * phi[j];
+                    }
+                    tmp_a[i] = sa1;
+                    tmp_a_t[i] = sa2;
+                    tmp_b[i] = sb1;
+                    tmp_b_t[i] = sb2;
+                }
+
+                let mut rho_a = 0.0;
+                let mut rho_b = 0.0;
+                for i in 0..num_basis {
+                    rho_a += phi[i] * tmp_a[i];
+                    rho_b += phi[i] * tmp_b[i];
+                }
+                let rho = rho_a + rho_b;
+                if !rho.is_finite() || rho <= 1e-14 {
+                    return (e_acc, va, vb);
+                }
+
+                let mut grad_a = Vector3::zeros();
+                let mut grad_b = Vector3::zeros();
+                for i in 0..num_basis {
+                    grad_a += (tmp_a[i] + tmp_a_t[i]) * grad_phi[i];
+                    grad_b += (tmp_b[i] + tmp_b_t[i]) * grad_phi[i];
+                }
+
+                let (e, v_rho_a, v_grad_a, v_rho_b, v_grad_b) =
+                    b3lyp_xc_energy_density_and_partials_spin_numeric(rho_a, rho_b, grad_a, grad_b);
+
+                e_acc += gp.w * e;
+
+                // Vσ_ij = w * [ v_rhoσ φ_i φ_j + v_gradσ · (φ_i ∇φ_j + φ_j ∇φ_i) ]
+                let w0a = gp.w * v_rho_a;
+                let w0b = gp.w * v_rho_b;
+                let wga = gp.w * v_grad_a;
+                let wgb = gp.w * v_grad_b;
+                for i in 0..num_basis {
+                    for j in 0..num_basis {
+                        let phi_i = phi[i];
+                        let phi_j = phi[j];
+                        let gterm_a = wga.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        let gterm_b = wgb.dot(&(phi_i * grad_phi[j] + phi_j * grad_phi[i]));
+                        va[(i, j)] += w0a * phi_i * phi_j + gterm_a;
+                        vb[(i, j)] += w0b * phi_i * phi_j + gterm_b;
+                    }
+                }
+
+                (e_acc, va, vb)
+            },
+        )
+        .reduce(
+            || {
+                (
+                    0.0_f64,
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                    DMatrix::<f64>::zeros(num_basis, num_basis),
+                )
+            },
+            |(e1, va1, vb1), (e2, va2, vb2)| (e1 + e2, va1 + va2, vb1 + vb2),
+        );
+
+    (e_xc, vxa, vxb)
 }
 
 fn xc_gga_spin_impl<F>(

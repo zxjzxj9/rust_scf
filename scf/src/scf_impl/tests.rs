@@ -911,6 +911,44 @@ fn test_hydrogen_atom_doublet_uks_lda_pbe_sanity() {
 }
 
 #[test]
+fn test_hydrogen_atom_doublet_uks_tpss_b3lyp_spin_split_sanity() {
+    // Minimal open-shell sanity: ensure UKS TPSS and UKS B3LYP produce finite energies and
+    // that the spin-dependent XC potentials are not identical for alpha/beta.
+    let coords = vec![Vector3::new(0.0, 0.0, 0.0)];
+    let elems = vec![Element::Hydrogen];
+
+    let h_basis = load_basis_from_file_or_panic("H");
+    let mut basis_map = HashMap::new();
+    basis_map.insert("H", &h_basis);
+
+    for method in ["tpss", "b3lyp"] {
+        let mut scf = SpinSCF::<Basis631G>::new();
+        scf.set_method_from_string(method);
+        scf.set_multiplicity(2); // doublet
+        scf.max_cycle = 30;
+        scf.init_basis(&elems, basis_map.clone());
+        scf.init_geometry(&coords, &elems);
+        scf.init_density_matrix();
+        scf.scf_cycle();
+
+        let e = scf.calculate_total_energy();
+        assert!(e.is_finite(), "Energy should be finite for UKS {}", method);
+
+        let va = scf.v_xc_alpha().clone();
+        let vb = scf.v_xc_beta().clone();
+
+        // For a spin-polarized system, we expect a nonzero difference in general.
+        let diff_norm = (&va - &vb).norm();
+        assert!(
+            diff_norm.is_finite() && diff_norm > 1e-12,
+            "Expected Vxc_alpha != Vxc_beta for UKS {} (diff_norm={:.3e})",
+            method,
+            diff_norm
+        );
+    }
+}
+
+#[test]
 fn test_spin_density_conservation() {
     use super::SpinSCF;
 
