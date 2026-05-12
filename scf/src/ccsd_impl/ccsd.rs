@@ -58,7 +58,7 @@ pub struct CCSD<B: Basis> {
 
     /// Cache for frequently used MO integrals
     /// Using on-the-fly calculation to save memory
-    integral_cache_enabled: bool,
+    _integral_cache_enabled: bool,
 }
 
 impl<B: Basis + Send + Sync> CCSD<B> {
@@ -130,7 +130,7 @@ impl<B: Basis + Send + Sync> CCSD<B> {
             correlation_energy: None,
             max_iterations,
             convergence_threshold,
-            integral_cache_enabled: false,
+            _integral_cache_enabled: false,
         }
     }
 

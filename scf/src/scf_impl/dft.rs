@@ -269,6 +269,7 @@ fn pw92_eps_c_spin_and_partials(rs: f64, zeta: f64) -> (f64, f64, f64) {
 ///
 /// This keeps the same algebra as the unpolarized implementation, with the standard PBE
 /// phi(ζ) factors. The ∂/∂ζ derivative is computed numerically for robustness.
+#[allow(non_snake_case)]
 fn pbe_c_energy_density_and_partials_spin(
     rho: f64,
     grad_rho: Vector3<f64>,
@@ -379,6 +380,7 @@ fn pbe_c_energy_density_and_partials_spin(
 /// Compute PBE correlation energy density (per volume) and partial derivatives w.r.t rho and grad_rho.
 ///
 /// Uses unpolarized formulation: e_c = ρ(ε_c^LDA(rs) + H(rs, t)).
+#[allow(non_snake_case)]
 fn pbe_c_energy_density_and_partials(rho: f64, grad_rho: Vector3<f64>) -> (f64, f64, Vector3<f64>) {
     if rho <= 0.0 {
         return (0.0, 0.0, Vector3::zeros());
@@ -1022,7 +1024,7 @@ where
                 }
 
                 // τσ = 1/2 Σ_ij Pσ_ij ∇φ_i · ∇φ_j
-                let mut tau_from_p = |p: &DMatrix<f64>| -> f64 {
+                let tau_from_p = |p: &DMatrix<f64>| -> f64 {
                     let mut gx = vec![0.0_f64; num_basis];
                     let mut gy = vec![0.0_f64; num_basis];
                     let mut gz = vec![0.0_f64; num_basis];

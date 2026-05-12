@@ -624,7 +624,7 @@ where
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
                         // Create canonical ordering to identify unique integrals
-                        let mut indices = [i, j, k, l];
+                        let indices = [i, j, k, l];
                         let ij = if i <= j { (i, j) } else { (j, i) };
                         let kl = if k <= l { (k, l) } else { (l, k) };
                         let canonical = if ij <= kl { (ij, kl) } else { (kl, ij) };
@@ -706,8 +706,8 @@ where
         let mut diis_alpha = DIIS::new(12); // Increased further for difficult systems
         let mut diis_beta = DIIS::new(12);
         let mut diis_start_cycle = 3; // Start DIIS after a few cycles
-        let mut diis_alpha_enabled = true;
-        let mut diis_beta_enabled = true;
+        let diis_alpha_enabled = true;
+        let diis_beta_enabled = true;
         let mut diis_reset_counter = 0;
         let mut adaptive_mixing_factor = self.density_mixing;
         let mut level_shift = 0.0;
@@ -1031,7 +1031,7 @@ where
             } else {
                 0.0
             };
-            let alpha_lumo_energy = if n_alpha < current_e_level_alpha.len() {
+            let _alpha_lumo_energy = if n_alpha < current_e_level_alpha.len() {
                 current_e_level_alpha[n_alpha]
             } else {
                 0.0
@@ -1089,7 +1089,7 @@ where
             } else {
                 0.0
             };
-            let beta_lumo_energy = if n_beta < current_e_level_beta.len() {
+            let _beta_lumo_energy = if n_beta < current_e_level_beta.len() {
                 current_e_level_beta[n_beta]
             } else {
                 0.0
