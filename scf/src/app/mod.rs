@@ -32,7 +32,7 @@ impl ScfApplication {
         Ok(Self { args, config })
     }
 
-    pub fn run(mut self) -> Result<()> {
+    pub fn run(self) -> Result<()> {
         setup_output(self.args.output.as_ref());
 
         let geometry = build_geometry(&self.config)?;

@@ -723,7 +723,7 @@ where
         }
     }
 
-    fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, elems: &Vec<Element>) {
+    fn init_geometry(&mut self, coords: &Vec<Vector3<f64>>, _elems: &Vec<Element>) {
         self.coords = coords.clone();
         for i in 0..self.num_atoms {
             self.ao_basis[i].lock().unwrap().set_center(coords[i]);

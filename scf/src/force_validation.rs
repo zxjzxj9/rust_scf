@@ -18,7 +18,7 @@ fn create_minimal_h_basis() -> Basis631G {
     };
 
     // Create a simple 1s orbital with one primitive
-    let mut h_1s = ContractedGTO {
+    let h_1s = ContractedGTO {
         primitives: vec![GTO::new(
             1.0,
             Vector3::new(0, 0, 0),
@@ -176,7 +176,7 @@ impl ForceValidator {
 
         // Calculate error metrics
         let mut max_error: f64 = 0.0;
-        let mut rms_error: f64 = 0.0;
+        let rms_error: f64;
         let mut total_squared_error: f64 = 0.0;
 
         info!("Force validation results:");
@@ -222,7 +222,7 @@ impl ForceValidator {
         info!("#####################################################");
 
         // Create H2 molecule with slightly displaced geometry
-        let mut coords = vec![
+        let coords = vec![
             Vector3::new(0.0, 0.0, 0.0),
             Vector3::new(0.0, 0.0, 1.6), // Slightly longer than equilibrium (~0.74 Å)
         ];
@@ -254,7 +254,7 @@ impl ForceValidator {
         info!("  Energy: {:.8} au", initial_energy);
 
         // Validate initial forces (with larger step size for speed)
-        let (analytical_forces, _, max_error) =
+        let (_analytical_forces, _, max_error) =
             Self::validate_forces_comprehensive(&mut scf, &coords, &elements, 1e-3);
 
         // Test if force calculation is reasonable

@@ -624,7 +624,7 @@ where
                 for k in 0..self.num_basis {
                     for l in 0..self.num_basis {
                         // Create canonical ordering to identify unique integrals
-                        let indices = [i, j, k, l];
+                        let _indices = [i, j, k, l];
                         let ij = if i <= j { (i, j) } else { (j, i) };
                         let kl = if k <= l { (k, l) } else { (l, k) };
                         let canonical = if ij <= kl { (ij, kl) } else { (kl, ij) };
