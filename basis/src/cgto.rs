@@ -274,9 +274,9 @@ impl Basis631G {
             BasisFormat::NWChem => {
                 Self::parse_nwchem(&bstr);
             }
-            BasisFormat::Json => {
+            _ => {
                 // not implemented
-                todo!()
+                unimplemented!("Basis format not implemented");
             }
         }
 
