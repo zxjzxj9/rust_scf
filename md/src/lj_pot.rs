@@ -19,9 +19,6 @@ pub struct LennardJones {
     pub lattice: Matrix3<f64>,
     /// Inverse lattice matrix for minimum image convention
     pub lattice_inv: Matrix3<f64>,
-    /// Legacy box_lengths for backward compatibility (deprecated)
-    #[deprecated(note = "Use lattice matrix instead")]
-    pub box_lengths: Vector3<f64>,
 }
 
 impl LennardJones {
@@ -31,7 +28,6 @@ impl LennardJones {
     /// * `epsilon` - Energy parameter
     /// * `sigma` - Length parameter
     /// * `box_lengths` - Box dimensions [Lx, Ly, Lz]
-    #[allow(deprecated)]
     pub fn new(epsilon: f64, sigma: f64, box_lengths: Vector3<f64>) -> Self {
         let lattice = Matrix3::from_diagonal(&box_lengths);
         let lattice_inv = Matrix3::from_diagonal(&Vector3::new(
@@ -44,7 +40,6 @@ impl LennardJones {
             sigma,
             lattice,
             lattice_inv,
-            box_lengths,
         }
     }
 
@@ -68,25 +63,16 @@ impl LennardJones {
     ///
     /// let lj = LennardJones::from_lattice(1.0, 1.0, lattice);
     /// ```
-    #[allow(deprecated)]
     pub fn from_lattice(epsilon: f64, sigma: f64, lattice: Matrix3<f64>) -> Self {
         let lattice_inv = lattice
             .try_inverse()
             .expect("Lattice matrix must be invertible (non-zero volume)");
-
-        // For backward compatibility, extract diagonal as box_lengths
-        let box_lengths = Vector3::new(
-            lattice.column(0).norm(),
-            lattice.column(1).norm(),
-            lattice.column(2).norm(),
-        );
 
         LennardJones {
             epsilon,
             sigma,
             lattice,
             lattice_inv,
-            box_lengths,
         }
     }
 
@@ -94,19 +80,11 @@ impl LennardJones {
     ///
     /// # Arguments
     /// * `new_lattice` - New 3x3 lattice matrix
-    #[allow(deprecated)]
     pub fn set_lattice(&mut self, new_lattice: Matrix3<f64>) {
         self.lattice = new_lattice;
         self.lattice_inv = new_lattice
             .try_inverse()
             .expect("Lattice matrix must be invertible (non-zero volume)");
-
-        // Update box_lengths for backward compatibility
-        self.box_lengths = Vector3::new(
-            new_lattice.column(0).norm(),
-            new_lattice.column(1).norm(),
-            new_lattice.column(2).norm(),
-        );
     }
 
     /// Apply minimum image convention for arbitrary lattice.

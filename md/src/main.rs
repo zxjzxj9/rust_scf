@@ -18,7 +18,8 @@ fn main() {
         Vector3::new(0.0, 0.5, 0.5),
     ];
 
-    let box_lengths = Vector3::new(n_cells as f64 * a, n_cells as f64 * a, n_cells as f64 * a);
+    let box_length = n_cells as f64 * a;
+    let box_lengths = Vector3::new(box_length, box_length, box_length);
 
     // build positions
     let mut positions = Vec::new();
@@ -74,7 +75,9 @@ fn main() {
     );
     println!(
         "║ Box dimensions: [{:.2}, {:.2}, {:.2}]                       ║",
-        box_lengths.x, box_lengths.y, box_lengths.z
+        integrator.provider.lattice[(0, 0)],
+        integrator.provider.lattice[(1, 1)],
+        integrator.provider.lattice[(2, 2)]
     );
     println!(
         "║ Temperature: {:.2} K                                        ║",
@@ -105,7 +108,7 @@ fn main() {
         // apply periodic boundary conditions
         for pos in &mut integrator.positions {
             for k in 0..3 {
-                let box_l = box_lengths[k];
+                let box_l = integrator.provider.lattice[(k, k)];
                 pos[k] -= box_l * (pos[k] / box_l).floor();
             }
         }
