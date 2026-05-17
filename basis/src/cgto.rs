@@ -271,19 +271,8 @@ impl Basis631G {
 
     fn new(bstr: String, format: BasisFormat) -> Self {
         match format {
-            BasisFormat::NWChem => {
-                Self::parse_nwchem(&bstr);
-            }
-            _ => {
-                // not implemented
-                unimplemented!("Basis format not implemented");
-            }
-        }
-
-        Basis631G {
-            name: "6-31G".to_string(),
-            atomic_number: 0,
-            basis_set: Vec::new(),
+            BasisFormat::NWChem => Self::parse_nwchem(&bstr),
+            _ => unimplemented!("Basis format not implemented"),
         }
     }
 }
